@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Funciones auxiliares de autenticación y roles
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserRole() {
+      return request.auth.token.role;
+    }
+
+    function isStaff() {
+      return isAuthenticated() && (getUserRole() in ['secretaria', 'odontologo', 'administrador']);
+    }
+
+    function isOdontologo() {
+      return isAuthenticated() && (getUserRole() in ['odontologo', 'administrador']);
+    }
+
+    // 1. INFORMACIÓN PÚBLICA:
+    // Catálogo de procedimientos, tarifas y lista de odontólogos colegiados
+    match /procedimientos_catalogo/{procedimientoId} {
+      allow read: if true;
+      allow write: if isOdontologo();
+    }
+
+    match /odontologos/{odontologoId} {
+      allow read: if true;
+      allow write: if isOdontologo();
+    }
+
+    // 2. INFORMACIÓN CONFIDENCIAL:
+    // Pacientes, Citas y Secretarias (acceso de gestión rápida de recepción)
+    match /pacientes/{pacienteId} {
+      allow read, create, update: if isStaff();
+      allow delete: if isOdontologo(); // Baja/archivo supervisado
+    }
+
+    match /citas/{citaId} {
+      allow read, write: if isStaff();
+    }
+
+    match /secretarias/{secretariaId} {
+      allow read: if isStaff();
+      allow write: if isOdontologo();
+    }
+
+    // 3. INFORMACIÓN RESTRINGIDA:
+    // Diagnósticos clínicos, procedimientos dentales por pieza y notas médicas
+    match /consultas_procedimientos/{consultaId} {
+      allow read: if isStaff();
+      allow write: if isOdontologo(); // Solo el personal clínico calificado puede registrar o alterar procedimientos
+    }
+
+    match /historiales/{historialId} {
+      allow read: if isStaff();
+      allow write: if isOdontologo();
+    }
+  }
+}
+

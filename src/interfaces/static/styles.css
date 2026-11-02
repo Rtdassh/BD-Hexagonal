@@ -1,0 +1,555 @@
+/* ============================================================================
+   DESIGN SYSTEM — "FEDERAL RESERVE & WALL STREET CAPITAL" (EDICIÓN EJECUTIVA)
+   Estilo: Suizo-Institucional de Alto Contraste (Clean Brutalism / Federal Reserve)
+   Principios:
+     1. Máxima legibilidad y contraste AAA (Fondo pizarra suave, tarjetas blancas)
+     2. Sin amarillo: Cero saturación estridente, tipografía limpia y jerárquica
+     3. Paleta: Azul Federal (#0F172A / #1D4ED8), Verde Esmeralda (#059669),
+        Rojo Patriótico (#DC2626), Blanco Puro (#FFFFFF) y Pizarra (#F8FAFC)
+     4. Bordes nítidos de 2px con sombras offset precisas (3px-4px)
+   ============================================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@600;700;800;900&family=JetBrains+Mono:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+
+/* ----------------------------------------------------------------------------
+   1. VARIABLES & TOKENS DE DISEÑO
+   ---------------------------------------------------------------------------- */
+:root {
+  /* Paleta Federal Limpia (Sin amarillo) */
+  --fed-navy: #0F172A;          /* Azul federal principal */
+  --fed-navy-light: #1E293B;    /* Superficie marina */
+  --fed-blue: #1D4ED8;          /* Azul institucional de acción */
+  --fed-blue-light: #EFF6FF;    /* Tinte suave azul */
+  --fed-green: #059669;         /* Verde dólar / activo */
+  --fed-green-light: #ECFDF5;   /* Tinte suave verde */
+  --fed-red: #DC2626;           /* Rojo patriótico / alerta */
+  --fed-red-light: #FEF2F2;     /* Tinte suave rojo */
+  --fed-paper: #F8FAFC;         /* Fondo clínico de descanso visual */
+  --fed-card: #FFFFFF;          /* Blanco puro */
+  --fed-border: #0F172A;        /* Borde nítido oscuro */
+  --fed-text: #0F172A;          /* Texto principal de alto contraste */
+  --fed-text-muted: #64748B;    /* Texto secundario claro */
+
+  /* Bordes & Sombras Precisas */
+  --fed-border-w: 2px solid var(--fed-border);
+  --fed-border-thick: 3px solid var(--fed-border);
+
+  --fed-shadow-sm: 2px 2px 0px var(--fed-border);
+  --fed-shadow: 4px 4px 0px var(--fed-border);
+  --fed-shadow-lg: 6px 6px 0px var(--fed-border);
+
+  --ease-snappy: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ----------------------------------------------------------------------------
+   2. RESET & BASES GLOBALES
+   ---------------------------------------------------------------------------- */
+html {
+  scroll-behavior: smooth;
+  font-size: 16px;
+  background-color: var(--fed-paper);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--fed-paper);
+  color: var(--fed-text);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.5;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Public Sans', 'Inter', sans-serif;
+  font-weight: 800;
+  color: var(--fed-text);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ----------------------------------------------------------------------------
+   3. TICKER DE CAPITALISMO DISCRETO Y ELEGANTE
+   ---------------------------------------------------------------------------- */
+.fed-ticker {
+  width: 100%;
+  overflow: hidden;
+  background: var(--fed-navy);
+  color: #FFFFFF;
+  padding: 0.5rem 0;
+  border-bottom: var(--fed-border-w);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.fed-ticker-content {
+  display: inline-block;
+  white-space: nowrap;
+  animation: marquee 32s linear infinite;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.fed-ticker:hover .fed-ticker-content {
+  animation-play-state: paused;
+}
+
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+/* ----------------------------------------------------------------------------
+   4. PANTALLAS (SCREENS)
+   ---------------------------------------------------------------------------- */
+.screen {
+  display: none;
+  min-height: 100vh;
+  width: 100%;
+}
+
+.screen.is-active {
+  display: block;
+  animation: fadeIn 0.25s var(--ease-snappy);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ----------------------------------------------------------------------------
+   5. COMPONENTES VISUALES
+   ---------------------------------------------------------------------------- */
+
+/* Tarjetas Limpias */
+.fed-card {
+  background: var(--fed-card);
+  border: var(--fed-border-w);
+  box-shadow: var(--fed-shadow);
+  border-radius: 4px;
+  padding: 1.5rem;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.fed-card-header {
+  border-bottom: 1.5px solid #E2E8F0;
+  padding-bottom: 0.85rem;
+  margin-bottom: 1.25rem;
+}
+
+/* Botones Táctiles Precisos */
+.fed-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-family: 'Public Sans', sans-serif;
+  font-weight: 700;
+  font-size: 0.875rem;
+  padding: 0.7rem 1.25rem;
+  border: var(--fed-border-w);
+  border-radius: 4px;
+  background: var(--fed-card);
+  color: var(--fed-text);
+  box-shadow: var(--fed-shadow-sm);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.12s var(--ease-snappy);
+}
+
+.fed-btn:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: var(--fed-shadow);
+}
+
+.fed-btn:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0px var(--fed-border);
+}
+
+.fed-btn-primary {
+  background: var(--fed-blue);
+  color: #FFFFFF;
+}
+.fed-btn-primary:hover {
+  background: #1E40AF;
+  color: #FFFFFF;
+}
+
+.fed-btn-navy {
+  background: var(--fed-navy);
+  color: #FFFFFF;
+}
+.fed-btn-navy:hover {
+  background: var(--fed-navy-light);
+  color: #FFFFFF;
+}
+
+.fed-btn-green {
+  background: var(--fed-green);
+  color: #FFFFFF;
+}
+.fed-btn-green:hover {
+  background: #047857;
+  color: #FFFFFF;
+}
+
+.fed-btn-red {
+  background: var(--fed-red);
+  color: #FFFFFF;
+}
+.fed-btn-red:hover {
+  background: #B91C1C;
+  color: #FFFFFF;
+}
+
+/* Badges / Etiquetas Limpias */
+.fed-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 0.25rem 0.55rem;
+  border-radius: 3px;
+  border: 1px solid var(--fed-border);
+  box-shadow: 1.5px 1.5px 0px var(--fed-border);
+  background: var(--fed-card);
+  color: var(--fed-text);
+  white-space: nowrap;
+}
+
+.fed-badge-blue { background: #EFF6FF; color: #1D4ED8; border-color: #1D4ED8; }
+.fed-badge-green { background: #ECFDF5; color: #047857; border-color: #047857; }
+.fed-badge-red { background: #FEF2F2; color: #B91C1C; border-color: #B91C1C; }
+.fed-badge-navy { background: var(--fed-navy); color: #FFFFFF; }
+.fed-badge-slate { background: #F1F5F9; color: #334155; border-color: #94A3B8; }
+
+/* Inputs y Selects */
+.fed-input {
+  width: 100%;
+  padding: 0.65rem 0.85rem;
+  font-family: 'Inter', sans-serif;
+  font-size: 0.9rem;
+  font-weight: 500;
+  border: var(--fed-border-w);
+  border-radius: 4px;
+  background: #FFFFFF;
+  color: var(--fed-text);
+  outline: none;
+  box-shadow: 2px 2px 0px rgba(15, 23, 42, 0.08);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.fed-input:focus {
+  border-color: var(--fed-blue);
+  box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.15);
+}
+
+/* Sellos Editoriales */
+.fed-stamp {
+  display: inline-block;
+  padding: 0.25rem 0.6rem;
+  font-family: 'Public Sans', sans-serif;
+  font-weight: 800;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  border: 2px solid var(--fed-green);
+  color: var(--fed-green);
+  border-radius: 3px;
+  letter-spacing: 0.05em;
+  background: #ECFDF5;
+}
+
+/* ----------------------------------------------------------------------------
+   6. PANTALLA DE LOGIN & SELECTOR DE SISTEMA
+   ---------------------------------------------------------------------------- */
+.login-header-banner {
+  background: var(--fed-navy);
+  color: #FFFFFF;
+  border-bottom: var(--fed-border-thick);
+  padding: 2rem 1.5rem;
+}
+
+.system-card {
+  border: var(--fed-border-w);
+  box-shadow: var(--fed-shadow);
+  background: #FFFFFF;
+  border-radius: 4px;
+  padding: 1.25rem;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.15s var(--ease-snappy);
+}
+
+.system-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--fed-shadow-lg);
+  border-color: var(--fed-blue);
+}
+
+.system-card.is-selected {
+  background: #F0F7FF;
+  border-color: var(--fed-blue);
+  border-width: 2.5px;
+  box-shadow: 4px 4px 0px var(--fed-blue);
+}
+
+.system-card.is-selected .selected-indicator {
+  display: flex !important;
+}
+
+/* Pase de Acceso Autorizado */
+.clearance-panel {
+  display: none;
+  background: #FFFFFF;
+  border: var(--fed-border-thick);
+  box-shadow: var(--fed-shadow-lg);
+  border-radius: 6px;
+  padding: 2rem;
+}
+
+.clearance-panel.is-active {
+  display: block;
+  animation: popIn 0.2s var(--ease-snappy);
+}
+
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* ----------------------------------------------------------------------------
+   7. WORKSPACE EXCLUSIVO
+   ---------------------------------------------------------------------------- */
+.ws-nav {
+  background: #FFFFFF;
+  border-bottom: var(--fed-border-w);
+  padding: 0.85rem 1.5rem;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.ws-tabs {
+  background: #F1F5F9;
+  border-bottom: var(--fed-border-w);
+  padding: 0.35rem 1.5rem 0;
+}
+
+.ws-tab-btn {
+  font-family: 'Public Sans', sans-serif;
+  font-weight: 700;
+  font-size: 0.85rem;
+  padding: 0.65rem 1.25rem;
+  background: transparent;
+  color: var(--fed-text-muted);
+  border: 1.5px solid transparent;
+  border-bottom: none;
+  cursor: pointer;
+  border-top-left-radius: 4px;
+  border-top-right-radius: 4px;
+  transition: all 0.12s ease;
+}
+
+.ws-tab-btn:hover {
+  color: var(--fed-text);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.ws-tab-btn.active {
+  background: #FFFFFF;
+  color: var(--fed-blue);
+  border: var(--fed-border-w);
+  border-bottom: 2px solid #FFFFFF;
+  margin-bottom: -2px;
+  box-shadow: 2px -2px 0px rgba(15, 23, 42, 0.05);
+}
+
+/* Paneles de Contenido (Tabs) */
+.tab-panel {
+  display: none !important;
+}
+
+.tab-panel.is-active {
+  display: block !important;
+  animation: fadeIn 0.2s var(--ease-snappy);
+}
+
+/* Filas de Pacientes */
+.patient-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 0.85rem;
+  background: #FFFFFF;
+  border: 1.5px solid #CBD5E1;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 0.5rem;
+  transition: all 0.12s ease;
+}
+
+.patient-row:hover {
+  border-color: var(--fed-navy);
+  background: #F8FAFC;
+  transform: translateX(2px);
+}
+
+.patient-row.selected {
+  border-color: var(--fed-blue);
+  background: #EFF6FF;
+  border-width: 2px;
+}
+
+/* KPI Box */
+.fed-kpi {
+  background: #F8FAFC;
+  border: 1.5px solid #E2E8F0;
+  border-radius: 4px;
+  padding: 0.75rem;
+  text-align: center;
+}
+
+.fed-kpi-val {
+  font-family: 'Public Sans', sans-serif;
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--fed-text);
+}
+
+.fed-kpi-lbl {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--fed-text-muted);
+  margin-top: 0.15rem;
+}
+
+/* Odontograma FDI */
+.tooth-btn {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  font-size: 0.75rem;
+  border: 1.5px solid #64748B;
+  border-radius: 4px;
+  background: #FFFFFF;
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+
+.tooth-btn:hover {
+  border-color: var(--fed-blue);
+  background: #EFF6FF;
+  color: var(--fed-blue);
+}
+
+.tooth-btn.selected {
+  background: var(--fed-blue);
+  color: #FFFFFF;
+  border-color: var(--fed-navy);
+  font-weight: 800;
+  box-shadow: 2px 2px 0px var(--fed-navy);
+  transform: scale(1.08);
+}
+
+/* Modal */
+.fed-modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(2px);
+  z-index: 999;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.fed-modal-overlay.is-open {
+  display: flex;
+}
+
+.fed-modal-box {
+  background: #FFFFFF;
+  border: var(--fed-border-thick);
+  box-shadow: var(--fed-shadow-lg);
+  border-radius: 6px;
+  max-width: 580px;
+  width: 100%;
+  padding: 1.75rem;
+}
+
+/* Toast */
+.fed-toast {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  z-index: 9999;
+  background: var(--fed-navy);
+  color: #FFFFFF;
+  border: var(--fed-border-w);
+  box-shadow: var(--fed-shadow);
+  border-radius: 4px;
+  padding: 0.85rem 1.25rem;
+  font-family: 'Public Sans', sans-serif;
+  font-weight: 700;
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transform: translateY(100px);
+  opacity: 0;
+  transition: all 0.2s var(--ease-snappy);
+  pointer-events: none;
+}
+
+.fed-toast.visible {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.fed-toast.is-error {
+  background: var(--fed-red);
+}
+
+/* Responsividad */
+@media (max-width: 768px) {
+  .login-header-banner {
+    padding: 1.25rem 1rem;
+  }
+  .fed-card {
+    padding: 1.15rem;
+  }
+  .clearance-panel {
+    padding: 1.25rem;
+  }
+  .ws-tab-btn {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+  }
+}

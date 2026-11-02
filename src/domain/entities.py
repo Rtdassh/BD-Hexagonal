@@ -1,0 +1,241 @@
+"""
+Domain Entities and Value Objects for the Unified Clinical Records System.
+Hexagonal Architecture Core Domain.
+"""
+
+from dataclasses import dataclass, field
+from datetime import datetime, date
+from enum import Enum
+from typing import List, Optional, Dict, Any
+
+
+class InstitutionType(str, Enum):
+    HOSPITAL_GENERAL = "hospital"
+    CENTRO_PEDIATRICO = "pediatrico"
+    LABORATORIO_CLINICO = "laboratorio"
+    CLINICA_ODONTOLOGICA = "odontologia"
+
+
+class DatabaseEngine(str, Enum):
+    POSTGRESQL = "PostgreSQL"
+    MYSQL = "MySQL"
+    MONGODB = "MongoDB"
+    FIREBASE = "Firebase Cloud Firestore"
+
+
+class UserRole(str, Enum):
+    MEDICO = "medico"
+    PEDIATRA = "pediatra"
+    LABORATORISTA = "laboratorista"
+    ODONTOLOGO = "odontologo"
+    SECRETARIA = "secretaria"
+    ADMIN = "administrador"
+
+
+class RecordStatus(str, Enum):
+    ACTIVO = "activo"
+    ARCHIVADO = "archivado"
+    TRASLADADO = "trasladado"
+    DADO_DE_BAJA = "dado_de_baja"
+
+
+class InfoClassification(str, Enum):
+    PUBLIC = "publica"
+    CONFIDENTIAL = "confidencial"
+    RESTRICTED = "restringida"
+
+
+@dataclass
+class User:
+    username: str
+    nombre_completo: str
+    institucion: InstitutionType
+    rol: UserRole
+    motor_asignado: DatabaseEngine
+    numero_colegiado: Optional[str] = None
+    token: Optional[str] = None
+
+
+@dataclass
+class Patient:
+    id_paciente: int
+    nombres: str
+    apellidos: str
+    fecha_nacimiento: str
+    sexo: str
+    dpi: str
+    direccion: str
+    telefono: str
+    correo_electronico: str
+    contacto_emergencia_nombre: str
+    contacto_emergencia_telefono: str
+    fecha_registro: str
+    estado: str = "activo"
+    tipo_sangre: Optional[str] = None
+    # Atributos específicos pediátricos
+    nombre_tutor: Optional[str] = None
+    parentesco_tutor: Optional[str] = None
+    dpi_tutor: Optional[str] = None
+    telefono_tutor: Optional[str] = None
+    semanas_gestacion: Optional[int] = None
+    peso_nacer_kg: Optional[float] = None
+    talla_nacer_cm: Optional[float] = None
+
+    @property
+    def nombre_completo(self) -> str:
+        return f"{self.nombres} {self.apellidos}".strip()
+
+
+@dataclass
+class Prescription:
+    id_receta: Optional[int]
+    medicamento: str
+    dosis: str
+    frecuencia: str
+    duracion_dias: int
+    via_administracion: Optional[str] = "Oral"
+    indicaciones: Optional[str] = None
+    fecha_emision: Optional[str] = None
+    # Pediátrico
+    dosis_mg_kg: Optional[float] = None
+    dosis_calculada_ml: Optional[float] = None
+
+
+@dataclass
+class Treatment:
+    id_tratamiento: Optional[int]
+    descripcion: str
+    fecha_inicio: str
+    fecha_fin: Optional[str]
+    estado: str
+    indicaciones: Optional[str]
+    recetas: List[Prescription] = field(default_factory=list)
+
+
+@dataclass
+class Diagnosis:
+    id_diagnostico: Optional[int]
+    codigo_cie10: str
+    descripcion: str
+    tipo: str = "principal"
+    fecha_diagnostico: Optional[str] = None
+    tratamientos: List[Treatment] = field(default_factory=list)
+
+
+@dataclass
+class HospitalizationRecord:
+    id_hospitalizacion: int
+    id_consulta: int
+    fecha_ingreso: str
+    fecha_egreso: Optional[str]
+    numero_habitacion: str
+    motivo_ingreso: str
+    estado: str = "ingresado"
+
+
+@dataclass
+class SomatometryRecord:
+    peso_kg: float
+    talla_cm: float
+    perimetro_cefalico_cm: Optional[float] = None
+    percentil_crecimiento: Optional[float] = None
+
+
+@dataclass
+class VaccinationRecord:
+    id_vacunacion: int
+    nombre_vacuna: str
+    dosis: str
+    lote: str
+    fecha_aplicacion: str
+    proxima_fecha_refuerzo: Optional[str] = None
+
+
+@dataclass
+class LabParameter:
+    nombre_parametro: str
+    valor_resultado: Any
+    unidad_medida: str
+    rango_referencia_min: Optional[float] = None
+    rango_referencia_max: Optional[float] = None
+    valor_referencia_cualitativo: Optional[str] = None
+    interpretacion_alerta: str = "NORMAL"
+
+
+@dataclass
+class LabExamResult:
+    id_resultado: int
+    id_orden: int
+    codigo_examen: str
+    nombre_examen: str
+    fecha_hora_analisis: str
+    fecha_hora_validacion: Optional[str]
+    estado: str
+    alertas_criticas: bool
+    observaciones_tecnicas: str
+    conclusiones_diagnosticas: str
+    parametros: List[LabParameter] = field(default_factory=list)
+
+
+@dataclass
+class DentalProcedureRecord:
+    id_consulta_procedimiento: int
+    id_cita: int
+    nombre_procedimiento: str
+    pieza_dental: str
+    observaciones: str
+    fecha_realizacion: str
+    costo: float
+    estado: str = "completado"
+
+
+@dataclass
+class Consultation:
+    id_consulta: int
+    id_cita: int
+    fecha_hora_atencion: str
+    motivo: str
+    presion_arterial: Optional[str] = None
+    temperatura: Optional[float] = None
+    pulso: Optional[int] = None
+    notas_clinicas: Optional[str] = None
+    tipo_consulta: str = "ordinaria"
+    profesional_nombre: Optional[str] = None
+    diagnosticos: List[Diagnosis] = field(default_factory=list)
+    # Específicos por institución
+    hospitalizacion: Optional[HospitalizationRecord] = None
+    somatometria: Optional[SomatometryRecord] = None
+    vacunaciones: List[VaccinationRecord] = field(default_factory=list)
+    recetas_pediatricas: List[Prescription] = field(default_factory=list)
+    procedimientos_dentales: List[DentalProcedureRecord] = field(default_factory=list)
+    examenes_laboratorio: List[LabExamResult] = field(default_factory=list)
+
+
+@dataclass
+class Appointment:
+    id_cita: int
+    id_paciente: int
+    id_profesional: int
+    profesional_nombre: str
+    fecha_hora_programada: str
+    motivo_consulta: str
+    estado_cita: str
+    fecha_creacion: str
+    id_secretaria: Optional[int] = None
+
+
+@dataclass
+class UnifiedClinicalRecord:
+    id_historial: int
+    id_paciente: int
+    paciente: Patient
+    fecha_apertura: str
+    fecha_ultima_actualizacion: str
+    estado: str
+    motivo_baja: Optional[str] = None
+    institucion: InstitutionType = InstitutionType.HOSPITAL_GENERAL
+    motor: DatabaseEngine = DatabaseEngine.POSTGRESQL
+    consultas: List[Consultation] = field(default_factory=list)
+    citas: List[Appointment] = field(default_factory=list)
+    datos_adicionales: Dict[str, Any] = field(default_factory=dict)
+
