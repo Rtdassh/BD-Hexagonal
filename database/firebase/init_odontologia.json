@@ -1,155 +1,83 @@
 {
-  "institucion": "Clínica Odontológica Pequeña",
-  "motor": "Firebase Cloud Firestore",
-  "descripcion": "Estructura documental en colecciones y subcolecciones optimizada para sincronización en tiempo real y atención ágil por secretarias.",
-  "colecciones": {
-    "pacientes": [
-      {
-        "id_paciente": 1,
-        "nombre_completo": "Sofía Valentina Morales Díaz",
-        "fecha_nacimiento": "1999-07-22",
-        "sexo": "F",
-        "dpi": "2589012340101",
-        "direccion": "Zona 10, Quetzaltenango",
-        "telefono": "5512-3344",
-        "correo_electronico": "sofia.morales@gmail.com",
-        "contacto_emergencia": {
-          "nombre": "Carmen Díaz de Morales",
-          "telefono": "5512-3300"
-        },
-        "fecha_registro": "2026-01-15",
-        "estado": "activo"
-      },
-      {
-        "id_paciente": 2,
-        "nombre_completo": "Alejandro Javier Soto Paz",
-        "fecha_nacimiento": "1993-12-05",
-        "sexo": "M",
-        "dpi": "2198443320101",
-        "direccion": "Zona 7, Quetzaltenango",
-        "telefono": "4233-1188",
-        "correo_electronico": "asoto@outlook.com",
-        "contacto_emergencia": {
-          "nombre": "Claudia Paz",
-          "telefono": "4233-1199"
-        },
-        "fecha_registro": "2026-02-01",
-        "estado": "activo"
-      }
-    ],
-    "odontologos": [
-      {
-        "id_odontologo": 1,
-        "nombre_completo": "Dr. Rodrigo Andrés Molina",
-        "numero_colegiado": "ODONT-3210",
-        "especialidad": "Ortodoncia y Rehabilitación Oral",
-        "telefono": "5554-0101",
-        "correo_electronico": "rmolina@clinicadental.gt",
-        "horarios_atencion": "Lunes a Viernes 08:00 - 17:00",
-        "estado": "activo"
-      },
-      {
-        "id_odontologo": 2,
-        "nombre_completo": "Dra. Valeria Irene Cifuentes",
-        "numero_colegiado": "ODONT-3455",
-        "especialidad": "Endodoncia y Estética Dental",
-        "telefono": "5554-0102",
-        "correo_electronico": "vcifuentes@clinicadental.gt",
-        "horarios_atencion": "Martes a Sábado 09:00 - 18:00",
-        "estado": "activo"
-      }
-    ],
-    "secretarias": [
-      {
-        "id_secretaria": 1,
-        "nombre_completo": "Claudia Maricela Fuentes",
-        "usuario": "sec_claudia",
-        "telefono": "5554-0110",
-        "rol": "secretaria",
-        "estado": "activo"
-      }
-    ],
-    "procedimientos_catalogo": [
-      {
-        "id_procedimiento": 1,
-        "nombre_procedimiento": "Profilaxis y Limpieza Dental con Ultrasonido",
-        "descripcion": "Remoción de cálculo supragingival, placa bacteriana y pulido dental",
-        "duracion_estimada_min": 45,
-        "costo": 250.00
-      },
-      {
-        "id_procedimiento": 2,
-        "nombre_procedimiento": "Restauración con Resina Fotocurable (Calza)",
-        "descripcion": "Eliminación de caries y obturación estética directa",
-        "duracion_estimada_min": 60,
-        "costo": 350.00
-      },
-      {
-        "id_procedimiento": 3,
-        "nombre_procedimiento": "Extracción Dental Simple",
-        "descripcion": "Exodoncia de pieza dental con anestesia local",
-        "duracion_estimada_min": 40,
-        "costo": 300.00
-      },
-      {
-        "id_procedimiento": 4,
-        "nombre_procedimiento": "Endodoncia Unirradicular",
-        "descripcion": "Tratamiento de conducto radicular, instrumentación y sellado",
-        "duracion_estimada_min": 90,
-        "costo": 800.00
-      }
-    ],
-    "citas": [
-      {
-        "id_cita": 1,
-        "id_paciente": 1,
-        "id_odontologo": 1,
-        "id_secretaria": 1,
-        "fecha_hora_programada": "2026-03-01T09:00:00Z",
-        "motivo_consulta": "Revisión general y sensibilidad en molar inferior derecho",
-        "estado_cita": "atendida",
-        "fecha_creacion": "2026-02-25T14:30:00Z"
-      }
-    ],
-    "consultas_procedimientos": [
-      {
-        "id_consulta_procedimiento": 1,
-        "id_cita": 1,
-        "id_paciente": 1,
-        "id_odontologo": 1,
-        "id_procedimiento": 2,
-        "nombre_procedimiento": "Restauración con Resina Fotocurable (Calza)",
-        "pieza_dental": "46 (Primer molar inferior derecho)",
-        "observaciones": "Caries oclusal Grado II profunda. Se realizó protección pulpar indirecta y grabado ácido antes de resina A2.",
-        "fecha_realizacion": "2026-03-01T09:45:00Z",
-        "costo_cobrado": 350.00,
-        "estado": "completado"
-      }
-    ],
-    "historiales": [
-      {
-        "id_historial": 1,
-        "id_paciente": 1,
-        "fecha_apertura": "2026-01-15",
-        "fecha_ultima_actualizacion": "2026-03-01T10:00:00Z",
-        "estado": "activo",
-        "motivo_baja": null,
-        "procedimientos_realizados": [
-          {
-            "id_consulta_procedimiento": 1,
-            "procedimiento": "Restauración con Resina Fotocurable (Calza)",
-            "pieza_dental": "46",
-            "fecha": "2026-03-01"
-          }
-        ],
-        "diagnosticos_dentales": [
-          {
-            "fecha": "2026-03-01",
-            "diagnostico": "Caries de la dentina en pieza 46 (CIE-10 K02.1)"
-          }
-        ]
-      }
-    ]
+  "_descripcion": "Clínica Odontológica - Cloud Firestore. Colecciones raíz: pacientes, citas, odontologos, secretarias, procedimientos_catalogo, contadores. Subcolección: pacientes/{id}/consultas. Cargar con: python database/firebase/seed_firestore.py",
+  "procedimientos_catalogo": [
+    { "id_procedimiento": 1, "nombre_procedimiento": "Profilaxis y limpieza dental con ultrasonido", "descripcion": "Remoción de cálculo supragingival, placa bacteriana y pulido dental", "duracion_estimada_min": 45, "costo": 250.0 },
+    { "id_procedimiento": 2, "nombre_procedimiento": "Restauración con resina fotocurable", "descripcion": "Eliminación de caries y obturación estética directa", "duracion_estimada_min": 60, "costo": 350.0 },
+    { "id_procedimiento": 3, "nombre_procedimiento": "Extracción dental simple", "descripcion": "Exodoncia de pieza dental con anestesia local", "duracion_estimada_min": 40, "costo": 300.0 },
+    { "id_procedimiento": 4, "nombre_procedimiento": "Endodoncia unirradicular", "descripcion": "Tratamiento de conducto radicular, instrumentación y sellado", "duracion_estimada_min": 90, "costo": 800.0 },
+    { "id_procedimiento": 5, "nombre_procedimiento": "Aplicación de sellante de fosas y fisuras", "descripcion": "Prevención de caries en molares", "duracion_estimada_min": 20, "costo": 125.0 }
+  ],
+  "odontologos": [
+    { "id_odontologo": 1, "nombre_completo": "Dr. Rodrigo Andrés Molina", "numero_colegiado": "ODONT-3210", "especialidad": "Ortodoncia y rehabilitación oral", "telefono": "5554-0101", "correo_electronico": "rmolina@clinicadental.gt", "horarios_atencion": "Lunes a viernes 08:00 - 17:00", "estado": "activo" },
+    { "id_odontologo": 2, "nombre_completo": "Dra. Valeria Irene Cifuentes", "numero_colegiado": "ODONT-3455", "especialidad": "Endodoncia y estética dental", "telefono": "5554-0102", "correo_electronico": "vcifuentes@clinicadental.gt", "horarios_atencion": "Martes a sábado 09:00 - 18:00", "estado": "activo" }
+  ],
+  "secretarias": [
+    { "id_secretaria": 1, "nombre_completo": "Claudia Maricela Fuentes", "usuario": "sec_claudia", "telefono": "5554-0110", "estado": "activo" }
+  ],
+  "pacientes": [
+    {
+      "id_paciente": 1,
+      "nombres": "Sofía Valentina",
+      "apellidos": "Morales Díaz",
+      "fecha_nacimiento": "1999-07-22",
+      "sexo": "F",
+      "dpi": "2589012340101",
+      "direccion": "Zona 10, Quetzaltenango",
+      "telefono": "5512-3344",
+      "correo_electronico": "sofia.morales@gmail.com",
+      "contacto_emergencia": { "nombre": "Carmen Díaz de Morales", "telefono": "5512-3300" },
+      "fecha_registro": "2026-01-15",
+      "estado": "activo",
+      "historial": { "id_historial": 1, "fecha_apertura": "2026-01-15", "fecha_ultima_actualizacion": "2026-03-01 10:00", "estado": "activo", "motivo_baja": null },
+      "consultas": [
+        {
+          "id_consulta": 1,
+          "id_cita": 1,
+          "fecha_hora_atencion": "2026-03-01 09:45",
+          "motivo": "Sensibilidad en molar inferior derecho",
+          "tipo_consulta": "ordinaria",
+          "notas_clinicas": "Caries oclusal grado II profunda en pieza 46. Protección pulpar indirecta antes de resina A2.",
+          "id_odontologo": 1,
+          "odontologo_nombre": "Dr. Rodrigo Andrés Molina",
+          "diagnosticos": [
+            { "codigo_cie10": "K02.1", "descripcion": "Caries de la dentina", "tipo": "principal", "fecha_diagnostico": "2026-03-01" }
+          ],
+          "tratamiento": { "descripcion": "Restauración con resina y control en 6 meses", "indicaciones": "Evitar alimentos muy fríos 48 horas" },
+          "recetas": [
+            { "medicamento": "Ibuprofeno", "presentacion": "Tabletas 400 mg", "dosis": "1 tableta", "frecuencia": "Cada 8 horas", "duracion_dias": 3, "via_administracion": "Oral", "indicaciones": "Tomar después de comer, solo si hay dolor", "fecha_emision": "2026-03-01" }
+          ],
+          "procedimientos": [
+            { "id_procedimiento": 2, "nombre_procedimiento": "Restauración con resina fotocurable", "pieza_dental": "46", "observaciones": "Resina A2, sin complicaciones", "costo": 350.0 }
+          ],
+          "total_cobrado": 350.0
+        }
+      ]
+    },
+    {
+      "id_paciente": 2,
+      "nombres": "Alejandro Javier",
+      "apellidos": "Soto Paz",
+      "fecha_nacimiento": "1993-12-05",
+      "sexo": "M",
+      "dpi": "2198443320101",
+      "direccion": "Zona 7, Quetzaltenango",
+      "telefono": "4233-1188",
+      "correo_electronico": "asoto@outlook.com",
+      "contacto_emergencia": { "nombre": "Claudia Paz", "telefono": "4233-1199" },
+      "fecha_registro": "2026-02-01",
+      "estado": "activo",
+      "historial": { "id_historial": 2, "fecha_apertura": "2026-02-01", "fecha_ultima_actualizacion": "2026-02-01 08:00", "estado": "activo", "motivo_baja": null },
+      "consultas": []
+    }
+  ],
+  "citas": [
+    { "id_cita": 1, "id_paciente": 1, "paciente_nombre": "Sofía Valentina Morales Díaz", "id_odontologo": 1, "odontologo_nombre": "Dr. Rodrigo Andrés Molina", "id_secretaria": 1, "fecha_hora_programada": "2026-03-01 09:00", "motivo_consulta": "Revisión general y sensibilidad en molar inferior derecho", "estado_cita": "atendida", "fecha_creacion": "2026-02-25 14:30" },
+    { "id_cita": 2, "id_paciente": 2, "paciente_nombre": "Alejandro Javier Soto Paz", "id_odontologo": 1, "odontologo_nombre": "Dr. Rodrigo Andrés Molina", "id_secretaria": 1, "fecha_hora_programada": "2026-12-03 10:00", "motivo_consulta": "Limpieza dental semestral", "estado_cita": "programada", "fecha_creacion": "2026-11-01 09:10" }
+  ],
+  "contadores": {
+    "pacientes": 2,
+    "historiales": 2,
+    "consultas": 1,
+    "citas": 2
   }
 }
-

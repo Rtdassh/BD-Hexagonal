@@ -1,57 +1,83 @@
 """
-MySQL Database Adapter for Centro Médico Pediátrico.
-Hexagonal Architecture Adapter implementing ClinicalRepositoryPort.
-Optimized for pediatric follow-up, somatometry (weight, height, head circumference, percentiles),
-vaccination schedule tracking, and dosage by body weight (mg/kg).
+Adaptador MySQL (InnoDB) - Centro Médico Pediátrico.
+
+Consultas cortas y frecuentes: el diagnóstico va en la misma fila de la consulta
+(una consulta pediátrica tiene un diagnóstico principal), junto con la
+somatometría. Vacunas y recetas son tablas hijas. Todo se graba dentro de una
+transacción InnoDB (START TRANSACTION / COMMIT / ROLLBACK).
 """
 
 import time
+from contextlib import contextmanager
+from typing import Any, Dict, List, Optional
+
 import mysql.connector
-from typing import Dict, Any, List, Optional
-from datetime import datetime, date
+from mysql.connector import errorcode, pooling
+
 from .base_adapter import BaseClinicalAdapter
-from .simulated_engines import SimulatedMySQLEngine
 from ..config import Config
 from ...domain.entities import (
-    InstitutionType,
-    DatabaseEngine,
-    UserRole,
-    Patient,
-    UnifiedClinicalRecord,
-    Consultation,
     Appointment,
+    Consultation,
+    DatabaseEngine,
     Diagnosis,
+    InstitutionType,
+    Patient,
     Prescription,
     SomatometryRecord,
-    VaccinationRecord
+    UnifiedClinicalRecord,
+    UserRole,
+    VaccinationRecord,
 )
+
+# Campos de la API -> columnas de paciente_pediatrico
+CAMPOS_EDITABLES = {
+    "nombres": "nombres", "apellidos": "apellidos", "fecha_nacimiento": "fecha_nacimiento",
+    "sexo": "sexo", "direccion": "direccion", "nombre_tutor": "nombre_tutor",
+    "parentesco_tutor": "parentesco_tutor", "dpi_tutor": "dpi_tutor",
+    "telefono_tutor": "telefono_tutor", "telefono": "telefono_tutor",
+    "semanas_gestacion": "semanas_gestacion", "peso_nacer_kg": "peso_nacer_kg",
+    "talla_nacer_cm": "talla_nacer_cm",
+}
+
+TIPO_CONSULTA = {"ordinaria": "control_sano", "emergencia": "urgencia"}
 
 
 class MySQLAdapter(BaseClinicalAdapter):
-    def __init__(self, config: Config, simulated_engine: Optional[SimulatedMySQLEngine] = None):
+    is_live = True
+
+    def __init__(self, config: Config):
         self.config = config
-        self.simulated = simulated_engine or SimulatedMySQLEngine()
-        self.is_live = False
-        self._init_connection()
+        self.pool = pooling.MySQLConnectionPool(
+            pool_name="pediatrico",
+            pool_size=5,
+            host=config.MYSQL_HOST,
+            port=config.MYSQL_PORT,
+            database=config.MYSQL_DATABASE,
+            user=config.MYSQL_USER,
+            password=config.MYSQL_PASSWORD,
+            charset="utf8mb4",
+            collation="utf8mb4_unicode_ci",
+            connection_timeout=3,
+            autocommit=False,
+        )
 
-    def _init_connection(self):
-        if self.config.ENGINE_MODE == "simulated":
-            self.is_live = False
-            return
-
+    @contextmanager
+    def _tx(self):
+        conn = self.pool.get_connection()
+        cur = None
         try:
-            conn = mysql.connector.connect(
-                host=self.config.MYSQL_HOST,
-                port=self.config.MYSQL_PORT,
-                database=self.config.MYSQL_DATABASE,
-                user=self.config.MYSQL_USER,
-                password=self.config.MYSQL_PASSWORD,
-                connection_timeout=2
-            )
-            conn.close()
-            self.is_live = True
+            conn.start_transaction(isolation_level="READ COMMITTED")
+            cur = conn.cursor(dictionary=True)
+            yield cur
+            conn.commit()
         except Exception:
-            self.is_live = False
+            conn.rollback()
+            raise
+        finally:
+            if cur is not None:
+                cur.close()
+            conn.close()  # devuelve la conexión al pool
 
     @property
     def institution_type(self) -> InstitutionType:
@@ -63,328 +89,367 @@ class MySQLAdapter(BaseClinicalAdapter):
 
     def health_check(self) -> Dict[str, Any]:
         start = time.time()
-        status = "online" if self.is_live else "simulated_active"
-        latency_ms = round((time.time() - start) * 1000, 2)
+        with self._tx() as cur:
+            cur.execute("SELECT VERSION() AS v")
+            version = cur.fetchone()["v"]
+            cur.execute("""
+                SELECT (SELECT COUNT(*) FROM paciente_pediatrico) AS pacientes,
+                       (SELECT COUNT(*) FROM consulta) AS consultas,
+                       (SELECT COUNT(*) FROM vacunacion) AS vacunas
+            """)
+            c = cur.fetchone()
         return {
             "institucion": "Centro Médico Pediátrico",
-            "motor": "MySQL (InnoDB)",
-            "base_datos": "centro_pediatrico",
-            "modo": "LIVE (Conexión Real)" if self.is_live else "SIMULATED (Motor Relacional en Memoria)",
-            "estado": status,
-            "latencia_ms": latency_ms,
-            "total_pacientes_infantiles": len(self.simulated.tables["paciente_pediatrico"]),
-            "total_consultas_somatometria": len(self.simulated.tables["consulta"]),
-            "total_vacunas_registradas": len(self.simulated.tables["vacunacion"]),
-            "integridad_referencial": "InnoDB Foreign Keys & Check Constraints Activas"
+            "motor": "MySQL",
+            "modo": "real",
+            "estado": "online",
+            "version": f"MySQL {version}",
+            "base_datos": self.config.MYSQL_DATABASE,
+            "latencia_ms": round((time.time() - start) * 1000, 1),
+            "conteos": {"pacientes": c["pacientes"], "consultas": c["consultas"], "vacunas": c["vacunas"]},
+            "consistencia": "Transacciones InnoDB + llaves foráneas y CHECK",
         }
 
-    def create_patient(self, patient_data: Dict[str, Any]) -> Patient:
-        raw = self.simulated.insert_patient(patient_data)
-        return self._to_patient_domain(raw)
+    # ------------------------------------------------------------------
+    # Pacientes
+    # ------------------------------------------------------------------
+    def create_patient(self, data: Dict[str, Any]) -> Patient:
+        cui = data.get("cui_nacimiento") or data.get("dpi")
+        data = {**data, "cui_nacimiento": cui}
+        self.requerido(data, "nombres", "apellidos", "fecha_nacimiento", "sexo", "cui_nacimiento",
+                       "nombre_tutor", "parentesco_tutor", "dpi_tutor", "telefono_tutor")
+        try:
+            with self._tx() as cur:
+                cur.execute(
+                    """INSERT INTO paciente_pediatrico (nombres, apellidos, fecha_nacimiento, sexo,
+                           cui_nacimiento, direccion, nombre_tutor, parentesco_tutor, dpi_tutor,
+                           telefono_tutor, semanas_gestacion, peso_nacer_kg, talla_nacer_cm)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (data["nombres"].strip(), data["apellidos"].strip(), data["fecha_nacimiento"],
+                     data["sexo"], cui.strip(), data.get("direccion"), data["nombre_tutor"],
+                     data["parentesco_tutor"], data["dpi_tutor"], data["telefono_tutor"],
+                     self._i(data.get("semanas_gestacion")), self._f(data.get("peso_nacer_kg")),
+                     self._f(data.get("talla_nacer_cm"))),
+                )
+                pid = cur.lastrowid
+                cur.execute("INSERT INTO historial_pediatrico (id_paciente) VALUES (%s)", (pid,))
+        except mysql.connector.IntegrityError as e:
+            if e.errno == errorcode.ER_DUP_ENTRY:
+                raise ValueError(f"Ya existe un paciente con CUI {cui}")
+            raise
+        return self.get_patient(pid)
 
     def get_patient(self, patient_id: int) -> Optional[Patient]:
-        for p in self.simulated.tables["paciente_pediatrico"]:
-            if p["id_paciente"] == patient_id:
-                return self._to_patient_domain(p)
-        return None
+        with self._tx() as cur:
+            cur.execute("SELECT * FROM paciente_pediatrico WHERE id_paciente = %s", (patient_id,))
+            row = cur.fetchone()
+        return self._to_patient(row) if row else None
 
     def search_patients(self, query: str) -> List[Patient]:
-        q = query.lower().strip()
-        results = []
-        for p in self.simulated.tables["paciente_pediatrico"]:
-            nombre = f"{p['nombres']} {p['apellidos']}".lower()
-            cui = p["cui_nacimiento"].lower()
-            tutor = p.get("nombre_tutor", "").lower()
-            if q in nombre or q in cui or q in tutor or q == str(p["id_paciente"]):
-                results.append(self._to_patient_domain(p))
-        return results
+        q = (query or "").strip()
+        with self._tx() as cur:
+            if not q:
+                cur.execute("SELECT * FROM paciente_pediatrico ORDER BY apellidos, nombres LIMIT 200")
+            else:
+                cur.execute(
+                    """SELECT * FROM paciente_pediatrico
+                       WHERE CONCAT(nombres, ' ', apellidos) LIKE %s OR cui_nacimiento LIKE %s
+                          OR nombre_tutor LIKE %s OR CAST(id_paciente AS CHAR) = %s
+                       ORDER BY apellidos, nombres LIMIT 200""",
+                    (f"%{q}%", f"{q}%", f"%{q}%", q),
+                )
+            rows = cur.fetchall()
+        return [self._to_patient(r) for r in rows]
 
     def update_patient(self, patient_id: int, updates: Dict[str, Any]) -> Patient:
-        for p in self.simulated.tables["paciente_pediatrico"]:
-            if p["id_paciente"] == patient_id:
-                for k, v in updates.items():
-                    if k in p and k != "id_paciente":
-                        p[k] = v
-                return self._to_patient_domain(p)
-        raise ValueError(f"Paciente pediátrico con id {patient_id} no encontrado en MySQL")
+        campos = {CAMPOS_EDITABLES[k]: v for k, v in updates.items() if k in CAMPOS_EDITABLES and v not in (None, "")}
+        if not campos:
+            raise ValueError("No hay campos válidos para actualizar")
+        sets = ", ".join(f"{k} = %s" for k in campos)
+        with self._tx() as cur:
+            cur.execute(f"UPDATE paciente_pediatrico SET {sets} WHERE id_paciente = %s", (*campos.values(), patient_id))
+            cur.execute(
+                "UPDATE historial_pediatrico SET fecha_ultima_actualizacion = NOW() WHERE id_paciente = %s",
+                (patient_id,),
+            )
+        p = self.get_patient(patient_id)
+        if not p:
+            raise ValueError(f"Paciente {patient_id} no encontrado")
+        return p
 
-    def deactivate_patient(self, patient_id: int, motivo_baja: str) -> Dict[str, Any]:
-        found = False
-        for p in self.simulated.tables["paciente_pediatrico"]:
-            if p["id_paciente"] == patient_id:
-                p["estado"] = "dado_de_baja"
-                found = True
-                break
-        if not found:
-            raise ValueError(f"Paciente con id {patient_id} no existe")
-
-        for h in self.simulated.tables["historial_pediatrico"]:
-            if h["id_paciente"] == patient_id:
-                h["estado"] = "archivado"
-                h["motivo_baja"] = motivo_baja
-                h["fecha_ultima_actualizacion"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
+    def deactivate_patient(self, patient_id: int, motivo_baja: str, categoria: str = "administrativa") -> Dict[str, Any]:
+        estado = self.estado_por_motivo(categoria)
+        with self._tx() as cur:
+            cur.execute("SELECT estado FROM historial_pediatrico WHERE id_paciente = %s FOR UPDATE", (patient_id,))
+            h = cur.fetchone()
+            if not h:
+                raise ValueError(f"Paciente {patient_id} no encontrado")
+            if h["estado"] != "activo":
+                raise ValueError("El historial ya está dado de baja")
+            cur.execute(
+                "UPDATE historial_pediatrico SET estado = %s, motivo_baja = %s WHERE id_paciente = %s",
+                (estado, motivo_baja[:150], patient_id),
+            )
+            cur.execute("UPDATE paciente_pediatrico SET estado = 'dado_de_baja' WHERE id_paciente = %s", (patient_id,))
+            cur.execute(
+                "UPDATE cita SET estado_cita = 'cancelada' WHERE id_paciente = %s AND estado_cita = 'programada'",
+                (patient_id,),
+            )
+            canceladas = cur.rowcount
         return {
-            "id_paciente": patient_id,
-            "estado": "archivado",
-            "motivo_baja": motivo_baja,
-            "motor": "MySQL",
-            "mensaje": "Expediente pediátrico archivado con éxito."
+            "id_paciente": patient_id, "estado": estado, "motivo_baja": motivo_baja,
+            "citas_canceladas": canceladas, "motor": "MySQL",
+            "mensaje": "Historial archivado en una sola transacción InnoDB.",
         }
 
-    def create_appointment(self, appointment_data: Dict[str, Any]) -> Appointment:
-        new_id = self.simulated._next_id("cita")
-        cita_dict = {
-            "id_cita": new_id,
-            "id_paciente": appointment_data["id_paciente"],
-            "id_pediatra": appointment_data.get("id_pediatra", 1),
-            "fecha_hora_programada": appointment_data["fecha_hora_programada"],
-            "motivo_consulta": appointment_data["motivo_consulta"],
-            "estado_cita": appointment_data.get("estado_cita", "programada"),
-            "fecha_creacion": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
-        self.simulated.tables["cita"].append(cita_dict)
-        return self._to_appointment_domain(cita_dict)
+    # ------------------------------------------------------------------
+    # Citas
+    # ------------------------------------------------------------------
+    def create_appointment(self, data: Dict[str, Any]) -> Appointment:
+        self.requerido(data, "id_paciente", "fecha_hora_programada", "motivo_consulta")
+        with self._tx() as cur:
+            self._exigir_activo(cur, data["id_paciente"])
+            cur.execute(
+                """INSERT INTO cita (id_paciente, id_pediatra, fecha_hora_programada, motivo_consulta)
+                   VALUES (%s, %s, %s, %s)""",
+                (data["id_paciente"], data.get("id_profesional") or 1,
+                 str(data["fecha_hora_programada"]).replace("T", " "), data["motivo_consulta"]),
+            )
+            return self._citas(cur, "c.id_cita = %s", (cur.lastrowid,))[0]
 
     def get_appointments(self, patient_id: Optional[int] = None) -> List[Appointment]:
-        res = []
-        for c in self.simulated.tables["cita"]:
-            if patient_id is None or c["id_paciente"] == patient_id:
-                res.append(self._to_appointment_domain(c))
-        return res
+        with self._tx() as cur:
+            if patient_id:
+                return self._citas(cur, "c.id_paciente = %s", (patient_id,))
+            return self._citas(cur, "c.estado_cita = 'programada'", ())
 
-    def register_consultation(self, consultation_data: Dict[str, Any]) -> Consultation:
-        """Transacción de consulta pediátrica, somatometría y vacunas en MySQL."""
-        tx_res = self.simulated.execute_transaction_consultation(consultation_data)
-        c_row = tx_res["consulta"]
-        vac_row = tx_res["vacunacion"]
-        rec_row = tx_res["receta"]
-
-        somatometria = SomatometryRecord(
-            peso_kg=c_row["peso_kg"],
-            talla_cm=c_row["talla_cm"],
-            perimetro_cefalico_cm=c_row.get("perimetro_cefalico_cm"),
-            percentil_crecimiento=c_row.get("percentil_crecimiento")
+    def _citas(self, cur, where, params) -> List[Appointment]:
+        cur.execute(
+            f"""SELECT c.*, p.nombre_completo AS profesional FROM cita c
+                JOIN pediatra p ON p.id_pediatra = c.id_pediatra
+                WHERE {where} ORDER BY c.fecha_hora_programada DESC""",
+            params,
         )
+        return [
+            Appointment(
+                id_cita=r["id_cita"], id_paciente=r["id_paciente"], id_profesional=r["id_pediatra"],
+                profesional_nombre=r["profesional"], fecha_hora_programada=self._s(r["fecha_hora_programada"]),
+                motivo_consulta=r["motivo_consulta"], estado_cita=r["estado_cita"],
+                fecha_creacion=self._s(r["fecha_creacion"]),
+            )
+            for r in cur.fetchall()
+        ]
 
-        vacunas = []
-        if vac_row:
-            vacunas.append(VaccinationRecord(
-                id_vacunacion=vac_row["id_vacunacion"],
-                nombre_vacuna=vac_row["nombre_vacuna"],
-                dosis=vac_row["dosis"],
-                lote=vac_row["lote"],
-                fecha_aplicacion=vac_row["fecha_aplicacion"],
-                proxima_fecha_refuerzo=vac_row.get("proxima_fecha_refuerzo")
-            ))
+    # ------------------------------------------------------------------
+    # Consulta pediátrica (transacción InnoDB)
+    # ------------------------------------------------------------------
+    def register_consultation(self, data: Dict[str, Any]) -> Consultation:
+        self.requerido(data, "id_paciente", "motivo", "peso_kg", "talla_cm")
+        pid = int(data["id_paciente"])
+        recetas = self.recetas_del_payload(data)
+        if recetas and not data.get("descripcion_diagnostico"):
+            raise ValueError("Para recetar se necesita un diagnóstico")
+        peso = self._f(data["peso_kg"])
 
-        recetas = []
-        if rec_row:
-            recetas.append(Prescription(
-                id_receta=rec_row["id_receta"],
-                medicamento=rec_row["medicamento"],
-                dosis=f"{rec_row['dosis_mg_kg']} mg/kg ({rec_row['dosis_calculada_ml']} ml)",
-                frecuencia=rec_row["frecuencia"],
-                duracion_dias=rec_row["duracion_dias"],
-                indicaciones=rec_row["indicaciones"],
-                fecha_emision=rec_row["fecha_emision"],
-                dosis_mg_kg=rec_row["dosis_mg_kg"],
-                dosis_calculada_ml=rec_row["dosis_calculada_ml"]
-            ))
+        with self._tx() as cur:
+            self._exigir_activo(cur, pid, bloquear=True)
 
-        diagnostico = Diagnosis(
-            id_diagnostico=c_row["id_consulta"],
-            codigo_cie10=c_row["diagnostico_cie10"],
-            descripcion=c_row["descripcion_diagnostico"],
-            tipo="principal",
-            fecha_diagnostico=c_row["fecha_hora_atencion"][:10]
-        )
+            id_cita = data.get("id_cita")
+            if id_cita:
+                cur.execute("SELECT id_paciente, estado_cita FROM cita WHERE id_cita = %s FOR UPDATE", (id_cita,))
+                cita = cur.fetchone()
+                if not cita or cita["id_paciente"] != pid:
+                    raise ValueError("La cita no pertenece a este paciente")
+                if cita["estado_cita"] != "programada":
+                    raise ValueError(f"La cita ya está '{cita['estado_cita']}'")
+                cur.execute("UPDATE cita SET estado_cita = 'atendida' WHERE id_cita = %s", (id_cita,))
+            else:
+                cur.execute(
+                    """INSERT INTO cita (id_paciente, id_pediatra, fecha_hora_programada, motivo_consulta, estado_cita)
+                       VALUES (%s, %s, NOW(), %s, 'atendida')""",
+                    (pid, data.get("id_profesional") or 1, data["motivo"][:200]),
+                )
+                id_cita = cur.lastrowid
 
-        return Consultation(
-            id_consulta=c_row["id_consulta"],
-            id_cita=c_row["id_cita"],
-            fecha_hora_atencion=c_row["fecha_hora_atencion"],
-            motivo=c_row["motivo"],
-            temperatura=c_row["temperatura"],
-            pulso=c_row["frecuencia_cardiaca"],
-            notas_clinicas=c_row["notas_clinicas"],
-            tipo_consulta=c_row["tipo_consulta"],
-            diagnosticos=[diagnostico],
-            somatometria=somatometria,
-            vacunaciones=vacunas,
-            recetas_pediatricas=recetas
-        )
+            tipo = data.get("tipo_consulta") or "control_sano"
+            tipo = TIPO_CONSULTA.get(tipo, tipo)
+            cur.execute(
+                """INSERT INTO consulta (id_cita, motivo, temperatura, frecuencia_cardiaca, peso_kg, talla_cm,
+                       perimetro_cefalico_cm, percentil_crecimiento, diagnostico_cie10,
+                       descripcion_diagnostico, notas_clinicas, tipo_consulta)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                (id_cita, data["motivo"][:200], self._f(data.get("temperatura")),
+                 self._i(data.get("pulso") or data.get("frecuencia_cardiaca")), peso,
+                 self._f(data["talla_cm"]), self._f(data.get("perimetro_cefalico_cm")),
+                 self._f(data.get("percentil_crecimiento")),
+                 (data.get("codigo_cie10") or "Z00.1").upper(),
+                 data.get("descripcion_diagnostico") or "Control de salud de rutina del niño",
+                 data.get("notas_clinicas"), tipo),
+            )
+            id_consulta = cur.lastrowid
 
-    def get_clinical_history(
-        self, patient_id: int, user_role: UserRole = UserRole.PEDIATRA
-    ) -> Optional[UnifiedClinicalRecord]:
-        patient = self.get_patient(patient_id)
-        if not patient:
-            return None
-
-        hist_row = None
-        for h in self.simulated.tables["historial_pediatrico"]:
-            if h["id_paciente"] == patient_id:
-                hist_row = h
-                break
-
-        if not hist_row:
-            hist_row = {
-                "id_historial": 1,
-                "fecha_apertura": patient.fecha_registro,
-                "fecha_ultima_actualizacion": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "estado": "activo",
-                "motivo_baja": None
-            }
-
-        citas_list = self.get_appointments(patient_id)
-        cita_ids = {c.id_cita for c in citas_list}
-
-        consultas_list = []
-        for c_row in self.simulated.tables["consulta"]:
-            if c_row["id_cita"] in cita_ids:
-                id_con = c_row["id_consulta"]
-
-                # Somatometría
-                som = SomatometryRecord(
-                    peso_kg=c_row["peso_kg"],
-                    talla_cm=c_row["talla_cm"],
-                    perimetro_cefalico_cm=c_row.get("perimetro_cefalico_cm"),
-                    percentil_crecimiento=c_row.get("percentil_crecimiento")
+            if data.get("nombre_vacuna"):
+                cur.execute(
+                    """INSERT INTO vacunacion (id_paciente, id_consulta, nombre_vacuna, dosis, lote,
+                           fecha_aplicacion, proxima_fecha_refuerzo)
+                       VALUES (%s, %s, %s, %s, %s, CURDATE(), %s)""",
+                    (pid, id_consulta, data["nombre_vacuna"], data.get("dosis_vacuna") or "Dosis única",
+                     data.get("lote_vacuna") or "SIN-LOTE", data.get("proxima_fecha_refuerzo") or None),
                 )
 
-                # Vacunas administradas en esta consulta
-                vacs = []
-                for v in self.simulated.tables["vacunacion"]:
-                    if v["id_consulta"] == id_con:
-                        vacs.append(VaccinationRecord(
-                            id_vacunacion=v["id_vacunacion"],
-                            nombre_vacuna=v["nombre_vacuna"],
-                            dosis=v["dosis"],
-                            lote=v["lote"],
-                            fecha_aplicacion=v["fecha_aplicacion"],
-                            proxima_fecha_refuerzo=v.get("proxima_fecha_refuerzo")
-                        ))
-
-                # Recetas
-                recs = []
-                for r in self.simulated.tables["receta"]:
-                    if r["id_consulta"] == id_con:
-                        recs.append(Prescription(
-                            id_receta=r["id_receta"],
-                            medicamento=r["medicamento"],
-                            dosis=f"{r.get('dosis_mg_kg')} mg/kg",
-                            frecuencia=r["frecuencia"],
-                            duracion_dias=r["duracion_dias"],
-                            indicaciones=r["indicaciones"],
-                            fecha_emision=r["fecha_emision"],
-                            dosis_mg_kg=r.get("dosis_mg_kg"),
-                            dosis_calculada_ml=r.get("dosis_calculada_ml")
-                        ))
-
-                diag = Diagnosis(
-                    id_diagnostico=id_con,
-                    codigo_cie10=c_row.get("diagnostico_cie10", "Z00.1"),
-                    descripcion=c_row["descripcion_diagnostico"],
-                    tipo="principal",
-                    fecha_diagnostico=c_row["fecha_hora_atencion"][:10]
+            for r in recetas:
+                mg_kg = self._f(r.get("dosis_mg_kg"))
+                conc = self._f(r.get("concentracion_mg_ml"))
+                ml = round(mg_kg * peso / conc, 2) if (mg_kg and conc) else None
+                indic = r.get("indicaciones") or (
+                    f"{r.get('dosis') or ''} {r.get('via_administracion') or ''}".strip() or None
+                )
+                cur.execute(
+                    """INSERT INTO receta (id_consulta, medicamento, presentacion, dosis_mg_kg,
+                           dosis_calculada_ml, frecuencia, duracion_dias, indicaciones)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (id_consulta, r["medicamento"].strip(), r.get("presentacion") or "Suspensión oral",
+                     mg_kg, ml, r.get("frecuencia") or "Cada 8 horas",
+                     self._i(r.get("duracion_dias")) or 1, indic),
                 )
 
-                consultas_list.append(Consultation(
-                    id_consulta=id_con,
-                    id_cita=c_row["id_cita"],
-                    fecha_hora_atencion=c_row["fecha_hora_atencion"],
-                    motivo=c_row["motivo"],
-                    temperatura=c_row["temperatura"],
-                    pulso=c_row["frecuencia_cardiaca"],
-                    notas_clinicas=c_row["notas_clinicas"],
-                    tipo_consulta=c_row["tipo_consulta"],
-                    diagnosticos=[diag],
-                    somatometria=som,
-                    vacunaciones=vacs,
-                    recetas_pediatricas=recs
-                ))
+            cur.execute(
+                "UPDATE historial_pediatrico SET fecha_ultima_actualizacion = NOW() WHERE id_paciente = %s", (pid,)
+            )
+            return self._consultas(cur, "co.id_consulta = %s", (id_consulta,))[0]
 
-        history = UnifiedClinicalRecord(
-            id_historial=hist_row["id_historial"],
-            id_paciente=patient_id,
-            paciente=patient,
-            fecha_apertura=hist_row["fecha_apertura"],
-            fecha_ultima_actualizacion=hist_row["fecha_ultima_actualizacion"],
-            estado=hist_row["estado"],
-            motivo_baja=hist_row.get("motivo_baja"),
-            institucion=InstitutionType.CENTRO_PEDIATRICO,
-            motor=DatabaseEngine.MYSQL,
-            consultas=consultas_list,
-            citas=citas_list,
-            datos_adicionales={
-                "tutor": f"{patient.nombre_tutor} ({patient.parentesco_tutor})",
-                "semanas_gestacion": patient.semanas_gestacion,
-                "peso_nacer_kg": patient.peso_nacer_kg
-            }
+    def _exigir_activo(self, cur, patient_id, bloquear=False):
+        cur.execute(
+            "SELECT estado FROM historial_pediatrico WHERE id_paciente = %s" + (" FOR UPDATE" if bloquear else ""),
+            (patient_id,),
         )
+        h = cur.fetchone()
+        if not h:
+            raise ValueError(f"Paciente {patient_id} no encontrado")
+        if h["estado"] != "activo":
+            raise ValueError(f"El historial está '{h['estado']}' y no admite nuevos registros")
 
-        return self.apply_security_filter(history, user_role)
+    # ------------------------------------------------------------------
+    # Historial
+    # ------------------------------------------------------------------
+    def get_clinical_history(self, patient_id: int, user_role: UserRole = UserRole.MEDICO) -> Optional[UnifiedClinicalRecord]:
+        with self._tx() as cur:
+            cur.execute("SELECT * FROM paciente_pediatrico WHERE id_paciente = %s", (patient_id,))
+            prow = cur.fetchone()
+            if not prow:
+                return None
+            cur.execute("SELECT * FROM historial_pediatrico WHERE id_paciente = %s", (patient_id,))
+            h = cur.fetchone() or {}
+            consultas = self._consultas(cur, "ci.id_paciente = %s", (patient_id,))
+            citas = self._citas(cur, "c.id_paciente = %s", (patient_id,))
+
+        record = UnifiedClinicalRecord(
+            id_historial=h.get("id_historial", 0), id_paciente=patient_id, paciente=self._to_patient(prow),
+            fecha_apertura=self._s(h.get("fecha_apertura")),
+            fecha_ultima_actualizacion=self._s(h.get("fecha_ultima_actualizacion")),
+            estado=h.get("estado", "activo"), motivo_baja=h.get("motivo_baja"),
+            institucion=InstitutionType.CENTRO_PEDIATRICO, motor=DatabaseEngine.MYSQL,
+            consultas=consultas, citas=citas,
+            datos_adicionales={"vacunas_aplicadas": sum(len(c.vacunaciones) for c in consultas)},
+        )
+        return self.apply_security_filter(record, user_role)
+
+    def _consultas(self, cur, where, params) -> List[Consultation]:
+        cur.execute(
+            f"""SELECT co.*, p.nombre_completo AS profesional FROM consulta co
+                JOIN cita ci ON ci.id_cita = co.id_cita
+                JOIN pediatra p ON p.id_pediatra = ci.id_pediatra
+                WHERE {where} ORDER BY co.fecha_hora_atencion DESC""",
+            params,
+        )
+        filas = cur.fetchall()
+        if not filas:
+            return []
+        ids = [f["id_consulta"] for f in filas]
+        marcas = ", ".join(["%s"] * len(ids))
+        cur.execute(f"SELECT * FROM vacunacion WHERE id_consulta IN ({marcas})", ids)
+        vacunas = cur.fetchall()
+        cur.execute(f"SELECT * FROM receta WHERE id_consulta IN ({marcas}) ORDER BY id_receta", ids)
+        recetas = cur.fetchall()
+
+        resultado = []
+        for f in filas:
+            rs = [
+                Prescription(
+                    id_receta=r["id_receta"], medicamento=r["medicamento"],
+                    dosis=(f"{self._f(r['dosis_calculada_ml'])} ml" if r["dosis_calculada_ml"] is not None
+                           else (f"{self._f(r['dosis_mg_kg'])} mg/kg" if r["dosis_mg_kg"] is not None
+                                 else (r["indicaciones"] or "Según indicación"))),
+                    frecuencia=r["frecuencia"], duracion_dias=r["duracion_dias"], via_administracion="Oral",
+                    indicaciones=r["indicaciones"], fecha_emision=self._s(r["fecha_emision"]),
+                    dosis_mg_kg=self._f(r["dosis_mg_kg"]), dosis_calculada_ml=self._f(r["dosis_calculada_ml"]),
+                    presentacion=r["presentacion"],
+                )
+                for r in recetas if r["id_consulta"] == f["id_consulta"]
+            ]
+            resultado.append(Consultation(
+                id_consulta=f["id_consulta"], id_cita=f["id_cita"],
+                fecha_hora_atencion=self._s(f["fecha_hora_atencion"]), motivo=f["motivo"],
+                temperatura=self._f(f["temperatura"]), pulso=f["frecuencia_cardiaca"],
+                notas_clinicas=f["notas_clinicas"], tipo_consulta=f["tipo_consulta"],
+                profesional_nombre=f["profesional"],
+                diagnosticos=[Diagnosis(
+                    id_diagnostico=f["id_consulta"], codigo_cie10=f["diagnostico_cie10"] or "",
+                    descripcion=f["descripcion_diagnostico"], tipo="principal",
+                    fecha_diagnostico=self._s(f["fecha_hora_atencion"])[:10],
+                )],
+                recetas=rs, recetas_pediatricas=[],
+                somatometria=SomatometryRecord(
+                    peso_kg=self._f(f["peso_kg"]), talla_cm=self._f(f["talla_cm"]),
+                    perimetro_cefalico_cm=self._f(f["perimetro_cefalico_cm"]),
+                    percentil_crecimiento=self._f(f["percentil_crecimiento"]),
+                ),
+                vacunaciones=[
+                    VaccinationRecord(
+                        id_vacunacion=v["id_vacunacion"], nombre_vacuna=v["nombre_vacuna"], dosis=v["dosis"],
+                        lote=v["lote"], fecha_aplicacion=self._s(v["fecha_aplicacion"]),
+                        proxima_fecha_refuerzo=self._s(v["proxima_fecha_refuerzo"]),
+                    )
+                    for v in vacunas if v["id_consulta"] == f["id_consulta"]
+                ],
+            ))
+        return resultado
 
     def get_specialized_records(self, patient_id: int) -> Dict[str, Any]:
-        vacunas = [v for v in self.simulated.tables["vacunacion"] if v["id_paciente"] == patient_id]
-        curva_crecimiento = []
-        citas_p = {c["id_cita"] for c in self.simulated.tables["cita"] if c["id_paciente"] == patient_id}
-        for c in self.simulated.tables["consulta"]:
-            if c["id_cita"] in citas_p:
-                curva_crecimiento.append({
-                    "fecha": c["fecha_hora_atencion"][:10],
-                    "peso_kg": c["peso_kg"],
-                    "talla_cm": c["talla_cm"],
-                    "percentil": c["percentil_crecimiento"]
-                })
-        return {
-            "institucion": "Centro Médico Pediátrico",
-            "motor": "MySQL",
-            "carnet_vacunacion": vacunas,
-            "curva_crecimiento": curva_crecimiento
-        }
+        with self._tx() as cur:
+            cur.execute(
+                """SELECT DATE(co.fecha_hora_atencion) AS fecha, co.peso_kg, co.talla_cm,
+                          co.perimetro_cefalico_cm, co.percentil_crecimiento
+                   FROM consulta co JOIN cita ci ON ci.id_cita = co.id_cita
+                   WHERE ci.id_paciente = %s ORDER BY co.fecha_hora_atencion""",
+                (patient_id,),
+            )
+            crecimiento = [
+                {"fecha": self._s(r["fecha"]), "peso_kg": self._f(r["peso_kg"]), "talla_cm": self._f(r["talla_cm"]),
+                 "perimetro_cefalico_cm": self._f(r["perimetro_cefalico_cm"]),
+                 "percentil": self._f(r["percentil_crecimiento"])}
+                for r in cur.fetchall()
+            ]
+            cur.execute(
+                "SELECT * FROM vacunacion WHERE id_paciente = %s ORDER BY fecha_aplicacion DESC", (patient_id,)
+            )
+            vacunas = [
+                {"nombre_vacuna": v["nombre_vacuna"], "dosis": v["dosis"], "lote": v["lote"],
+                 "fecha_aplicacion": self._s(v["fecha_aplicacion"]),
+                 "proxima_fecha_refuerzo": self._s(v["proxima_fecha_refuerzo"])}
+                for v in cur.fetchall()
+            ]
+        return {"institucion": "Centro Médico Pediátrico", "motor": "MySQL",
+                "control_crecimiento": crecimiento, "esquema_vacunacion": vacunas}
 
-    # Helpers
-    def _to_patient_domain(self, d: Dict[str, Any]) -> Patient:
+    def _to_patient(self, r) -> Patient:
         return Patient(
-            id_paciente=d["id_paciente"],
-            nombres=d["nombres"],
-            apellidos=d["apellidos"],
-            fecha_nacimiento=d["fecha_nacimiento"],
-            sexo=d["sexo"],
-            dpi=d["cui_nacimiento"],
-            direccion=d.get("direccion", ""),
-            telefono=d.get("telefono_tutor", ""),
-            correo_electronico="pediatria@paciente.gt",
-            tipo_sangre="O+",
-            contacto_emergencia_nombre=d.get("nombre_tutor", ""),
-            contacto_emergencia_telefono=d.get("telefono_tutor", ""),
-            fecha_registro=d.get("fecha_registro", date.today().isoformat()),
-            estado=d.get("estado", "activo"),
-            nombre_tutor=d.get("nombre_tutor"),
-            parentesco_tutor=d.get("parentesco_tutor"),
-            dpi_tutor=d.get("dpi_tutor"),
-            telefono_tutor=d.get("telefono_tutor"),
-            semanas_gestacion=d.get("semanas_gestacion"),
-            peso_nacer_kg=d.get("peso_nacer_kg"),
-            talla_nacer_cm=d.get("talla_nacer_cm")
+            id_paciente=r["id_paciente"], nombres=r["nombres"], apellidos=r["apellidos"],
+            fecha_nacimiento=self._s(r["fecha_nacimiento"]), sexo=r["sexo"], dpi=r["cui_nacimiento"],
+            direccion=r["direccion"] or "", telefono=r["telefono_tutor"] or "", correo_electronico="",
+            contacto_emergencia_nombre=r["nombre_tutor"], contacto_emergencia_telefono=r["telefono_tutor"],
+            fecha_registro=self._s(r["fecha_registro"]), estado=r["estado"],
+            nombre_tutor=r["nombre_tutor"], parentesco_tutor=r["parentesco_tutor"], dpi_tutor=r["dpi_tutor"],
+            telefono_tutor=r["telefono_tutor"], semanas_gestacion=r["semanas_gestacion"],
+            peso_nacer_kg=self._f(r["peso_nacer_kg"]), talla_nacer_cm=self._f(r["talla_nacer_cm"]),
         )
-
-    def _to_appointment_domain(self, d: Dict[str, Any]) -> Appointment:
-        ped_nombre = "Dra. Especialista Pediátrica"
-        for p in self.simulated.tables["pediatra"]:
-            if p["id_pediatra"] == d.get("id_pediatra"):
-                ped_nombre = p["nombre_completo"]
-                break
-        return Appointment(
-            id_cita=d["id_cita"],
-            id_paciente=d["id_paciente"],
-            id_profesional=d.get("id_pediatra", 1),
-            profesional_nombre=ped_nombre,
-            fecha_hora_programada=d["fecha_hora_programada"],
-            motivo_consulta=d["motivo_consulta"],
-            estado_cita=d["estado_cita"],
-            fecha_creacion=d["fecha_creacion"]
-        )
-

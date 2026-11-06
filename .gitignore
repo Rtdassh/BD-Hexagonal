@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+serviceAccountKey*.json
+*-firebase-adminsdk-*.json
+_repo_snapshot.tgz
+.DS_Store

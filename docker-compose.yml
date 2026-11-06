@@ -1,0 +1,98 @@
+# Motores de base de datos del proyecto (Bases de Datos II - URL)
+#
+#   docker compose up -d          -> levanta los 4 motores (la primera vez crea las bases)
+#   docker compose ps             -> estado (espere a que digan "healthy")
+#   docker compose down           -> apaga (los datos se conservan)
+#   docker compose down -v        -> apaga y BORRA los datos (para recrear desde los scripts)
+#
+# Los puertos del host son distintos a los por defecto (5433, 3307, 27018, 8085) para no
+# chocar con un PostgreSQL/MySQL/MongoDB que ya tenga instalado en Windows.
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: bd2_postgres_hospital
+    environment:
+      POSTGRES_DB: hospital_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./database/postgresql:/docker-entrypoint-initdb.d:ro
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d hospital_db"]
+      interval: 5s
+      retries: 20
+
+  mysql:
+    image: mysql:8.4
+    container_name: bd2_mysql_pediatrico
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    ports:
+      - "3307:3306"
+    volumes:
+      - ./database/mysql:/docker-entrypoint-initdb.d:ro
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      interval: 5s
+      retries: 30
+
+  mongo:
+    image: mongo:7
+    container_name: bd2_mongo_laboratorio
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: root
+    # Replica set de un solo nodo: MongoDB solo permite transacciones multi-documento en replica set.
+    # El replica set con autenticación necesita un keyFile.
+    entrypoint:
+      - bash
+      - -c
+      - |
+        head -c 756 /dev/urandom | base64 > /tmp/mongo-keyfile
+        chmod 400 /tmp/mongo-keyfile
+        chown 999:999 /tmp/mongo-keyfile
+        exec docker-entrypoint.sh mongod --replSet rs0 --keyFile /tmp/mongo-keyfile --bind_ip_all
+    ports:
+      - "27018:27017"
+    volumes:
+      - ./database/mongodb:/docker-entrypoint-initdb.d:ro
+      - mongo_data:/data/db
+    healthcheck:
+      # Inicia el replica set la primera vez y luego solo verifica que responda.
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - -u
+        - root
+        - -p
+        - root
+        - --authenticationDatabase
+        - admin
+        - --eval
+        - "try { rs.status().ok } catch (e) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'localhost:27017'}]}).ok }"
+      interval: 5s
+      retries: 30
+      start_period: 15s
+
+  firestore:
+    build: ./database/firebase
+    container_name: bd2_firestore_odontologia
+    ports:
+      - "8085:8080"   # API del emulador de Firestore
+      - "4000:4000"   # Interfaz web del emulador (ver los documentos en http://localhost:4000)
+    volumes:
+      - firestore_data:/firebase/datos   # el emulador exporta aquí al apagarse (docker compose stop/down)
+    stop_grace_period: 30s
+
+volumes:
+  pg_data:
+  mysql_data:
+  mongo_data:
+  firestore_data:

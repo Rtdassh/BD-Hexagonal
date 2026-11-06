@@ -1,251 +1,203 @@
 """
-REST API and Static Web Controller.
-Provides HTTP endpoints adhering to Clean Code and Hexagonal Architecture.
+API REST (adaptador primario / de entrada) y servidor de la interfaz web.
 """
 
-from functools import wraps
 import json
+import logging
 from dataclasses import asdict, is_dataclass
-from flask import Flask, request, jsonify, send_from_directory
-import os
+from functools import wraps
 
-from ..infrastructure.config import Config
-from ..infrastructure.adapters.auth_adapter import AuthAdapter
+from flask import Flask, jsonify, request, send_from_directory
+
 from ..application.router import EngineRouter
 from ..application.services import (
-    PatientService,
+    AuthService,
     ClinicalHistoryService,
     ConsultationService,
-    AuthService
+    PatientService,
+    PermisoDenegado,
 )
-from ..domain.entities import User, UserRole, InstitutionType
+from ..domain.entities import User
+from ..infrastructure.adapters.auth_adapter import AuthAdapter
+from ..infrastructure.config import Config
+
+log = logging.getLogger(__name__)
+
+INSTITUCIONES = {
+    "hospital": {"nombre": "Hospital General", "motor": "PostgreSQL"},
+    "pediatrico": {"nombre": "Centro Médico Pediátrico", "motor": "MySQL"},
+    "laboratorio": {"nombre": "Laboratorio Clínico", "motor": "MongoDB"},
+    "odontologia": {"nombre": "Clínica Odontológica", "motor": "Firebase Cloud Firestore"},
+}
 
 
-def create_app(config: Config = None):
-    if config is None:
-        config = Config()
+def _serializar(obj):
+    if is_dataclass(obj):
+        return asdict(obj)
+    if hasattr(obj, "isoformat"):
+        return obj.isoformat()
+    if hasattr(obj, "value"):
+        return obj.value
+    return str(obj)
 
+
+def _json(data, status=200):
+    if is_dataclass(data):
+        data = asdict(data)
+    elif isinstance(data, list):
+        data = [asdict(d) if is_dataclass(d) else d for d in data]
+    return json.dumps(data, default=_serializar, ensure_ascii=False), status, {"Content-Type": "application/json"}
+
+
+def create_app(config: Config = None, router: EngineRouter = None):
+    config = config or Config()
     app = Flask(__name__, static_folder="static", static_url_path="")
     app.config["SECRET_KEY"] = config.SECRET_KEY
+    app.json.ensure_ascii = False
 
-    # Inicializar puertos y enrutador hexagonal
-    auth_adapter = AuthAdapter()
-    engine_router = EngineRouter(config)
-
-    # Inyección de dependencias en casos de uso
-    auth_service = AuthService(auth_adapter)
+    auth_service = AuthService(AuthAdapter())
+    engine_router = router or EngineRouter(config)
     patient_service = PatientService(engine_router)
     history_service = ClinicalHistoryService(engine_router)
     consultation_service = ConsultationService(engine_router)
+    app.engine_router = engine_router
 
-    def custom_json_serializer(obj):
-        if is_dataclass(obj):
-            return asdict(obj)
-        if hasattr(obj, "isoformat"):
-            return obj.isoformat()
-        if hasattr(obj, "value"):
-            return obj.value
-        raise TypeError(f"Type {type(obj)} not serializable")
+    def _usuario_json(user: User):
+        return {
+            "token": user.token,
+            "username": user.username,
+            "nombre_completo": user.nombre_completo,
+            "institucion": user.institucion.value,
+            "institucion_nombre": INSTITUCIONES[user.institucion.value]["nombre"],
+            "rol": user.rol.value,
+            "motor_asignado": user.motor_asignado.value,
+            "numero_colegiado": user.numero_colegiado,
+        }
 
     def require_auth(f):
         @wraps(f)
         def decorated(*args, **kwargs):
-            token = request.headers.get("Authorization")
-            if token and token.startswith("Bearer "):
-                token = token[7:]
-            if not token:
-                token = request.args.get("token")
-
-            user = None
-            if token:
-                user = auth_service.validate_session(token)
-
-            # Fallback a usuario por defecto para facilidad de pruebas
+            header = request.headers.get("Authorization", "")
+            token = header[7:] if header.startswith("Bearer ") else None
+            user = auth_service.validate_session(token) if token else None
             if not user:
-                default_username = request.headers.get("X-Demo-User", "dr_garcia")
-                user = auth_service.login(default_username, "123")
-
+                return jsonify({"error": "Sesión no válida o expirada. Inicie sesión de nuevo."}), 401
             request.current_user = user
-            return f(*args, **kwargs)
+            try:
+                return f(*args, **kwargs)
+            except PermisoDenegado as e:
+                return jsonify({"error": str(e)}), 403
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
+            except Exception as e:  # error del motor u otro inesperado
+                log.exception("Error no controlado")
+                return jsonify({"error": f"Error del servidor: {type(e).__name__}: {e}"}), 500
         return decorated
 
-    # ------------------------------------------------------------------------
-    # RUTAS ESTÁTICAS Y DE LA INTERFAZ WEB
-    # ------------------------------------------------------------------------
+    def inst():
+        return request.args.get("institucion") or None
+
+    # ------------------------------------------------------------------
     @app.route("/")
     def index():
         return send_from_directory(app.static_folder, "index.html")
 
-    # ------------------------------------------------------------------------
-    # RUTAS DE AUTENTICACIÓN Y SESIÓN
-    # ------------------------------------------------------------------------
+    # Autenticación ------------------------------------------------------
     @app.route("/api/auth/demo-users", methods=["GET"])
-    def get_demo_users():
+    def demo_users():
         return jsonify(auth_service.get_demo_accounts())
 
     @app.route("/api/auth/login", methods=["POST"])
     def login():
         data = request.get_json(silent=True) or {}
-        username = data.get("username", "")
-        password = data.get("password", "")
-        user = auth_service.login(username, password)
+        user = auth_service.login(data.get("username", ""), data.get("password", ""))
         if not user:
-            return jsonify({"error": "Credenciales inválidas"}), 401
-
-        return jsonify({
-            "token": user.token,
-            "username": user.username,
-            "nombre_completo": user.nombre_completo,
-            "institucion": user.institucion.value,
-            "rol": user.rol.value,
-            "motor_asignado": user.motor_asignado.value,
-            "numero_colegiado": user.numero_colegiado
-        })
+            return jsonify({"error": "Usuario o contraseña incorrectos"}), 401
+        return jsonify(_usuario_json(user))
 
     @app.route("/api/auth/me", methods=["GET"])
     @require_auth
     def me():
-        user: User = request.current_user
-        return jsonify({
-            "token": user.token,
-            "username": user.username,
-            "nombre_completo": user.nombre_completo,
-            "institucion": user.institucion.value,
-            "rol": user.rol.value,
-            "motor_asignado": user.motor_asignado.value,
-            "numero_colegiado": user.numero_colegiado
-        })
+        return jsonify(_usuario_json(request.current_user))
 
-    # ------------------------------------------------------------------------
-    # RUTAS DE GESTIÓN DE PACIENTES (ENRUTADAS POR INSTITUCIÓN)
-    # ------------------------------------------------------------------------
+    @app.route("/api/auth/logout", methods=["POST"])
+    @require_auth
+    def logout():
+        auth_service.logout(request.current_user.token)
+        return jsonify({"ok": True})
+
+    # Pacientes ----------------------------------------------------------
     @app.route("/api/patients", methods=["GET"])
     @require_auth
     def list_patients():
-        user: User = request.current_user
-        query = request.args.get("q", "")
-        override_inst = request.args.get("institucion")
-        patients = patient_service.search_patients(user, query, override_inst)
-        return json.dumps([asdict(p) for p in patients], default=custom_json_serializer), 200, {"Content-Type": "application/json"}
+        return _json(patient_service.search_patients(request.current_user, request.args.get("q", ""), inst()))
 
     @app.route("/api/patients", methods=["POST"])
     @require_auth
     def create_patient():
-        user: User = request.current_user
         data = request.get_json(silent=True) or {}
-        override_inst = request.args.get("institucion")
-        try:
-            patient = patient_service.register_new_patient(user, data, override_inst)
-            return json.dumps(asdict(patient), default=custom_json_serializer), 201, {"Content-Type": "application/json"}
-        except ValueError as e:
-            return jsonify({"error": str(e)}), 400
-        except Exception as e:
-            return jsonify({"error": f"Error interno: {str(e)}"}), 500
+        return _json(patient_service.register_new_patient(request.current_user, data, inst()), 201)
 
     @app.route("/api/patients/<int:patient_id>", methods=["GET"])
     @require_auth
     def get_patient(patient_id):
-        user: User = request.current_user
-        override_inst = request.args.get("institucion")
-        patient = patient_service.get_patient_by_id(user, patient_id, override_inst)
-        if not patient:
-            return jsonify({"error": "Paciente no encontrado"}), 404
-        return json.dumps(asdict(patient), default=custom_json_serializer), 200, {"Content-Type": "application/json"}
+        p = patient_service.get_patient_by_id(request.current_user, patient_id, inst())
+        return _json(p) if p else (jsonify({"error": "Paciente no encontrado"}), 404)
 
     @app.route("/api/patients/<int:patient_id>", methods=["PUT"])
     @require_auth
     def update_patient(patient_id):
-        user: User = request.current_user
         data = request.get_json(silent=True) or {}
-        override_inst = request.args.get("institucion")
-        try:
-            updated = patient_service.update_patient_info(user, patient_id, data, override_inst)
-            return json.dumps(asdict(updated), default=custom_json_serializer), 200, {"Content-Type": "application/json"}
-        except Exception as e:
-            return jsonify({"error": str(e)}), 400
+        return _json(patient_service.update_patient_info(request.current_user, patient_id, data, inst()))
 
     @app.route("/api/patients/<int:patient_id>/deactivate", methods=["POST"])
-    @app.route("/api/patients/<int:patient_id>", methods=["DELETE"])
     @require_auth
     def deactivate_patient(patient_id):
-        user: User = request.current_user
         data = request.get_json(silent=True) or {}
-        motivo = data.get("motivo_baja", "Causa administrativa no especificada")
-        override_inst = request.args.get("institucion")
-        try:
-            result = patient_service.archive_patient_record(user, patient_id, motivo, override_inst)
-            return jsonify(result), 200
-        except Exception as e:
-            return jsonify({"error": str(e)}), 400
+        return jsonify(patient_service.archive_patient_record(
+            request.current_user, patient_id, data.get("motivo_baja", ""), data.get("categoria", "administrativa"),
+            inst(),
+        ))
 
-    # ------------------------------------------------------------------------
-    # HISTORIAL CLÍNICO UNIFICADO (FILTRADO POR SEGURIDAD Y ROLES)
-    # ------------------------------------------------------------------------
+    # Historial ----------------------------------------------------------
     @app.route("/api/patients/<int:patient_id>/history", methods=["GET"])
     @require_auth
-    def get_clinical_history(patient_id):
-        user: User = request.current_user
-        override_inst = request.args.get("institucion")
-        history = history_service.get_unified_history(user, patient_id, override_inst)
-        if not history:
-            return jsonify({"error": "Historial clínico no encontrado para el paciente indicado"}), 404
-        return json.dumps(asdict(history), default=custom_json_serializer), 200, {"Content-Type": "application/json"}
+    def history(patient_id):
+        h = history_service.get_unified_history(request.current_user, patient_id, inst())
+        return _json(h) if h else (jsonify({"error": "Historial no encontrado"}), 404)
 
     @app.route("/api/patients/<int:patient_id>/specialized", methods=["GET"])
     @require_auth
-    def get_specialized(patient_id):
-        user: User = request.current_user
-        override_inst = request.args.get("institucion")
-        data = history_service.get_specialized_records(user, patient_id, override_inst)
-        return jsonify(data)
+    def specialized(patient_id):
+        return _json(history_service.get_specialized_records(request.current_user, patient_id, inst()))
 
-    # ------------------------------------------------------------------------
-    # CITAS Y CONSULTAS CLÍNICAS (TRANSACCIONES ATÓMICAS)
-    # ------------------------------------------------------------------------
+    @app.route("/api/catalogs", methods=["GET"])
+    @require_auth
+    def catalogs():
+        return _json(history_service.get_catalogs(request.current_user, inst()))
+
+    # Citas y consultas --------------------------------------------------
     @app.route("/api/appointments", methods=["GET"])
     @require_auth
     def list_appointments():
-        user: User = request.current_user
         pid = request.args.get("id_paciente", type=int)
-        override_inst = request.args.get("institucion")
-        citas = consultation_service.list_appointments(user, pid, override_inst)
-        return json.dumps([asdict(c) for c in citas], default=custom_json_serializer), 200, {"Content-Type": "application/json"}
+        return _json(consultation_service.list_appointments(request.current_user, pid, inst()))
 
     @app.route("/api/appointments", methods=["POST"])
     @require_auth
     def schedule_appointment():
-        user: User = request.current_user
         data = request.get_json(silent=True) or {}
-        override_inst = request.args.get("institucion")
-        try:
-            cita = consultation_service.schedule_appointment(user, data, override_inst)
-            return json.dumps(asdict(cita), default=custom_json_serializer), 201, {"Content-Type": "application/json"}
-        except Exception as e:
-            return jsonify({"error": str(e)}), 400
+        return _json(consultation_service.schedule_appointment(request.current_user, data, inst()), 201)
 
     @app.route("/api/consultations", methods=["POST"])
     @require_auth
     def register_consultation():
-        user: User = request.current_user
         data = request.get_json(silent=True) or {}
-        override_inst = request.args.get("institucion")
-        try:
-            consultation = consultation_service.register_consultation_transaction(user, data, override_inst)
-            return json.dumps(asdict(consultation), default=custom_json_serializer), 201, {"Content-Type": "application/json"}
-        except Exception as e:
-            return jsonify({"error": f"Fallo en transacción: {str(e)}"}), 400
+        return _json(consultation_service.register_consultation_transaction(request.current_user, data, inst()), 201)
 
-    # ------------------------------------------------------------------------
-    # AUDITORÍA Y SALUD DE LOS 4 MOTORES DE BASE DE DATOS
-    # ------------------------------------------------------------------------
+    # Estado de los motores ----------------------------------------------
     @app.route("/api/engine/status", methods=["GET"])
     def engine_status():
-        status_list = engine_router.health_check_all()
-        return jsonify({
-            "arquitectura": "Arquitectura Hexagonal (Puertos y Adaptadores)",
-            "desacoplamiento": "Lógica de negocio 100% agnóstica de motor",
-            "motores": status_list
-        })
+        return jsonify({"modo": config.ENGINE_MODE, "motores": engine_router.health_check_all()})
 
     return app
-

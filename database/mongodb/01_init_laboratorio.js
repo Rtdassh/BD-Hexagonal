@@ -76,7 +76,7 @@ dbInstance.createCollection('tipos_examen', {
         descripcion: { bsonType: 'string' },
         indicaciones_preparacion: { bsonType: 'string' },
         tiempo_estimado_horas: { bsonType: 'int' },
-        costo: { bsonType: 'double' }
+        costo: { bsonType: ['double', 'int'], description: 'mongosh guarda 120.00 como entero' }
       }
     }
   }
@@ -396,5 +396,77 @@ dbInstance.resultados.insertOne({
   ]
 });
 
-print("==> Base de datos 'laboratorio_clinico' inicializada exitosamente con 8 colecciones y datos semilla polimórficos.");
+// ----------------------------------------------------------------------------
+// 4. ÍNDICES ADICIONALES, CONTADORES Y USUARIO DE APLICACIÓN
+// ----------------------------------------------------------------------------
+dbInstance.ordenes.createIndex({ id_orden: 1 }, { unique: true });
+dbInstance.ordenes.createIndex({ id_paciente: 1, fecha_hora_ingreso: -1 });
+dbInstance.resultados.createIndex({ id_resultado: 1 }, { unique: true });
+dbInstance.pacientes.createIndex({ apellidos: 1, nombres: 1 });
+
+// Diagnóstico presuntivo con código CIE-10 en las órdenes semilla
+dbInstance.ordenes.updateOne({ id_orden: 1 }, { $set: { codigo_cie10: "Z02.1" } });
+dbInstance.ordenes.updateOne({ id_orden: 2 }, { $set: { codigo_cie10: "E11.1" } });
+
+// Plantillas de parámetros por tipo de examen: cada examen tiene una estructura distinta
+// (numérica con rangos, cualitativa, o mixta). Esto es lo que justifica usar un modelo documental.
+dbInstance.tipos_examen.insertOne({
+  codigo: "MIC-01",
+  nombre_examen: "Urocultivo con antibiograma",
+  area_laboratorio: "Microbiología",
+  descripcion: "Cultivo de orina, identificación del microorganismo y sensibilidad antibiótica",
+  indicaciones_preparacion: "Primera orina de la mañana en frasco estéril",
+  tiempo_estimado_horas: 48,
+  costo: 180.00
+});
+dbInstance.tipos_examen.updateOne({ codigo: "HEM-01" }, { $set: { parametros_plantilla: [
+  { nombre_parametro: "Leucocitos Totales", unidad_medida: "10^3/uL", rango_referencia_min: 4.5, rango_referencia_max: 11.0 },
+  { nombre_parametro: "Hemoglobina", unidad_medida: "g/dL", rango_referencia_min: 13.5, rango_referencia_max: 17.5 },
+  { nombre_parametro: "Hematocrito", unidad_medida: "%", rango_referencia_min: 41.0, rango_referencia_max: 50.0 },
+  { nombre_parametro: "Plaquetas", unidad_medida: "10^3/uL", rango_referencia_min: 150.0, rango_referencia_max: 450.0 }
+] } });
+dbInstance.tipos_examen.updateOne({ codigo: "QUI-01" }, { $set: { parametros_plantilla: [
+  { nombre_parametro: "Glucosa Sérica Basal", unidad_medida: "mg/dL", rango_referencia_min: 70.0, rango_referencia_max: 100.0 },
+  { nombre_parametro: "Creatinina Sérica", unidad_medida: "mg/dL", rango_referencia_min: 0.5, rango_referencia_max: 1.1 }
+] } });
+dbInstance.tipos_examen.updateOne({ codigo: "URO-01" }, { $set: { parametros_plantilla: [
+  { nombre_parametro: "Color", unidad_medida: "", valor_referencia_cualitativo: "Amarillo" },
+  { nombre_parametro: "Aspecto", unidad_medida: "", valor_referencia_cualitativo: "Transparente" },
+  { nombre_parametro: "pH", unidad_medida: "", rango_referencia_min: 5.0, rango_referencia_max: 8.0 },
+  { nombre_parametro: "Proteínas", unidad_medida: "", valor_referencia_cualitativo: "Negativo" },
+  { nombre_parametro: "Leucocitos (sedimento)", unidad_medida: "por campo", rango_referencia_min: 0, rango_referencia_max: 5 }
+] } });
+dbInstance.tipos_examen.updateOne({ codigo: "MIC-01" }, { $set: { parametros_plantilla: [
+  { nombre_parametro: "Crecimiento bacteriano", unidad_medida: "", valor_referencia_cualitativo: "Negativo" },
+  { nombre_parametro: "Recuento de colonias", unidad_medida: "UFC/mL", rango_referencia_min: 0, rango_referencia_max: 10000 },
+  { nombre_parametro: "Microorganismo aislado", unidad_medida: "", valor_referencia_cualitativo: "Ninguno" },
+  { nombre_parametro: "Sensibilidad antibiótica", unidad_medida: "", valor_referencia_cualitativo: "No aplica" }
+] } });
+
+// Citas de toma de muestra (agenda del laboratorio)
+dbInstance.citas.drop();
+dbInstance.citas.createIndex({ id_cita: 1 }, { unique: true });
+dbInstance.citas.createIndex({ id_paciente: 1, fecha_hora_programada: -1 });
+
+// Contadores para ids enteros secuenciales (se incrementan con $inc dentro de la transacción)
+dbInstance.contadores.drop();
+dbInstance.contadores.insertMany([
+  { _id: "pacientes", seq: 2 },
+  { _id: "historiales_clinicos", seq: 2 },
+  { _id: "ordenes", seq: 2 },
+  { _id: "muestras", seq: 1 },
+  { _id: "resultados", seq: 2 },
+  { _id: "citas", seq: 0 }
+]);
+
+// Usuario de la aplicación con mínimo privilegio (solo lectura/escritura en esta base)
+if (!dbInstance.getUser("app_laboratorio")) {
+  dbInstance.createUser({
+    user: "app_laboratorio",
+    pwd: "LaboratorioApp2026!",
+    roles: [{ role: "readWrite", db: dbName }]
+  });
+}
+
+print("==> Base de datos 'laboratorio_clinico' inicializada exitosamente con 10 colecciones y datos semilla polimórficos.");
 

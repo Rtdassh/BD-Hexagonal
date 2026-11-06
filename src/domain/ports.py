@@ -62,8 +62,13 @@ class ClinicalRepositoryPort(ABC):
         pass
 
     @abstractmethod
-    def deactivate_patient(self, patient_id: int, motivo_baja: str) -> Dict[str, Any]:
-        """Archives or deactivates a clinical record with an administrative reason."""
+    def deactivate_patient(
+        self, patient_id: int, motivo_baja: str, categoria: str = "administrativa"
+    ) -> Dict[str, Any]:
+        """
+        Archiva el historial (nunca se borra). categoria: traslado | fallecimiento | administrativa.
+        Cancela las citas pendientes en la misma operación atómica.
+        """
         pass
 
     # --- Appointment Management ---
@@ -108,6 +113,11 @@ class ClinicalRepositoryPort(ABC):
           - Odontología: dental procedures executed per tooth piece
         """
         pass
+
+
+    def get_catalogs(self) -> Dict[str, Any]:
+        """Catálogos públicos de la institución (tipos de examen, procedimientos...). Opcional."""
+        return {}
 
 
 class AuthPort(ABC):

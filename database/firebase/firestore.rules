@@ -1,63 +1,57 @@
 rules_version = '2';
+
+// Reglas de seguridad de la Clínica Odontológica.
+// Aplican a clientes que se conectan directo a Firestore (web/móvil con Firebase Auth).
+// El backend Flask usa el Admin SDK con una cuenta de servicio, que NO pasa por estas reglas;
+// ahí la seguridad la aplica la API (autenticación + rol + filtro de información restringida).
+// El rol viaja como custom claim en el token: request.auth.token.role
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Funciones auxiliares de autenticación y roles
-    function isAuthenticated() {
-      return request.auth != null;
-    }
+    function autenticado() { return request.auth != null; }
+    function rol() { return request.auth.token.role; }
+    function esPersonal() { return autenticado() && rol() in ['secretaria', 'odontologo', 'administrador']; }
+    function esClinico() { return autenticado() && rol() in ['odontologo', 'administrador']; }
 
-    function getUserRole() {
-      return request.auth.token.role;
-    }
-
-    function isStaff() {
-      return isAuthenticated() && (getUserRole() in ['secretaria', 'odontologo', 'administrador']);
-    }
-
-    function isOdontologo() {
-      return isAuthenticated() && (getUserRole() in ['odontologo', 'administrador']);
-    }
-
-    // 1. INFORMACIÓN PÚBLICA:
-    // Catálogo de procedimientos, tarifas y lista de odontólogos colegiados
-    match /procedimientos_catalogo/{procedimientoId} {
+    // PÚBLICA: catálogo de procedimientos y odontólogos
+    match /procedimientos_catalogo/{id} {
       allow read: if true;
-      allow write: if isOdontologo();
+      allow write: if esClinico();
     }
-
-    match /odontologos/{odontologoId} {
+    match /odontologos/{id} {
       allow read: if true;
-      allow write: if isOdontologo();
+      allow write: if esClinico();
     }
 
-    // 2. INFORMACIÓN CONFIDENCIAL:
-    // Pacientes, Citas y Secretarias (acceso de gestión rápida de recepción)
+    // CONFIDENCIAL: datos del paciente y agenda (la secretaria los gestiona)
     match /pacientes/{pacienteId} {
-      allow read, create, update: if isStaff();
-      allow delete: if isOdontologo(); // Baja/archivo supervisado
-    }
+      allow read, create: if esPersonal();
+      // La secretaria puede actualizar datos de contacto, pero no cambiar el estado del historial
+      allow update: if esClinico()
+        || (esPersonal() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['historial', 'estado']));
+      allow delete: if false; // un historial nunca se borra, solo se archiva
 
+      // RESTRINGIDA: consultas, diagnósticos, recetas y procedimientos por pieza
+      match /consultas/{consultaId} {
+        allow read, write: if esClinico();
+        allow delete: if false;
+      }
+    }
     match /citas/{citaId} {
-      allow read, write: if isStaff();
+      allow read, create, update: if esPersonal();
+      allow delete: if false;
     }
-
-    match /secretarias/{secretariaId} {
-      allow read: if isStaff();
-      allow write: if isOdontologo();
+    match /secretarias/{id} {
+      allow read: if esPersonal();
+      allow write: if esClinico();
     }
-
-    // 3. INFORMACIÓN RESTRINGIDA:
-    // Diagnósticos clínicos, procedimientos dentales por pieza y notas médicas
-    match /consultas_procedimientos/{consultaId} {
-      allow read: if isStaff();
-      allow write: if isOdontologo(); // Solo el personal clínico calificado puede registrar o alterar procedimientos
+    match /dpi_index/{dpi} {
+      allow read, create: if esPersonal();
+      allow update, delete: if false;
     }
-
-    match /historiales/{historialId} {
-      allow read: if isStaff();
-      allow write: if isOdontologo();
+    match /contadores/{nombre} {
+      allow read, write: if esPersonal();
     }
   }
 }
-

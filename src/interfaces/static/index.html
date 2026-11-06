@@ -1,835 +1,107 @@
 <!DOCTYPE html>
-<html lang="es" class="scroll-smooth">
-
+<html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Salud Publica</title>
-  <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            fedNavy: '#0F172A',
-            fedBlue: '#1D4ED8',
-            fedGreen: '#059669',
-            fedRed: '#DC2626',
-            fedPaper: '#F8FAFC',
-          }
-        }
-      }
-    }
-  </script>
-  <!-- Estilos Federal Reserve & Wall Street Capital (Alta Legibilidad) -->
+  <title>Red de historiales clínicos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
+<body>
 
-<body class="bg-[#F8FAFC] text-slate-900">
+  <!-- =========================== INICIO DE SESIÓN =========================== -->
+  <main id="vistaLogin" class="login" hidden>
+    <section class="login-intro">
+      <h1>Red de historiales clínicos</h1>
+      <p>Cuatro instituciones comparten esta plataforma, pero cada una guarda sus datos en su propio motor de base de datos. Al iniciar sesión, sus operaciones se dirigen automáticamente al motor de su institución.</p>
+      <ul class="lista-inst" id="listaInstituciones"></ul>
+    </section>
 
-  <!-- ═══════════════════════════════════════════════════════════════════════
-       TICKER BURSÁTIL SUPERIOR: WALL STREET CLINICAL RESERVE
-       ═══════════════════════════════════════════════════════════════════════ -->
-  <div class="fed-ticker">
-    <div class="fed-ticker-content">
-      ★ SALUD PÚBLICA CORP ★ WALL STREET HEALTHCARE RESERVE ★ NASDAQ: MED 420.69 <span class="text-emerald-400 font-bold">▲ +18.4%</span> ★ PERSISTENCIA MULTI-MOTOR DESACOPLADA ★ 0% SUBSIDIOS ★ 100% CAPITALISMO PURO ★ TARIFA CONSULTA PRIVATIZADA ★ BEDS LEASE: $1,450/HR ★ FREEDOM HEALTHCARE TARIFFS 0% ★
-    </div>
-  </div>
+    <section class="login-panel">
+      <form id="formLogin" class="tarjeta" autocomplete="off">
+        <h2>Iniciar sesión</h2>
+        <label>Usuario
+          <input name="username" id="loginUsuario" required autocomplete="username">
+        </label>
+        <label>Contraseña
+          <input name="password" id="loginClave" type="password" required autocomplete="current-password">
+        </label>
+        <p class="error" id="loginError" hidden></p>
+        <button class="btn primario" type="submit">Entrar</button>
+      </form>
 
-
-  <!-- ═══════════════════════════════════════════════════════════════════════
-       PANTALLA 1 · LOGIN INSTITUCIONAL & ELECCIÓN OBLIGATORIA DE SISTEMA
-       ═══════════════════════════════════════════════════════════════════════ -->
-  <div id="screenLogin" class="screen is-active">
-
-    <!-- HEADER INSTITUCIONAL FEDERAL -->
-    <header class="login-header-banner">
-      <div class="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-4">
-        <div class="flex items-center gap-4">
-          <div id="loginUncleSamLogo" class="w-16 h-16 sm:w-20 sm:h-20 flex-shrink-0 drop-shadow"></div>
-          <div>
-            <div class="flex items-center gap-2 flex-wrap">
-              <span class="fed-badge fed-badge-slate text-[10px] text-white bg-slate-800 border-slate-700">★ ESTADOS UNIDOS DEL CAPITAL ★</span>
-              <span class="fed-stamp text-[9px]">WALL STREET REGISTERED</span>
-            </div>
-            <h1 class="text-2xl sm:text-4xl lg:text-5xl font-black text-white tracking-tight mt-1">SALUD PÚBLICA™</h1>
-            <p class="text-xs sm:text-sm font-semibold text-slate-300 font-mono mt-0.5">
-              RESERVA FEDERAL DE SALUD & PERSISTENCIA CLÍNICA MULTI-MOTOR
-            </p>
-          </div>
-        </div>
-
-        <div class="hidden lg:flex items-center gap-4 border-l border-slate-700 pl-6">
-          <div id="loginEagleSeal" class="w-14 h-14 flex-shrink-0"></div>
-          <div class="text-right">
-            <div class="mono text-xs font-bold text-emerald-400">NASDAQ: HLTH ▲ +24.2%</div>
-            <div class="text-[11px] font-medium text-slate-400 uppercase">Capital Healthcare Trust</div>
-          </div>
-        </div>
+      <div class="cuentas">
+        <h3>Cuentas de demostración <span class="tenue">(contraseña 123)</span></h3>
+        <div id="cuentasDemo" class="cuentas-lista"></div>
       </div>
-    </header>
+    </section>
+  </main>
 
-    <!-- CUERPO PRINCIPAL DEL LOGIN CON SELECCIÓN DE SISTEMA -->
-    <main class="max-w-7xl mx-auto px-4 py-8 sm:py-10">
-
-      <!-- ESTADO 1: FORMULARIO Y SELECTOR DE SISTEMA -->
-      <div id="loginFormState" class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-
-        <!-- COLUMNA IZQUIERDA: PASO 1 - SELECCIÓN DEL SISTEMA AL QUE INGRESAR -->
-        <div class="lg:col-span-7 flex flex-col gap-5">
-
-          <!-- Encabezado de Selección -->
-          <div class="fed-card bg-white border-l-4 border-l-blue-700">
-            <div class="flex items-center justify-between flex-wrap gap-2">
-              <div>
-                <span class="fed-badge fed-badge-blue text-[10px]">PASO 1 OBLIGATORIO</span>
-                <h2 class="text-xl sm:text-2xl font-black text-slate-900 mt-1">Seleccione el Sistema a Ingresar</h2>
-                <p class="text-xs text-slate-600 mt-1">
-                  Al completar el login, ingresará <strong class="text-blue-700 underline">ÚNICAMENTE AL SISTEMA QUE SELECCIONE</strong>. El resto de instituciones no será visible para garantizar aislamiento.
-                </p>
-              </div>
-              <div id="stampApprovedMini" class="w-12 h-12 flex-shrink-0"></div>
-            </div>
-          </div>
-
-          <!-- Selector de las 4 Instituciones / Motores -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" id="systemSelectorGrid">
-
-            <!-- Opción 1: Hospital General (PostgreSQL) -->
-            <div class="system-card is-selected" data-system="hospital" onclick="selectSystemForLogin('hospital')">
-              <div class="flex items-center justify-between mb-2.5">
-                <div class="w-10 h-10 p-1 border border-slate-300 rounded bg-blue-50" id="loginIconHospital"></div>
-                <span class="fed-badge fed-badge-blue text-[10px]">PostgreSQL ACID</span>
-              </div>
-              <div class="flex items-center justify-between">
-                <h3 class="text-base font-bold text-slate-900">Hospital General</h3>
-                <span class="selected-indicator hidden text-xs font-bold text-blue-700 font-mono">✓ ACTIVO</span>
-              </div>
-              <p class="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                Triage con catálogo CIE-10, urgencias, hospitalizaciones y asignación de camas VIP.
-              </p>
-              <div class="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] font-mono text-slate-500">
-                <span>Operador: Dr. Mendoza</span>
-                <span class="text-blue-700 font-semibold">Triage CIE-10</span>
-              </div>
-            </div>
-
-            <!-- Opción 2: Centro Pediátrico (MySQL) -->
-            <div class="system-card" data-system="pediatrico" onclick="selectSystemForLogin('pediatrico')">
-              <div class="flex items-center justify-between mb-2.5">
-                <div class="w-10 h-10 p-1 border border-slate-300 rounded bg-emerald-50" id="loginIconPediatrico"></div>
-                <span class="fed-badge fed-badge-green text-[10px]">MySQL Relacional</span>
-              </div>
-              <div class="flex items-center justify-between">
-                <h3 class="text-base font-bold text-slate-900">Centro Pediátrico</h3>
-                <span class="selected-indicator hidden text-xs font-bold text-blue-700 font-mono">✓ ACTIVO</span>
-              </div>
-              <p class="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                Somatometría infantil, percentiles de crecimiento OMS, vacunas y control perinatal.
-              </p>
-              <div class="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] font-mono text-slate-500">
-                <span>Operadora: Dra. Batres</span>
-                <span class="text-emerald-700 font-semibold">Curvas OMS</span>
-              </div>
-            </div>
-
-            <!-- Opción 3: Laboratorio Clínico (MongoDB) -->
-            <div class="system-card" data-system="laboratorio" onclick="selectSystemForLogin('laboratorio')">
-              <div class="flex items-center justify-between mb-2.5">
-                <div class="w-10 h-10 p-1 border border-slate-300 rounded bg-slate-100" id="loginIconLaboratorio"></div>
-                <span class="fed-badge fed-badge-slate text-[10px]">MongoDB NoSQL</span>
-              </div>
-              <div class="flex items-center justify-between">
-                <h3 class="text-base font-bold text-slate-900">Laboratorio Clínico</h3>
-                <span class="selected-indicator hidden text-xs font-bold text-blue-700 font-mono">✓ ACTIVO</span>
-              </div>
-              <p class="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                Analitos polimórficos BSON, trazabilidad de muestras y centinela de valores críticos.
-              </p>
-              <div class="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] font-mono text-slate-500">
-                <span>Operadora: Licda. Morales</span>
-                <span class="text-slate-800 font-semibold">Doc BSON</span>
-              </div>
-            </div>
-
-            <!-- Opción 4: Clínica Odontológica (Firestore) -->
-            <div class="system-card" data-system="odontologia" onclick="selectSystemForLogin('odontologia')">
-              <div class="flex items-center justify-between mb-2.5">
-                <div class="w-10 h-10 p-1 border border-slate-300 rounded bg-rose-50" id="loginIconOdontologia"></div>
-                <span class="fed-badge fed-badge-red text-[10px]">Firestore Cloud</span>
-              </div>
-              <div class="flex items-center justify-between">
-                <h3 class="text-base font-bold text-slate-900">Clínica Odontológica</h3>
-                <span class="selected-indicator hidden text-xs font-bold text-blue-700 font-mono">✓ ACTIVO</span>
-              </div>
-              <p class="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                Odontograma FDI interactivo de 32 piezas, cotización y segregación de notas RBAC.
-              </p>
-              <div class="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] font-mono text-slate-500">
-                <span>Operador: Dr. Molina / Claudia</span>
-                <span class="text-rose-700 font-semibold">FDI 32</span>
-              </div>
-            </div>
-
-          </div>
-
-          <!-- Banner de Garantía Capitalista -->
-          <div class="p-3.5 bg-slate-100 border border-slate-200 rounded flex items-center justify-between flex-wrap gap-2 text-xs font-mono">
-            <span class="text-slate-700 font-bold">🏛️ SISTEMA POLÍGLOTA: 4 MOTORES HETEROGÉNEOS</span>
-            <span class="fed-badge fed-badge-green text-[10px]">100% CAPITAL ACCREDITED</span>
-          </div>
-
-        </div>
-
-        <!-- COLUMNA DERECHA: PASO 2 - CREDENCIALES DEL OPERADOR -->
-        <div class="lg:col-span-5 flex flex-col gap-5">
-
-          <div class="fed-card bg-white">
-            <div class="fed-card-header">
-              <span class="fed-badge fed-badge-navy text-[10px]">PASO 2 · CREDENCIALES</span>
-              <h2 class="text-xl font-black text-slate-900 mt-1">Control de Acceso</h2>
-              <p class="text-xs text-slate-600 mt-0.5">
-                Autentique su sesión para el sistema seleccionado.
-              </p>
-            </div>
-
-            <form id="loginForm" autocomplete="off" class="space-y-4">
-              <div id="loginError" class="hidden p-3 bg-red-50 border border-red-300 text-red-700 rounded text-xs font-bold font-mono">
-                Credenciales inválidas. Verifique usuario o contraseña.
-              </div>
-
-              <div>
-                <label class="block text-xs font-bold uppercase text-slate-700 mb-1" for="loginUser">
-                  Usuario Operador *
-                </label>
-                <input type="text" id="loginUser" class="fed-input mono font-semibold" placeholder="dr_garcia" value="dr_garcia" required>
-              </div>
-
-              <div>
-                <label class="block text-xs font-bold uppercase text-slate-700 mb-1" for="loginPass">
-                  Contraseña de Seguridad *
-                </label>
-                <input type="password" id="loginPass" class="fed-input mono" placeholder="••••••" value="123" required>
-              </div>
-
-              <!-- Indicador del Sistema Seleccionado Actual -->
-              <div class="p-3 bg-slate-50 border border-slate-200 rounded text-xs font-mono flex items-center justify-between">
-                <span class="text-slate-600 font-medium">Destino Asignado:</span>
-                <strong id="loginTargetDisplay" class="text-blue-700 font-bold">Hospital General (PostgreSQL)</strong>
-              </div>
-
-              <button type="submit" id="loginBtn" class="fed-btn fed-btn-primary w-full py-3.5 text-sm">
-                <span id="loginBtnText">VERIFICAR & EMITIR PASE FEDERAL →</span>
-              </button>
-            </form>
-
-            <!-- Chips de Perfiles de Demostración -->
-            <div class="mt-5 pt-4 border-t border-slate-100">
-              <div class="flex items-center justify-between mb-2">
-                <span class="text-[11px] font-bold uppercase text-slate-600">Perfiles de Demostración:</span>
-                <span class="mono text-[10px] text-slate-400">Click para seleccionar</span>
-              </div>
-              <div class="grid grid-cols-2 gap-2" id="loginChipsContainer">
-                <!-- Inyectado dinámicamente desde app.js -->
-              </div>
-            </div>
-
-          </div>
-
-          <!-- Código de barras y pie de autenticación -->
-          <div class="fed-card bg-white p-3 flex flex-col items-center justify-center text-center">
-            <div id="loginBarcode" class="w-full max-w-[220px] h-11"></div>
-            <span class="mono text-[10px] text-slate-500 font-medium mt-1">FEDERAL HEALTHCARE CLEARANCE · PROYECTO BD II</span>
-          </div>
-
-        </div>
-
+  <!-- ============================== APLICACIÓN ============================== -->
+  <div id="vistaApp" class="app" hidden>
+    <nav class="menu" aria-label="Menú principal">
+      <div class="menu-marca">
+        <span class="cruz" aria-hidden="true"></span>
+        <span><b>Red</b> de historiales</span>
       </div>
 
-
-      <!-- ESTADO 2: PASE DE ACCESO AUTORIZADO (REQUERIMIENTO: BOTÓN OK PARA ENTRAR ÚNICAMENTE AL SISTEMA) -->
-      <div id="clearanceCard" class="clearance-panel max-w-2xl mx-auto">
-        <div class="flex items-start justify-between flex-wrap gap-4 border-b border-slate-200 pb-4 mb-5">
-          <div>
-            <div class="flex items-center gap-2">
-              <span class="fed-badge fed-badge-green text-xs">AUTORIZACIÓN FEDERAL CONFIRMADA</span>
-              <span class="fed-stamp text-[9px]">CLEARED</span>
-            </div>
-            <h2 class="text-2xl sm:text-3xl font-black text-slate-900 mt-2">Pase de Acceso Clínico</h2>
-            <p class="text-xs text-slate-500 font-mono mt-0.5">TOKEN CRIPTOGRÁFICO: <span id="clrToken" class="text-blue-700 font-bold">SHA-256</span></p>
-          </div>
-          <div id="clrSealApproved" class="w-16 h-16 flex-shrink-0"></div>
-        </div>
-
-        <!-- Banner de Aislamiento Institucional -->
-        <div class="p-3.5 bg-blue-50 border border-blue-200 rounded mb-5 flex items-center gap-3">
-          <span class="text-2xl">🔒</span>
-          <div>
-            <div class="font-bold text-xs uppercase text-blue-900">REDIRECCIÓN EXCLUSIVA AL SISTEMA SELECCIONADO</div>
-            <p class="text-xs text-blue-800 mt-0.5">
-              Al confirmar con <strong class="bg-blue-700 text-white px-1 py-0.2 rounded font-mono">OK</strong> accederá de manera aislada al sistema asignado. Los demás módulos no serán mostrados.
-            </p>
-          </div>
-        </div>
-
-        <!-- Detalles del Usuario y Destino -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
-          <div class="p-3.5 bg-slate-50 border border-slate-200 rounded flex items-center gap-3">
-            <div class="text-3xl w-12 h-12 bg-white border border-slate-300 rounded flex items-center justify-center flex-shrink-0" id="clrAvatar">
-              👨‍⚕️
-            </div>
-            <div>
-              <div class="text-[10px] font-bold uppercase text-slate-400 font-mono">Operador Acreditado</div>
-              <h3 class="text-sm font-bold text-slate-900" id="clrName">DR. CARLOS MENDOZA</h3>
-              <p class="text-xs text-blue-700 font-medium" id="clrRole">Médico Especialista</p>
-            </div>
-          </div>
-
-          <div class="p-3.5 bg-slate-50 border border-slate-200 rounded flex flex-col justify-center">
-            <div class="text-[10px] font-bold uppercase text-slate-400 font-mono">Sistema Exclusivo de Destino</div>
-            <div class="text-sm font-black text-slate-900 uppercase" id="clrTargetSystemName">HOSPITAL GENERAL</div>
-            <div class="text-xs text-slate-600 font-mono mt-0.5" id="clrEngine">Motor: PostgreSQL ACID</div>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center mb-6">
-          <div class="fed-kpi">
-            <div class="fed-kpi-lbl">Colegiado</div>
-            <div class="text-xs font-bold font-mono text-slate-800" id="clrCol">COL-12450</div>
-          </div>
-          <div class="fed-kpi">
-            <div class="fed-kpi-lbl">Nivel Acceso</div>
-            <div class="text-xs font-bold text-emerald-700" id="clrLevel">Pleno TIER 1</div>
-          </div>
-          <div class="fed-kpi">
-            <div class="fed-kpi-lbl">Tarifa Consulta</div>
-            <div class="text-xs font-bold text-slate-800 font-mono">$150.00</div>
-          </div>
-          <div class="fed-kpi">
-            <div class="fed-kpi-lbl">Impuestos</div>
-            <div class="text-xs font-bold text-blue-700 font-mono">0% TAX FREE</div>
-          </div>
-        </div>
-
-        <!-- EL BOTÓN "OK" DECISIVO (REDIRECCIÓN DIRECTA AL WORKSPACE DEL SISTEMA ELEGIDO) -->
-        <button type="button" id="btnProceedToHub" class="fed-btn fed-btn-primary w-full py-4 text-base font-black">
-          <span>OK — INGRESAR ÚNICAMENTE A ESTE SISTEMA</span>
-          <span class="text-lg">→</span>
-        </button>
-
-        <div class="text-center mt-3">
-          <button type="button" id="btnBackToLoginForm" class="text-xs font-mono font-medium text-slate-500 hover:text-slate-800 underline">
-            ← Cambiar de cuenta o seleccionar otro sistema
-          </button>
-        </div>
+      <div class="menu-inst">
+        <strong id="nombreInst"></strong>
+        <span class="motor-chip" id="motorInst"></span>
+        <label class="admin-inst" id="adminInst" hidden>Ver institución
+          <select id="selInstitucion">
+            <option value="hospital">Hospital General</option>
+            <option value="pediatrico">Centro Pediátrico</option>
+            <option value="laboratorio">Laboratorio Clínico</option>
+            <option value="odontologia">Clínica Odontológica</option>
+          </select>
+        </label>
       </div>
 
-    </main>
+      <form id="formBuscar" class="menu-buscar" role="search">
+        <input id="txtBuscar" type="search" placeholder="Buscar paciente" aria-label="Buscar paciente por nombre, DPI o número">
+        <button type="submit" aria-label="Buscar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg></button>
+      </form>
 
-  </div>
+      <ul class="menu-nav">
+        <li><button type="button" data-pagina="inicio"><span class="ico" data-icono="inicio"></span>Inicio</button></li>
+        <li><button type="button" data-pagina="pacientes"><span class="ico" data-icono="pacientes"></span>Pacientes</button></li>
+        <li><button type="button" data-pagina="citas"><span class="ico" data-icono="citas"></span>Citas</button></li>
+        <li><button type="button" data-pagina="motores"><span class="ico" data-icono="motores"></span>Estado de los motores</button></li>
+      </ul>
 
-
-  <!-- ═══════════════════════════════════════════════════════════════════════
-       PANTALLA 3 · WORKSPACE EXCLUSIVO DEL SISTEMA SELECCIONADO
-       (Aislado: No muestra los otros sistemas ni navegación hacia ellos)
-       ═══════════════════════════════════════════════════════════════════════ -->
-  <div id="screenWorkspace" class="screen">
-
-    <!-- Topbar Institucional del Sistema Activo -->
-    <header class="ws-nav">
-      <div class="max-w-7xl mx-auto flex items-center justify-between gap-4 flex-wrap">
-
-        <!-- Lado Izquierdo: Identidad del Sistema Exclusivo -->
-        <div class="flex items-center gap-3">
-          <div id="wsInstIcon" class="w-10 h-10 p-1 border border-slate-200 rounded bg-blue-50 flex-shrink-0"></div>
-          <div>
-            <div class="flex items-center gap-2 flex-wrap">
-              <span class="fed-stamp text-[9px] py-0.5 px-1">SISTEMA ACTIVO</span>
-              <h2 id="wsInstTitle" class="text-lg sm:text-xl font-black text-slate-900">Hospital General</h2>
-              <span id="wsEngineBadge" class="fed-badge fed-badge-blue text-[10px]">PostgreSQL ACID</span>
-            </div>
-            <p id="wsInstSub" class="text-xs text-slate-500 font-medium hidden sm:block">
-              Urgencias, Cirugías, Hospitalizaciones y Facturación
-            </p>
-          </div>
-        </div>
-
-        <!-- Lado Derecho: Operador y Botón de Salir -->
-        <div class="flex items-center gap-3">
-          <div class="text-right hidden sm:block">
-            <div id="wsUserName" class="text-xs font-bold uppercase text-slate-900 font-mono">DR. CARLOS MENDOZA</div>
-            <div id="wsUserRole" class="text-[10px] font-semibold text-slate-500 uppercase">Médico · Especialista</div>
-          </div>
-
-          <!-- Botón de Operador / RBAC -->
-          <button id="btnSwitchOperator" class="fed-btn text-xs py-1.5 px-3" title="Cambiar Operador RBAC">
-            <span>👤 Operador</span>
-          </button>
-
-          <!-- Botón Cerrar Sesión / Salir al Login -->
-          <button id="wsLogoutBtn" class="fed-btn fed-btn-red text-xs py-1.5 px-3" title="Cerrar sesión y elegir otro sistema">
-            <span>Salir ✕</span>
-          </button>
-        </div>
-
+      <div class="menu-usuario">
+        <span class="avatar" id="avatarUsuario" aria-hidden="true"></span>
+        <span class="usuario"><span id="nombreUsuario"></span><small id="rolUsuario"></small></span>
+        <button type="button" class="salir" id="btnSalir" title="Cerrar sesión" aria-label="Cerrar sesión"><span class="ico" data-icono="salir"></span></button>
       </div>
-    </header>
+    </nav>
 
-    <!-- Barra de Contexto Especializado -->
-    <div class="bg-slate-900 text-white px-4 py-2 border-b border-slate-800">
-      <div class="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-2 text-xs font-mono">
-        <div class="flex items-center gap-2">
-          <span class="text-emerald-400 font-bold">● SISTEMA ASIGNADO:</span>
-          <span id="wsSpecTitle" class="font-medium">Hospital General (PostgreSQL)</span>
-          <span class="text-slate-600">|</span>
-          <span id="wsSpecDesc" class="text-slate-400 hidden md:inline">Control clínico especializado</span>
-        </div>
-        <div class="flex items-center gap-2" id="wsSpecMetrics">
-          <!-- Métricas inyectadas dinámicamente -->
-        </div>
-      </div>
-    </div>
-
-    <!-- Banner RBAC (solo activo cuando rol = secretaria) -->
-    <div id="rbacBanner" class="hidden bg-slate-800 text-slate-200 border-b border-slate-700 p-2.5 text-xs font-mono text-center">
-      🔒 DIRECTIVA DE PRIVACIDAD RBAC ACTIVA: Sesión de Secretaría. Diagnósticos confidenciales y notas clínicas reservadas al personal facultativo.
-    </div>
-
-    <!-- PESTAÑAS DEL WORKSPACE -->
-    <div class="ws-tabs">
-      <div class="max-w-7xl mx-auto flex gap-1 overflow-x-auto">
-        <button class="ws-tab-btn active" data-tab="tabExpedientes">Expedientes Clínicos</button>
-        <button class="ws-tab-btn" data-tab="tabNuevoPaciente">+ Nuevo Paciente</button>
-        <button class="ws-tab-btn" data-tab="tabNuevaAtencion">⚡ Registrar Atención</button>
-        <button class="ws-tab-btn" data-tab="tabAuditoria">📊 Auditoría de Motor</button>
-      </div>
-    </div>
-
-    <!-- CONTENIDO PRINCIPAL -->
-    <main class="max-w-7xl mx-auto px-4 py-6 sm:py-8">
-
-      <!-- ═══════════════════════════════════════════════════════════════════
-           PESTAÑA 1: EXPEDIENTES CLÍNICOS
-           ═══════════════════════════════════════════════════════════════════ -->
-      <div id="tabExpedientes" class="tab-panel is-active">
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-
-          <!-- Columna Izquierda: Índice de Pacientes Registrados -->
-          <div class="lg:col-span-4 flex flex-col gap-4">
-
-            <div class="fed-card bg-white">
-              <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
-                <span class="text-xs font-bold uppercase text-slate-700">Pacientes Registrados</span>
-                <span id="patientCount" class="fed-badge fed-badge-slate text-xs">0</span>
-              </div>
-
-              <!-- Buscador -->
-              <div class="flex gap-2 mb-3">
-                <input type="text" id="searchInput" class="fed-input text-xs py-1.5" placeholder="Buscar por nombre o DPI...">
-                <button id="searchBtn" class="fed-btn fed-btn-primary text-xs py-1.5 px-3">
-                  Buscar
-                </button>
-              </div>
-
-              <!-- Lista de Pacientes -->
-              <div id="patientList" class="flex flex-col max-h-[460px] overflow-y-auto pr-1">
-                <p class="text-xs text-slate-400 font-mono text-center py-8">Consultando motor activo…</p>
-              </div>
-            </div>
-
-            <!-- Ficha Resumen del Paciente Seleccionado -->
-            <div id="patientCard" class="fed-card bg-white hidden border-l-4 border-l-blue-600">
-              <div class="flex items-center justify-between border-b border-slate-100 pb-2 mb-3">
-                <span class="text-xs font-bold uppercase text-slate-700">Ficha del Paciente</span>
-                <button id="archiveBtn" class="fed-btn fed-btn-red text-[10px] py-1 px-2">
-                  Archivar
-                </button>
-              </div>
-              <div id="patientDetails" class="text-xs space-y-1.5 text-slate-700 font-medium"></div>
-            </div>
-
-          </div>
-
-          <!-- Columna Derecha: Historial Clínico del Motor Activo -->
-          <div class="lg:col-span-8">
-            <div class="fed-card bg-white min-h-[500px]">
-              <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-4 flex-wrap gap-2">
-                <div>
-                  <h3 class="text-base font-bold text-slate-900" id="historyTitleHeader">
-                    Historial Clínico Transaccional
-                  </h3>
-                  <p id="motorTag" class="text-xs font-mono text-blue-700 font-medium">Persistencia: Consultando motor…</p>
-                </div>
-                <span id="stateTag" class="fed-badge fed-badge-green text-xs">ACTIVO</span>
-              </div>
-
-              <div id="historyContainer" class="space-y-4 pt-1">
-                <p class="text-xs text-slate-400 font-mono text-center py-16">Seleccione un paciente de la lista para ver su expediente.</p>
-              </div>
-            </div>
-          </div>
-
-        </div>
-      </div>
-
-
-      <!-- ═══════════════════════════════════════════════════════════════════
-           PESTAÑA 2: NUEVO PACIENTE
-           ═══════════════════════════════════════════════════════════════════ -->
-      <div id="tabNuevoPaciente" class="tab-panel">
-        <div class="max-w-2xl mx-auto fed-card bg-white">
-          <div class="fed-card-header">
-            <span class="fed-badge fed-badge-blue text-[10px]">ALTA EN MOTOR</span>
-            <h3 class="text-lg font-bold text-slate-900 mt-1">Registrar Nuevo Paciente</h3>
-            <p id="npMotorNotice" class="text-xs font-mono text-slate-500">
-              Persistencia directa en el motor activo del sistema.
-            </p>
-          </div>
-
-          <form id="formNewPatient" class="space-y-4">
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Nombres *</label>
-                <input type="text" id="p_nombres" class="fed-input" required placeholder="Roberto">
-              </div>
-              <div>
-                <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Apellidos *</label>
-                <input type="text" id="p_apellidos" class="fed-input" required placeholder="Morales Castillo">
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label class="block text-xs font-bold uppercase text-slate-700 mb-1">DPI / CUI *</label>
-                <input type="text" id="p_dpi" class="fed-input mono" required placeholder="13 dígitos">
-              </div>
-              <div>
-                <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Fecha Nacimiento *</label>
-                <input type="date" id="p_fecha_nac" class="fed-input" required>
-              </div>
-              <div>
-                <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Sexo *</label>
-                <select id="p_sexo" class="fed-input font-medium" required>
-                  <option value="M">Masculino</option>
-                  <option value="F">Femenino</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Teléfono</label>
-                <input type="text" id="p_telefono" class="fed-input mono" placeholder="5555-1234">
-              </div>
-              <div>
-                <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Tipo de Sangre</label>
-                <select id="p_tipo_sangre" class="fed-input font-medium">
-                  <option value="O+">O+</option>
-                  <option value="O-">O-</option>
-                  <option value="A+">A+</option>
-                  <option value="A-">A-</option>
-                  <option value="B+">B+</option>
-                  <option value="B-">B-</option>
-                  <option value="AB+">AB+</option>
-                  <option value="AB-">AB-</option>
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Dirección Domiciliar</label>
-              <input type="text" id="p_direccion" class="fed-input" placeholder="Ciudad, zona, calle">
-            </div>
-
-            <!-- Campos especializados: Hospital General (PostgreSQL) -->
-            <div id="npFieldsHospital" class="p-3.5 bg-blue-50/70 border border-blue-200 rounded space-y-3">
-              <span class="fed-badge fed-badge-blue text-[10px]">Hospital General (PostgreSQL)</span>
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Contacto de Emergencia</label>
-                  <input type="text" id="p_emergencia_nombre" class="fed-input text-xs" placeholder="Familiar responsable">
-                </div>
-                <div>
-                  <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Teléfono Emergencia</label>
-                  <input type="text" id="p_emergencia_tel" class="fed-input text-xs mono" placeholder="Teléfono directo">
-                </div>
-              </div>
-            </div>
-
-            <!-- Campos especializados: Centro Pediátrico (MySQL) -->
-            <div id="npFieldsPediatrico" class="hidden p-3.5 bg-emerald-50/70 border border-emerald-200 rounded space-y-3">
-              <span class="fed-badge fed-badge-green text-[10px]">Centro Pediátrico (MySQL)</span>
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Nombre Tutor (Madre/Padre)</label>
-                  <input type="text" id="p_tutor_nombre" class="fed-input text-xs" placeholder="Tutor legal">
-                </div>
-                <div>
-                  <label class="block text-xs font-bold uppercase text-slate-700 mb-1">DPI del Tutor</label>
-                  <input type="text" id="p_tutor_dpi" class="fed-input text-xs mono" placeholder="DPI Tutor">
-                </div>
-              </div>
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Semanas de Gestación</label>
-                  <input type="number" id="p_semanas_gestacion" class="fed-input text-xs mono" min="20" max="44" placeholder="38">
-                </div>
-                <div>
-                  <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Peso al Nacer (kg)</label>
-                  <input type="number" step="0.01" id="p_peso_nacer" class="fed-input text-xs mono" placeholder="3.20">
-                </div>
-              </div>
-            </div>
-
-            <button type="submit" class="fed-btn fed-btn-primary w-full py-3 text-sm font-bold">
-              CONFIRMAR REGISTRO DE PACIENTE →
-            </button>
-          </form>
-        </div>
-      </div>
-
-
-      <!-- ═══════════════════════════════════════════════════════════════════
-           PESTAÑA 3: NUEVA ATENCIÓN / CONSULTA
-           ═══════════════════════════════════════════════════════════════════ -->
-      <div id="tabNuevaAtencion" class="tab-panel">
-        <div class="max-w-2xl mx-auto fed-card bg-white">
-          <div class="fed-card-header">
-            <span class="fed-badge fed-badge-blue text-[10px]">TRANSACCIÓN ATÓMICA</span>
-            <h3 class="text-lg font-bold text-slate-900 mt-1">Registrar Atención Clínica</h3>
-            <p class="text-xs font-mono text-slate-500">
-              Formulario adaptado dinámicamente al motor de persistencia activo.
-            </p>
-          </div>
-
-          <form id="formNewConsultation" class="space-y-4">
-            <div>
-              <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Paciente Receptor *</label>
-              <select id="cons_paciente_id" class="fed-input font-medium" required>
-                <option value="">Seleccione paciente…</option>
-              </select>
-            </div>
-
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Motivo de Consulta *</label>
-                <input type="text" id="cons_motivo" class="fed-input" required placeholder="Control / Dolor agudo / Examen">
-              </div>
-              <div>
-                <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Diagnóstico Principal *</label>
-                <input type="text" id="cons_diagnostico" class="fed-input" required placeholder="Diagnóstico médico">
-              </div>
-            </div>
-
-            <div>
-              <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Tratamiento / Indicaciones Terapéuticas</label>
-              <textarea id="cons_tratamiento" rows="2" class="fed-input" placeholder="Medicamentos, dosis y pauta de recuperación"></textarea>
-            </div>
-
-            <!-- Formulario dinámico: Hospital General (PostgreSQL) -->
-            <div id="secHospital" class="p-3.5 bg-blue-50/70 border border-blue-200 rounded space-y-3">
-              <span class="fed-badge fed-badge-blue text-[10px]">Módulo Hospitalario (PostgreSQL ACID)</span>
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Código CIE-10</label>
-                  <input type="text" id="hosp_cie10" class="fed-input mono text-xs font-bold" value="J02.9" placeholder="J02.9">
-                </div>
-                <div class="flex items-center pt-4">
-                  <label class="inline-flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800">
-                    <input type="checkbox" id="hosp_requiere_ingreso" class="w-4 h-4 rounded">
-                    <span>¿Requiere ingreso a cama hospitalaria?</span>
-                  </label>
-                </div>
-              </div>
-              <div id="hospBedFields" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-blue-200">
-                <div>
-                  <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Número de Cama / Sala</label>
-                  <input type="text" id="hosp_habitacion" class="fed-input text-xs mono" placeholder="Sala 304-B">
-                </div>
-                <div>
-                  <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Causa de Hospitalización</label>
-                  <input type="text" id="hosp_motivo_ingreso" class="fed-input text-xs" placeholder="Monitoreo intensivo">
-                </div>
-              </div>
-            </div>
-
-            <!-- Formulario dinámico: Pediátrico (MySQL) -->
-            <div id="secPediatrico" class="hidden p-3.5 bg-emerald-50/70 border border-emerald-200 rounded space-y-3">
-              <span class="fed-badge fed-badge-green text-[10px]">Somatometría Pediátrica (MySQL)</span>
-              <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <div>
-                  <label class="block text-[11px] font-bold uppercase text-slate-700 mb-1">Peso (kg)</label>
-                  <input type="number" step="0.1" id="ped_peso" class="fed-input mono text-xs" value="12.5">
-                </div>
-                <div>
-                  <label class="block text-[11px] font-bold uppercase text-slate-700 mb-1">Talla (cm)</label>
-                  <input type="number" step="0.5" id="ped_talla" class="fed-input mono text-xs" value="92.0">
-                </div>
-                <div>
-                  <label class="block text-[11px] font-bold uppercase text-slate-700 mb-1">P. Cefálico</label>
-                  <input type="number" step="0.1" id="ped_cefalico" class="fed-input mono text-xs" value="48.0">
-                </div>
-                <div>
-                  <label class="block text-[11px] font-bold uppercase text-slate-700 mb-1">Percentil OMS</label>
-                  <input type="number" id="ped_percentil" class="fed-input mono text-xs font-bold text-blue-700" value="50">
-                </div>
-              </div>
-              <div class="pt-2 border-t border-emerald-200">
-                <span class="text-xs font-bold uppercase text-slate-700">Inmunización (Opcional)</span>
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-1">
-                  <input type="text" id="ped_vacuna_nombre" class="fed-input text-xs" placeholder="Vacuna (ej. Hexavalente)">
-                  <input type="text" id="ped_vacuna_dosis" class="fed-input text-xs" placeholder="Dosis (ej. 1ra Dosis)">
-                  <input type="text" id="ped_vacuna_lote" class="fed-input text-xs mono" placeholder="Lote (ej. VAC-994)">
-                </div>
-              </div>
-            </div>
-
-            <!-- Formulario dinámico: Laboratorio (MongoDB) -->
-            <div id="secLaboratorio" class="hidden p-3.5 bg-slate-100 border border-slate-300 rounded space-y-3">
-              <span class="fed-badge fed-badge-slate text-[10px]">Analítica Polimórfica (MongoDB NoSQL)</span>
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Nombre del Estudio</label>
-                  <input type="text" id="lab_nombre_examen" class="fed-input text-xs" value="Química Sanguínea Completa">
-                </div>
-                <div>
-                  <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Tipo de Muestra</label>
-                  <select id="lab_tipo_muestra" class="fed-input text-xs font-medium">
-                    <option>Suero Sanguíneo</option>
-                    <option>Sangre Total con EDTA</option>
-                    <option>Orina Espontánea</option>
-                    <option>Plasma Citratado</option>
-                  </select>
-                </div>
-              </div>
-              <div class="p-3 bg-white border border-slate-200 rounded space-y-2">
-                <span class="text-xs font-bold uppercase text-slate-700">Analito Polimórfico BSON:</span>
-                <div class="grid grid-cols-3 gap-2">
-                  <input type="text" id="lab_analito_nombre" class="fed-input text-xs font-bold" value="Glucosa">
-                  <input type="number" step="0.1" id="lab_analito_valor" class="fed-input mono text-xs font-bold" value="105">
-                  <input type="text" id="lab_analito_unidad" class="fed-input text-xs font-medium" value="mg/dL">
-                </div>
-                <p class="text-[11px] font-mono text-red-600 font-semibold">
-                  ★ Centinela Activo: Se activará alerta roja si Glucosa &gt; 200 o &lt; 50 mg/dL.
-                </p>
-              </div>
-            </div>
-
-            <!-- Formulario dinámico: Odontología (Firebase Firestore) -->
-            <div id="secOdontologia" class="hidden p-3.5 bg-rose-50/70 border border-rose-200 rounded space-y-3">
-              <span class="fed-badge fed-badge-red text-[10px]">Odontograma FDI (Firestore Cloud)</span>
-              <div>
-                <span class="text-xs font-bold uppercase text-slate-700">
-                  Pieza Dental Seleccionada: <strong id="selToothLabel" class="mono text-blue-700 font-bold text-sm">18</strong>
-                </span>
-                <input type="hidden" id="dent_diente_num" value="18">
-
-                <div class="mt-2 p-3 bg-white border border-slate-200 rounded space-y-2">
-                  <div class="text-[10px] font-bold uppercase text-center font-mono text-slate-400">Arcada Superior (18 - 28)</div>
-                  <div class="flex flex-wrap justify-center gap-1.5" id="teethUpper"></div>
-                  <div class="text-[10px] font-bold uppercase text-center font-mono text-slate-400 pt-1.5">Arcada Inferior (48 - 38)</div>
-                  <div class="flex flex-wrap justify-center gap-1.5" id="teethLower"></div>
-                </div>
-              </div>
-
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Procedimiento Dental</label>
-                  <select id="dent_procedimiento" class="fed-input text-xs font-medium">
-                    <option>Restauración con Resina Fotocurable</option>
-                    <option>Profilaxis y Limpieza Ultrasónica</option>
-                    <option>Endodoncia de Conducto Radicular</option>
-                    <option>Exodoncia Simple</option>
-                    <option>Corona de Porcelana Dental</option>
-                  </select>
-                </div>
-                <div>
-                  <label class="block text-xs font-bold uppercase text-slate-700 mb-1">Costo Estimado (Q)</label>
-                  <input type="number" id="dent_costo" class="fed-input mono text-xs font-bold" value="350.00">
-                </div>
-              </div>
-            </div>
-
-            <button type="submit" class="fed-btn fed-btn-primary w-full py-3 text-sm font-bold">
-              GUARDAR REGISTRO & ATENCIÓN CLÍNICA →
-            </button>
-          </form>
-        </div>
-      </div>
-
-
-      <!-- ═══════════════════════════════════════════════════════════════════
-           PESTAÑA 4: AUDITORÍA DE MOTORES
-           ═══════════════════════════════════════════════════════════════════ -->
-      <div id="tabAuditoria" class="tab-panel">
-        <div class="max-w-3xl mx-auto fed-card bg-white">
-          <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-5 flex-wrap gap-2">
-            <div>
-              <span class="fed-badge fed-badge-green text-[10px]">MONITOR DE INFRAESTRUCTURA</span>
-              <h3 class="text-lg font-bold text-slate-900 mt-1">Auditoría Federal de Motores</h3>
-              <p class="text-xs font-mono text-slate-500">
-                Latencia y conectividad en tiempo real de los 4 adaptadores de persistencia.
-              </p>
-            </div>
-            <button id="btnRefreshAudit" class="fed-btn text-xs py-1.5 px-3">
-              Refrescar Ping ↻
-            </button>
-          </div>
-
-          <div id="auditGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            <p class="text-xs font-mono text-slate-400 py-6 text-center col-span-2">Comprobando conectividad con los motores…</p>
-          </div>
-        </div>
-      </div>
-
+    <main class="contenido" id="contenido">
+      <header class="cabecera" id="cabecera"></header>
+      <div id="vista" aria-live="polite"></div>
     </main>
   </div>
 
+  <dialog id="modal" class="modal">
+    <form method="dialog" id="modalForm" novalidate>
+      <header class="modal-cab">
+        <h2 id="modalTitulo"></h2>
+        <button class="cerrar" type="button" data-cerrar aria-label="Cerrar">×</button>
+      </header>
+      <div class="modal-cuerpo" id="modalCuerpo"></div>
+      <p class="error" id="modalError" hidden></p>
+      <footer class="modal-pie">
+        <button class="btn sutil" type="button" data-cerrar>Cancelar</button>
+        <button class="btn primario" id="modalAceptar" type="submit" value="ok"></button>
+      </footer>
+    </form>
+  </dialog>
 
-  <!-- ═══════════════════════════════════════════════════════════════════
-       MODAL DE CAMBIO DE OPERADOR & PERMISOS RBAC
-       ═══════════════════════════════════════════════════════════════════ -->
-  <div id="operatorModal" class="fed-modal-overlay">
-    <div class="fed-modal-box">
-      <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
-        <div>
-          <span class="fed-badge fed-badge-navy text-[10px]">SEGURIDAD RBAC</span>
-          <h3 class="text-base font-bold text-slate-900 mt-1">Cambiar Operador Clínico</h3>
-          <p class="text-xs text-slate-500">
-            Prueba la segregación de roles y permisos (Médicos vs. Secretaría RBAC).
-          </p>
-        </div>
-        <button id="closeOperatorModal" class="fed-btn text-xs py-1 px-2.5">✕</button>
-      </div>
+  <div id="aviso" class="aviso" role="status" hidden></div>
 
-      <div id="operatorListModal" class="space-y-2 max-h-[340px] overflow-y-auto pr-1"></div>
-    </div>
-  </div>
-
-
-  <!-- ═══════════════════════════════════════════════════════════════════
-       TICKER BURSÁTIL INFERIOR
-       ═══════════════════════════════════════════════════════════════════ -->
-  <footer class="mt-12">
-    <div class="fed-ticker bg-slate-900 text-slate-400">
-      <div class="fed-ticker-content">
-        ★ CAPITALISMO CLÍNICO SIN LÍMITES ★ SALUD PÚBLICA CORPORATION ★ APPROVED BY UNCLE SAM ★ FREEDOM HEALTHCARE ★ 4 MOTORES HETEROGÉNEOS ★ ARQUITECTURA HEXAGONAL DESACOPLADA ★
-      </div>
-    </div>
-  </footer>
-
-
-  <!-- ═══════════════════════════════════════════════════════════════════
-       NOTIFICACIONES TOAST
-       ═══════════════════════════════════════════════════════════════════ -->
-  <div id="toast" class="fed-toast">
-    <span class="text-emerald-400">●</span>
-    <span id="toastMsg">Operación completada</span>
-  </div>
-
-  <!-- SCRIPT PRINCIPAL -->
-  <script type="module" src="app.js"></script>
+  <script src="app.js"></script>
 </body>
-
 </html>

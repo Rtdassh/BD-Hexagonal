@@ -6,6 +6,7 @@
 -- ESPECIALIDAD: Consultas rápidas, somatometría (peso/talla/perímetro), percentiles OMS, vacunas
 -- ============================================================================
 
+SET NAMES utf8mb4;
 CREATE DATABASE IF NOT EXISTS centro_pediatrico CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE centro_pediatrico;
 
@@ -158,8 +159,8 @@ CREATE TABLE IF NOT EXISTS historial_pediatrico (
     fecha_apertura DATE NOT NULL DEFAULT (CURRENT_DATE),
     fecha_ultima_actualizacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     estado VARCHAR(30) NOT NULL DEFAULT 'activo',
-    motivo_baja VARCHAR(100),
-    CONSTRAINT chk_historial_estado CHECK (estado IN ('activo', 'archivado', 'trasladado')),
+    motivo_baja VARCHAR(150),
+    CONSTRAINT chk_historial_estado CHECK (estado IN ('activo', 'archivado', 'trasladado', 'fallecido')),
     CONSTRAINT fk_ped_historial_paciente FOREIGN KEY (id_paciente) 
         REFERENCES paciente_pediatrico(id_paciente)
         ON UPDATE CASCADE ON DELETE RESTRICT

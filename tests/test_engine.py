@@ -216,7 +216,7 @@ class TestHexagonalEngine(unittest.TestCase):
         # Enmascaramiento de seguridad para secretaria (RBAC)
         hist_sec = self.history_service.get_unified_history(sec_user, patient.id_paciente)
         # Notas clínicas deben estar enmascaradas
-        self.assertIn("[INFORMACIÓN RESTRINGIDA", hist_sec.consultas[0].notas_clinicas)
+        self.assertIn("Restringido", hist_sec.consultas[0].notas_clinicas)
 
         # Odontólogo ve todo el detalle
         hist_dent = self.history_service.get_unified_history(dent_user, patient.id_paciente)
@@ -263,6 +263,24 @@ class TestHexagonalEngine(unittest.TestCase):
         self.assertEqual(res_hist.status_code, 200)
         hist = json.loads(res_hist.data)
         self.assertEqual(hist["motor"], "PostgreSQL")
+
+        # 5. Sin token -> 401 (ya no hay usuario por defecto)
+        self.assertEqual(client.get("/api/patients").status_code, 401)
+
+        # 6. La secretaria no puede registrar consultas -> 403
+        tok_sec = json.loads(client.post("/api/auth/login", json={"username": "sec_claudia", "password": "123"}).data)["token"]
+        res = client.post("/api/consultations", json={"id_paciente": 1, "motivo": "x"},
+                          headers={"Authorization": f"Bearer {tok_sec}"})
+        self.assertEqual(res.status_code, 403)
+
+        # 7. Recetar sin diagnóstico -> 400 (regla común a los 4 motores)
+        res = client.post("/api/consultations", json={"id_paciente": 1, "motivo": "x",
+                          "recetas": [{"medicamento": "Ibuprofeno"}]}, headers={"Authorization": f"Bearer {token}"})
+        self.assertEqual(res.status_code, 400)
+
+        # 8. Un usuario que no es administrador no puede leer otra institución
+        res = client.get("/api/patients?institucion=laboratorio", headers={"Authorization": f"Bearer {token}"})
+        self.assertNotIn("Estuardo", res.get_data(as_text=True))
 
 
 if __name__ == "__main__":

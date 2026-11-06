@@ -1,1056 +1,1048 @@
-/**
- * ============================================================================
- * CONTROLADOR PRINCIPAL — "SALUD PÚBLICA™"
- * Estilo: Federal Reserve & Wall Street Capital (Limpio, Alto Contraste)
- *
- * Flujo:
- *   1. Login con Selección Obligatoria del Sistema de Destino (Sin amarillo)
- *   2. Emisión de Pase Federal Autorizado con Botón de OK
- *   3. Redirección EXCLUSIVA únicamente al sistema seleccionado
- *      (Los otros sistemas quedan totalmente ocultos y aislados)
- * ============================================================================
- */
+/* Red de historiales clínicos — cliente web.
+ * La interfaz es la misma para los 4 motores: solo consume la API REST.
+ * Lo que cambia entre instituciones son los CAMPOS del dominio (somatometría, exámenes,
+ * piezas dentales...), nunca el motor de base de datos. */
 
-import { ICONS } from "./assets.js";
+"use strict";
 
-// ---------------------------------------------------------------------------
-// 1. ESTADO GLOBAL DE LA APLICACIÓN
-// ---------------------------------------------------------------------------
-const state = {
-  currentUser: null,
-  selectedTargetSystem: "hospital",
-  activeInstitution: "hospital",
-  patients: [],
-  selectedPatientId: null,
-  operators: [],
-  selectedTooth: 18,
-};
-
+// ------------------------------------------------------------------ Constantes
 const INST = {
-  hospital: {
-    name: "Hospital General de Especialidades",
-    motor: "PostgreSQL",
-    badgeCls: "fed-badge-blue",
-    iconCls: "bg-blue-50",
-    label: "PostgreSQL · ACID Transaccional",
-    defaultUser: "dr_garcia",
-    icon: "hospital",
-    sub: "Urgencias, Triage Nosológico CIE-10, Asignación de Camas VIP & Facturación",
-    specTitle: "Hospital General (PostgreSQL ACID)",
-    specDesc: "Gestión de urgencias, internamiento nosológico y asignación de camas",
-    specMetrics: `
-      <span class="fed-badge fed-badge-green">Camas VIP: 12 Disponibles</span>
-      <span class="fed-badge fed-badge-blue">Catálogo CIE-10 Activo</span>
-    `,
-  },
-  pediatrico: {
-    name: "Centro Pediátrico Infantil",
-    motor: "MySQL",
-    badgeCls: "fed-badge-green",
-    iconCls: "bg-emerald-50",
-    label: "MySQL · Relacional Somatométrico",
-    defaultUser: "dra_lopez",
-    icon: "pediatrico",
-    sub: "Curvas de crecimiento OMS, percentiles, esquema de vacunas y control perinatal",
-    specTitle: "Centro Pediátrico (MySQL Relacional)",
-    specDesc: "Control somatométrico riguroso, percentiles OMS y esquema de vacunas",
-    specMetrics: `
-      <span class="fed-badge fed-badge-green">Curvas OMS P50</span>
-      <span class="fed-badge fed-badge-blue">Vacunación al Día</span>
-    `,
-  },
-  laboratorio: {
-    name: "Laboratorio Clínico Central",
-    motor: "MongoDB",
-    badgeCls: "fed-badge-slate",
-    iconCls: "bg-slate-100",
-    label: "MongoDB · NoSQL Polimórfico",
-    defaultUser: "lic_mendez",
-    icon: "laboratorio",
-    sub: "Analitos polimórficos BSON, trazabilidad de muestras y centinela de glucosa",
-    specTitle: "Laboratorio Clínico (MongoDB NoSQL)",
-    specDesc: "Estructuras flexibles de analitos y monitoreo reactivo centinela",
-    specMetrics: `
-      <span class="fed-badge fed-badge-slate">Estructura BSON</span>
-      <span class="fed-badge fed-badge-red">Centinela Crítico Armado</span>
-    `,
-  },
-  odontologia: {
-    name: "Clínica Odontológica Especializada",
-    motor: "Firebase",
-    badgeCls: "fed-badge-red",
-    iconCls: "bg-rose-50",
-    label: "Firestore · Cloud & Políticas RBAC",
-    defaultUser: "dr_molina",
-    icon: "odontologia",
-    sub: "Odontograma FDI interactivo de 32 piezas, cotización y privacidad RBAC",
-    specTitle: "Clínica Odontológica (Firestore Cloud)",
-    specDesc: "Odontograma interactivo FDI (32 piezas dentales) y directivas RBAC",
-    specMetrics: `
-      <span class="fed-badge fed-badge-red">32 Piezas FDI</span>
-      <span class="fed-badge fed-badge-green">Directiva RBAC Activa</span>
-    `,
-  },
+  hospital:    { nombre: "Hospital General",         motor: "PostgreSQL",               color: "#2F5E9E",
+                 tipos: [["ordinaria", "Ordinaria"], ["emergencia", "Emergencia"], ["seguimiento", "Seguimiento"]] },
+  pediatrico:  { nombre: "Centro Médico Pediátrico", motor: "MySQL",                    color: "#7A4FB0",
+                 tipos: [["control_sano", "Control de niño sano"], ["urgencia", "Urgencia"], ["seguimiento", "Seguimiento"], ["vacunacion", "Vacunación"]] },
+  laboratorio: { nombre: "Laboratorio Clínico",      motor: "MongoDB",                  color: "#0B7A80",
+                 tipos: [["normal", "Prioridad normal"], ["urgente", "Urgente"], ["emergencia", "Emergencia"]] },
+  odontologia: { nombre: "Clínica Odontológica",     motor: "Firebase Cloud Firestore", color: "#A8436A",
+                 tipos: [["ordinaria", "Ordinaria"], ["emergencia", "Emergencia"], ["seguimiento", "Seguimiento"]] },
+};
+const ROLES = {
+  medico: "Médico", pediatra: "Pediatra", laboratorista: "Laboratorista", odontologo: "Odontólogo",
+  secretaria: "Secretaria", administrador: "Administrador",
+};
+const CLINICOS = ["medico", "pediatra", "laboratorista", "odontologo", "administrador"];
+const ESTADOS_BAJA = ["dado_de_baja", "archivado", "trasladado", "fallecido"];
+
+// Plantillas por si el motor activo no devuelve catálogo (modo simulado)
+const EXAMENES_RESPALDO = [
+  { codigo: "HEM-01", nombre_examen: "Hematología completa", parametros_plantilla: [
+    { nombre_parametro: "Leucocitos Totales", unidad_medida: "10^3/uL", rango_referencia_min: 4.5, rango_referencia_max: 11 },
+    { nombre_parametro: "Hemoglobina", unidad_medida: "g/dL", rango_referencia_min: 13.5, rango_referencia_max: 17.5 },
+    { nombre_parametro: "Plaquetas", unidad_medida: "10^3/uL", rango_referencia_min: 150, rango_referencia_max: 450 }] },
+  { codigo: "QUI-01", nombre_examen: "Glucosa y creatinina", parametros_plantilla: [
+    { nombre_parametro: "Glucosa Sérica Basal", unidad_medida: "mg/dL", rango_referencia_min: 70, rango_referencia_max: 100 },
+    { nombre_parametro: "Creatinina Sérica", unidad_medida: "mg/dL", rango_referencia_min: 0.5, rango_referencia_max: 1.1 }] },
+];
+// Diagnósticos frecuentes por institución (autocompletado; se puede escribir cualquier código)
+const CIE10 = {
+  hospital: [["J06.9", "Infección aguda de las vías respiratorias superiores"], ["I10", "Hipertensión esencial"],
+    ["E11.9", "Diabetes mellitus tipo 2 sin complicaciones"], ["K80.0", "Cálculo de la vesícula biliar con colecistitis aguda"],
+    ["K35.8", "Apendicitis aguda"], ["N39.0", "Infección de vías urinarias"], ["J18.9", "Neumonía"],
+    ["A09", "Diarrea y gastroenteritis de presunto origen infeccioso"], ["R51", "Cefalea"]],
+  pediatrico: [["Z00.1", "Control de salud de rutina del niño"], ["Z23", "Necesidad de inmunización"],
+    ["J06.9", "Infección aguda de las vías respiratorias superiores"], ["A09", "Diarrea y gastroenteritis infecciosa"],
+    ["H66.9", "Otitis media"], ["J21.9", "Bronquiolitis aguda"], ["L22", "Dermatitis del pañal"],
+    ["E44.1", "Desnutrición proteicocalórica leve"]],
+  laboratorio: [["Z01.7", "Examen de laboratorio de rutina"], ["E11.9", "Diabetes mellitus tipo 2"], ["D64.9", "Anemia"],
+    ["N39.0", "Infección de vías urinarias"], ["E78.5", "Hiperlipidemia"], ["Z34.9", "Control de embarazo normal"]],
+  odontologia: [["K02.1", "Caries de la dentina"], ["K02.0", "Caries limitada al esmalte"], ["K04.0", "Pulpitis"],
+    ["K05.1", "Gingivitis crónica"], ["K03.6", "Depósitos (cálculo) en los dientes"], ["K08.1", "Pérdida de dientes"],
+    ["K07.3", "Anomalías de la posición dental"], ["Z01.2", "Examen odontológico"]],
+};
+const MEDICAMENTOS = {
+  hospital: ["Paracetamol", "Ibuprofeno", "Amoxicilina", "Amoxicilina + Ácido Clavulánico", "Omeprazol", "Metformina", "Losartán", "Ceftriaxona", "Diclofenaco"],
+  pediatrico: ["Acetaminofén", "Ibuprofeno", "Amoxicilina", "Sales de rehidratación oral", "Sulfato de zinc", "Salbutamol", "Multivitamínico pediátrico"],
+  odontologia: ["Ibuprofeno", "Paracetamol", "Amoxicilina", "Clindamicina", "Clorhexidina 0.12% enjuague", "Ketorolaco"],
 };
 
-const ROLE_EMOJI = {
-  medico: "👨‍⚕️",
-  pediatra: "👩‍⚕️",
-  laboratorista: "🔬",
-  secretaria: "🗂️",
-  odontologo: "🦷",
-  administrador: "🏛️",
+const PIEZAS_SUP = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28];
+const PIEZAS_INF = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38];
+
+// -------------------------------------------------------------------- Estado
+const estado = {
+  usuario: null,
+  token: null,
+  inst: null,          // institución cuyos datos se muestran
+  pacientes: [],
+  idSeleccionado: null,
+  historial: null,
+  especializado: null,
+  catalogos: {},
 };
 
-// ---------------------------------------------------------------------------
-// 2. INICIALIZACIÓN
-// ---------------------------------------------------------------------------
-document.addEventListener("DOMContentLoaded", async () => {
-  injectSvgIcons();
-  buildOdontogram();
-  bindGlobalEvents();
-  await loadOperatorAccounts();
-  updateTargetSystemDisplay();
+// ------------------------------------------------------------------ Utilidades
+const $ = (sel, raiz = document) => raiz.querySelector(sel);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const esClinico = () => CLINICOS.includes(estado.usuario?.rol);
+
+function guardarSesion(datos) {
+  try { datos ? sessionStorage.setItem("sesion", JSON.stringify(datos)) : sessionStorage.removeItem("sesion"); } catch (_) { /* sin almacenamiento */ }
+}
+function leerSesion() {
+  try { return JSON.parse(sessionStorage.getItem("sesion") || "null"); } catch (_) { return null; }
+}
+
+async function api(ruta, opciones = {}) {
+  const sep = ruta.includes("?") ? "&" : "?";
+  const url = estado.usuario?.rol === "administrador" && ruta.startsWith("/api/") && !ruta.startsWith("/api/auth")
+    ? `${ruta}${sep}institucion=${estado.inst}` : ruta;
+  const res = await fetch(url, {
+    method: opciones.method || "GET",
+    headers: {
+      "Content-Type": "application/json",
+      ...(estado.token ? { Authorization: `Bearer ${estado.token}` } : {}),
+    },
+    body: opciones.body ? JSON.stringify(opciones.body) : undefined,
+  });
+  let datos = null;
+  try { datos = await res.json(); } catch (_) { /* respuesta vacía */ }
+  if (res.status === 401 && estado.token) { cerrarSesion(false); throw new Error("La sesión expiró. Inicie sesión de nuevo."); }
+  if (!res.ok) throw new Error(datos?.error || `Error ${res.status}`);
+  return datos;
+}
+
+function avisar(texto, esError = false) {
+  const el = $("#aviso");
+  el.textContent = texto;
+  el.classList.toggle("error-aviso", esError);
+  el.hidden = false;
+  clearTimeout(avisar.t);
+  avisar.t = setTimeout(() => { el.hidden = true; }, esError ? 6000 : 3500);
+}
+
+function fecha(v, conHora = false) {
+  if (!v) return "—";
+  const s = String(v).replace("T", " ");
+  const [d, h] = s.split(" ");
+  const [a, m, dia] = d.split("-");
+  if (!dia) return esc(s);
+  const meses = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+  const txt = `${Number(dia)} ${meses[Number(m) - 1]} ${a}`;
+  return conHora && h ? `${txt}, ${h.slice(0, 5)}` : txt;
+}
+
+function edad(nacimiento) {
+  if (!nacimiento) return "";
+  const n = new Date(`${String(nacimiento).slice(0, 10)}T00:00:00`);
+  const hoy = new Date();
+  let meses = (hoy.getFullYear() - n.getFullYear()) * 12 + (hoy.getMonth() - n.getMonth());
+  if (hoy.getDate() < n.getDate()) meses -= 1;
+  if (meses < 24) return `${meses} ${meses === 1 ? "mes" : "meses"}`;
+  return `${Math.floor(meses / 12)} años`;
+}
+
+const iniciales = (nombre) => String(nombre || "").replace(/^(Dr|Dra|Lic|Licda|Ing)\.?\s+/i, "")
+  .split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+const saludo = () => { const h = new Date().getHours(); return h < 12 ? "Buenos días" : h < 19 ? "Buenas tardes" : "Buenas noches"; };
+const texto = (s) => esc(String(s ?? "").replaceAll("_", " "));
+
+// --------------------------------------------------------------------- Login
+async function iniciarLogin() {
+  $("#vistaApp").hidden = true;
+  $("#vistaLogin").hidden = false;
+
+  $("#listaInstituciones").innerHTML = Object.values(INST).map((i) => `
+    <li><span class="franja" style="background:${i.color}"></span><span>${i.nombre}</span>
+    <span class="motor-nombre">${i.motor}</span></li>`).join("");
+
+  try {
+    const cuentas = await api("/api/auth/demo-users");
+    $("#cuentasDemo").innerHTML = cuentas.map((c) => `
+      <button type="button" class="cuenta" data-u="${esc(c.username)}" style="--c:${INST[c.institucion].color}">
+        <span class="u">${esc(c.username)}</span>
+        <span class="r">${esc(c.nombre_completo)} · ${esc(ROLES[c.rol] || c.rol)}</span>
+        <span class="m">${esc(INST[c.institucion].nombre)}</span>
+      </button>`).join("");
+  } catch (e) {
+    $("#cuentasDemo").textContent = "No se pudo contactar al servidor.";
+  }
+}
+
+$("#cuentasDemo").addEventListener("click", (ev) => {
+  const b = ev.target.closest(".cuenta");
+  if (!b) return;
+  $("#loginUsuario").value = b.dataset.u;
+  $("#loginClave").value = "123";
+  $("#formLogin").requestSubmit();
 });
 
-// ---------------------------------------------------------------------------
-// 3. INYECCIÓN DE ICONOS VECTORIALES
-// ---------------------------------------------------------------------------
-function injectSvgIcons() {
-  const setSvg = (id, svg) => {
-    const el = document.getElementById(id);
-    if (el) el.innerHTML = svg;
-  };
-
-  setSvg("loginUncleSamLogo", ICONS.uncleSam);
-  setSvg("loginEagleSeal", ICONS.baldEagle);
-  setSvg("stampApprovedMini", ICONS.stampApproved);
-  setSvg("loginIconHospital", ICONS.hospital);
-  setSvg("loginIconPediatrico", ICONS.pediatrico);
-  setSvg("loginIconLaboratorio", ICONS.laboratorio);
-  setSvg("loginIconOdontologia", ICONS.odontologia);
-  setSvg("loginBarcode", ICONS.barcodeSvg);
-  setSvg("clrSealApproved", ICONS.stampApproved);
-}
-
-// ---------------------------------------------------------------------------
-// 4. CONTROL DE PANTALLAS
-// ---------------------------------------------------------------------------
-function showScreen(screenId) {
-  document.querySelectorAll(".screen").forEach((s) => s.classList.remove("is-active"));
-  const target = document.getElementById(screenId);
-  if (target) {
-    target.classList.add("is-active");
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 5. SELECCIÓN DEL SISTEMA AL QUE INGRESAR DESDE EL LOGIN
-// ---------------------------------------------------------------------------
-window.selectSystemForLogin = (systemKey) => {
-  if (!INST[systemKey]) return;
-  state.selectedTargetSystem = systemKey;
-
-  // Actualizar tarjetas de selección
-  document.querySelectorAll(".system-card").forEach((card) => {
-    const matches = card.dataset.system === systemKey;
-    card.classList.toggle("is-selected", matches);
-  });
-
-  updateTargetSystemDisplay();
-
-  // Autoseleccionar el usuario sugerido para este sistema
-  const defUser = INST[systemKey].defaultUser;
-  document.getElementById("loginUser").value = defUser;
-  document.getElementById("loginPass").value = "123";
-  document.getElementById("loginError").classList.add("hidden");
-
-  toast(`Sistema seleccionado: ${INST[systemKey].name}`);
-};
-
-function updateTargetSystemDisplay() {
-  const info = INST[state.selectedTargetSystem];
-  const targetLabel = document.getElementById("loginTargetDisplay");
-  if (targetLabel && info) {
-    targetLabel.textContent = `${info.name} (${info.motor})`;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 6. CARGA DE CUENTAS DEMO
-// ---------------------------------------------------------------------------
-async function loadOperatorAccounts() {
+$("#formLogin").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const err = $("#loginError");
+  err.hidden = true;
   try {
-    const res = await fetch("/api/auth/demo-users");
-    if (!res.ok) throw new Error();
-    state.operators = await res.json();
-    renderLoginChips();
-    renderOperatorModal();
-  } catch (err) {
-    console.error("No se pudieron cargar usuarios demo:", err);
-  }
-}
-
-function renderLoginChips() {
-  const container = document.getElementById("loginChipsContainer");
-  if (!container) return;
-  container.innerHTML = "";
-
-  state.operators.forEach((op) => {
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = "p-2 bg-slate-50 border border-slate-300 rounded text-left hover:bg-blue-50 hover:border-blue-400 transition-all";
-    chip.innerHTML = `
-      <div class="flex items-center justify-between">
-        <span class="mono text-xs font-bold text-slate-900">${op.username}</span>
-        <span class="text-xs">${ROLE_EMOJI[op.rol] || "👤"}</span>
-      </div>
-      <div class="text-[10px] text-slate-500 font-medium truncate">${op.cargo.split(" ")[0]} · ${op.motor.split(" ")[0]}</div>
-    `;
-    chip.onclick = () => {
-      document.getElementById("loginUser").value = op.username;
-      document.getElementById("loginPass").value = "123";
-      document.getElementById("loginError").classList.add("hidden");
-
-      if (op.institucion && INST[op.institucion]) {
-        selectSystemForLogin(op.institucion);
-      }
-      document.getElementById("loginBtn").focus();
-    };
-    container.appendChild(chip);
-  });
-}
-
-// ---------------------------------------------------------------------------
-// 7. ENVÍO DE FORMULARIO DE LOGIN -> EMISIÓN DE PASE AUTORIZADO
-// ---------------------------------------------------------------------------
-document.getElementById("loginForm").onsubmit = async (e) => {
-  e.preventDefault();
-  const errBox = document.getElementById("loginError");
-  const btn = document.getElementById("loginBtn");
-  const btnText = document.getElementById("loginBtnText");
-
-  errBox.classList.add("hidden");
-  btn.disabled = true;
-  btnText.textContent = "VERIFICANDO CREDENCIALES…";
-
-  const username = document.getElementById("loginUser").value.trim();
-  const password = document.getElementById("loginPass").value.trim();
-
-  try {
-    const res = await fetch("/api/auth/login", {
+    const u = await api("/api/auth/login", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: { username: $("#loginUsuario").value.trim(), password: $("#loginClave").value },
     });
-
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.error || "Credenciales inválidas. Verifique usuario o contraseña.");
-    }
-
-    state.currentUser = await res.json();
-
-    updateUserVisuals();
-    renderOperatorModal();
-    showClearancePass(state.currentUser);
-  } catch (err) {
-    errBox.textContent = err.message;
-    errBox.classList.remove("hidden");
-  } finally {
-    btn.disabled = false;
-    btnText.textContent = "VERIFICAR & EMITIR PASE FEDERAL →";
+    entrar(u);
+  } catch (e) {
+    err.textContent = e.message;
+    err.hidden = false;
   }
+});
+
+// ------------------------------------------------------------- Íconos del menú
+const ICONO = {
+  inicio: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
+  pacientes: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14.5c2.3.2 4 1.8 4.5 4.5"/>',
+  citas: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><path d="M8 14h3v3H8z"/>',
+  motores: '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
+  salir: '<path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/>',
 };
+const svg = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONO[n]}</svg>`;
+document.querySelectorAll("[data-icono]").forEach((el) => { el.innerHTML = svg(el.dataset.icono); });
 
-function showClearancePass(user) {
-  const formState = document.getElementById("loginFormState");
-  const clearanceCard = document.getElementById("clearanceCard");
-  const chosenSys = INST[state.selectedTargetSystem];
-
-  document.getElementById("clrAvatar").textContent = ROLE_EMOJI[user.rol] || "👤";
-  document.getElementById("clrName").textContent = user.nombre_completo.toUpperCase();
-  document.getElementById("clrRole").textContent = `${user.rol.toUpperCase()} · ${user.numero_colegiado ? 'COLEGIADO ' + user.numero_colegiado : 'ADMIN'}`;
-  document.getElementById("clrTargetSystemName").textContent = chosenSys.name.toUpperCase();
-  document.getElementById("clrEngine").textContent = `Motor Asignado: ${chosenSys.motor.toUpperCase()} (Exclusivo)`;
-  document.getElementById("clrCol").textContent = user.numero_colegiado || "#COL-7741";
-  document.getElementById("clrLevel").textContent = user.rol === "secretaria" ? "Nivel 2 (Secretaría · RBAC)" : "Nivel 4 (Clínica Plena)";
-  document.getElementById("clrToken").textContent = `${user.token.slice(0, 10).toUpperCase()}… (SHA-256)`;
-
-  formState.style.display = "none";
-  clearanceCard.classList.add("is-active");
-  document.getElementById("btnProceedToHub").focus();
+function entrar(u) {
+  estado.usuario = u;
+  estado.token = u.token;
+  estado.inst = u.institucion;
+  guardarSesion(u);
+  $("#vistaLogin").hidden = true;
+  $("#vistaApp").hidden = false;
+  $("#nombreUsuario").textContent = u.nombre_completo;
+  $("#rolUsuario").textContent = ROLES[u.rol] || u.rol;
+  $("#avatarUsuario").textContent = iniciales(u.nombre_completo);
+  $("#adminInst").hidden = u.rol !== "administrador";
+  $("#selInstitucion").value = estado.inst;
+  aplicarInstitucion();
 }
 
-document.getElementById("btnBackToLoginForm").onclick = () => {
-  document.getElementById("clearanceCard").classList.remove("is-active");
-  document.getElementById("loginFormState").style.display = "grid";
-};
-
-// ---------------------------------------------------------------------------
-// 8. BOTÓN OK: REDIRECCIÓN EXCLUSIVA ÚNICAMENTE AL SISTEMA ELEGIDO
-// ---------------------------------------------------------------------------
-document.getElementById("btnProceedToHub").onclick = async () => {
-  await enterTargetSystemWorkspace(state.selectedTargetSystem);
-};
-
-async function enterTargetSystemWorkspace(systemKey) {
-  const config = INST[systemKey];
-  if (!config) return;
-  state.activeInstitution = systemKey;
-
-  document.getElementById("wsInstTitle").textContent = config.name;
-  document.getElementById("wsInstSub").textContent = config.sub;
-
-  const iconEl = document.getElementById("wsInstIcon");
-  iconEl.innerHTML = ICONS[config.icon];
-
-  const badgeEl = document.getElementById("wsEngineBadge");
-  badgeEl.className = `fed-badge ${config.badgeCls} text-[10px]`;
-  badgeEl.textContent = config.label;
-
-  document.getElementById("wsSpecTitle").textContent = config.specTitle;
-  document.getElementById("wsSpecDesc").textContent = config.specDesc;
-  document.getElementById("wsSpecMetrics").innerHTML = config.specMetrics;
-
-  configureInstitutionalForms(systemKey);
-
-  if (state.currentUser && state.currentUser.institucion !== systemKey && state.currentUser.rol !== "administrador") {
-    await loginAsOperator(config.defaultUser, false);
-  }
-
-  showScreen("screenWorkspace");
-  switchTab("tabExpedientes");
-  await loadPatients();
-  toast(`Acceso concedido exclusivamente a: ${config.name}`);
+async function cerrarSesion(llamarApi = true) {
+  if (llamarApi) { try { await api("/api/auth/logout", { method: "POST" }); } catch (_) { /* ya expiró */ } }
+  Object.assign(estado, { usuario: null, token: null, inst: null, pacientes: [], idSeleccionado: null, historial: null });
+  guardarSesion(null);
+  $("#aviso").hidden = true;
+  iniciarLogin();
 }
 
-document.getElementById("wsLogoutBtn").onclick = () => {
-  state.currentUser = null;
-  document.getElementById("clearanceCard").classList.remove("is-active");
-  document.getElementById("loginFormState").style.display = "grid";
-  document.getElementById("loginPass").value = "";
-  showScreen("screenLogin");
-  toast("Sesión cerrada. Seleccione un nuevo sistema.");
-};
+$("#btnSalir").addEventListener("click", () => cerrarSesion(true));
+$("#selInstitucion").addEventListener("change", (ev) => { estado.inst = ev.target.value; aplicarInstitucion(); });
 
-// ---------------------------------------------------------------------------
-// 9. EVENTOS GLOBALES Y PESTAÑAS DEL WORKSPACE
-// ---------------------------------------------------------------------------
-function bindGlobalEvents() {
-  document.querySelectorAll(".ws-tab-btn").forEach((tabBtn) => {
-    tabBtn.onclick = () => switchTab(tabBtn.dataset.tab);
+async function aplicarInstitucion() {
+  const i = INST[estado.inst];
+  document.documentElement.style.setProperty("--inst", i.color);
+  $("#nombreInst").textContent = i.nombre;
+  $("#motorInst").textContent = i.motor;
+  document.title = `${i.nombre} — Historiales clínicos`;
+  $("#txtBuscar").value = "";
+  try { estado.catalogos = await api("/api/catalogs"); } catch (_) { estado.catalogos = {}; }
+  await cargarPacientes("");
+  ir("inicio");
+}
+
+// ------------------------------------------------------------------ Navegación
+estado.pagina = "inicio";
+estado.filtro = "activos";
+estado.pestana = "historial";
+
+function ir(pagina) {
+  estado.pagina = pagina;
+  if (pagina !== "paciente") estado.idSeleccionado = null;
+  document.querySelectorAll(".menu-nav [data-pagina]").forEach((b) => {
+    const activo = b.dataset.pagina === pagina || (pagina === "paciente" && b.dataset.pagina === "pacientes");
+    b.classList.toggle("activo", activo);
+    if (activo) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
   });
-
-  document.getElementById("hosp_requiere_ingreso")?.addEventListener("change", (e) => {
-    document.getElementById("hospBedFields").classList.toggle("hidden", !e.target.checked);
-  });
-
-  document.getElementById("searchBtn").onclick = () => {
-    loadPatients(document.getElementById("searchInput").value.trim());
-  };
-  document.getElementById("searchInput").onkeydown = (e) => {
-    if (e.key === "Enter") {
-      loadPatients(e.target.value.trim());
-    }
-  };
-
-  document.getElementById("btnRefreshAudit").onclick = loadAuditStatus;
-  document.getElementById("btnSwitchOperator").onclick = openOperatorModal;
-  document.getElementById("closeOperatorModal").onclick = closeOperatorModal;
-  document.getElementById("operatorModal").onclick = (e) => {
-    if (e.target.id === "operatorModal") closeOperatorModal();
-  };
-
-  initFormHandlers();
+  $("#contenido").scrollTo?.(0, 0);
+  window.scrollTo(0, 0);
+  ({ inicio: pintarInicio, pacientes: pintarPacientes, citas: pintarCitasPagina, motores: pintarMotores, paciente: pintarExpediente })[pagina]();
 }
 
-function switchTab(tabId) {
-  document.querySelectorAll(".ws-tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tabId));
-  document.querySelectorAll(".tab-panel").forEach((p) => p.classList.toggle("is-active", p.id === tabId));
-  if (tabId === "tabAuditoria") {
-    loadAuditStatus();
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 10. MODAL DE CAMBIO DE OPERADOR & PERMISOS RBAC
-// ---------------------------------------------------------------------------
-function openOperatorModal() {
-  document.getElementById("operatorModal").classList.add("is-open");
-}
-function closeOperatorModal() {
-  document.getElementById("operatorModal").classList.remove("is-open");
-}
-
-function renderOperatorModal() {
-  const container = document.getElementById("operatorListModal");
-  if (!container) return;
-  container.innerHTML = "";
-
-  state.operators.forEach((op) => {
-    const row = document.createElement("div");
-    const isCurrent = state.currentUser && state.currentUser.username === op.username;
-    row.className = `p-3 bg-white border border-slate-200 rounded flex items-center gap-3 cursor-pointer hover:bg-slate-50 transition-all ${isCurrent ? "border-blue-600 bg-blue-50/50" : ""}`;
-    row.onclick = async () => {
-      closeOperatorModal();
-      await loginAsOperator(op.username, true);
-    };
-
-    const isSecretaria = op.rol === "secretaria";
-
-    row.innerHTML = `
-      <div class="text-xl w-9 h-9 border border-slate-300 rounded bg-slate-100 flex items-center justify-center flex-shrink-0">
-        ${ROLE_EMOJI[op.rol] || "👤"}
-      </div>
-      <div class="flex-1 min-w-0">
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-bold text-slate-900 font-mono">${op.nombre_completo}</span>
-          <span class="mono text-[10px] text-slate-500">${op.motor.split(" ")[0]}</span>
-        </div>
-        <div class="text-[11px] text-slate-600 flex gap-2 items-center mt-0.5">
-          <span>${op.cargo}</span>
-          ${isSecretaria ? '<span class="fed-badge fed-badge-slate text-[8px] py-0 px-1">RBAC RESTRICTED</span>' : ""}
-        </div>
-      </div>
-    `;
-    container.appendChild(row);
-  });
-}
-
-async function loginAsOperator(username, notify = true) {
-  try {
-    const res = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password: "123" }),
-    });
-    if (!res.ok) throw new Error("No se pudo cambiar de operador");
-    state.currentUser = await res.json();
-    updateUserVisuals();
-    renderOperatorModal();
-
-    const rbacBanner = document.getElementById("rbacBanner");
-    rbacBanner.classList.toggle("hidden", state.currentUser.rol !== "secretaria");
-
-    if (state.selectedPatientId) {
-      await loadClinicalHistory(state.selectedPatientId);
-    }
-
-    if (notify) {
-      toast(`Operador activo: ${state.currentUser.nombre_completo}`);
-    }
-  } catch (err) {
-    toast(err.message, true);
-  }
-}
-
-function updateUserVisuals() {
-  if (!state.currentUser) return;
-  const name = state.currentUser.nombre_completo.toUpperCase();
-  const role = `${state.currentUser.rol.toUpperCase()} · ${state.currentUser.institucion.toUpperCase()}`;
-
-  const nameEl = document.getElementById("wsUserName");
-  if (nameEl) nameEl.textContent = name;
-
-  const roleEl = document.getElementById("wsUserRole");
-  if (roleEl) roleEl.textContent = role;
-
-  const banner = document.getElementById("rbacBanner");
-  if (banner) {
-    banner.classList.toggle("hidden", state.currentUser.rol !== "secretaria");
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 11. EXPEDIENTES Y PACIENTES
-// ---------------------------------------------------------------------------
-async function loadPatients(query = "") {
-  const listEl = document.getElementById("patientList");
-  const countEl = document.getElementById("patientCount");
-  const selectConsultation = document.getElementById("cons_paciente_id");
-
-  listEl.innerHTML = '<p class="text-xs text-slate-400 font-mono text-center py-8">Consultando motor activo…</p>';
-
-  try {
-    const token = state.currentUser?.token || "";
-    const res = await fetch(`/api/patients?q=${encodeURIComponent(query)}&institucion=${state.activeInstitution}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) throw new Error("Error al consultar pacientes");
-
-    state.patients = await res.json();
-    listEl.innerHTML = "";
-    selectConsultation.innerHTML = '<option value="">Seleccione paciente…</option>';
-    countEl.textContent = state.patients.length;
-
-    if (!state.patients.length) {
-      listEl.innerHTML = '<p class="text-xs text-slate-400 font-mono text-center py-8">No hay pacientes registrados en este motor.</p>';
-      document.getElementById("patientCard").classList.add("hidden");
-      renderEmptyHistory();
-      return;
-    }
-
-    state.patients.forEach((p) => {
-      const opt = document.createElement("option");
-      opt.value = p.id_paciente;
-      opt.textContent = `${p.nombres} ${p.apellidos} (DPI: ${p.dpi})`;
-      selectConsultation.appendChild(opt);
-
-      const row = document.createElement("div");
-      row.className = `patient-row ${p.id_paciente === state.selectedPatientId ? "selected" : ""}`;
-      row.onclick = () => selectPatient(p.id_paciente);
-      row.innerHTML = `
-        <div>
-          <div class="text-xs font-bold text-slate-900">${p.nombres} ${p.apellidos}</div>
-          <div class="mono text-[11px] text-slate-500">DPI: ${p.dpi}</div>
-        </div>
-        <span class="fed-badge ${p.estado === 'activo' ? 'fed-badge-green' : 'fed-badge-red'} text-[9px]">
-          ${p.estado.toUpperCase()}
-        </span>
-      `;
-      listEl.appendChild(row);
-    });
-
-    const exists = state.patients.some((x) => x.id_paciente === state.selectedPatientId);
-    selectPatient(exists ? state.selectedPatientId : state.patients[0].id_paciente);
-  } catch (err) {
-    listEl.innerHTML = `<p class="text-xs text-center py-8 text-red-600 font-mono">${err.message}</p>`;
-  }
-}
-
-function selectPatient(patientId) {
-  state.selectedPatientId = patientId;
-  document.querySelectorAll(".patient-row").forEach((r) => r.classList.remove("selected"));
-
-  const patient = state.patients.find((x) => x.id_paciente === patientId);
-  if (!patient) return;
-
-  const card = document.getElementById("patientCard");
-  card.classList.remove("hidden");
-
-  let perinatalHtml = "";
-  if (patient.nombre_tutor) {
-    perinatalHtml = `
-      <div class="mt-2 pt-2 border-t border-slate-100 bg-emerald-50/70 p-2 rounded text-xs space-y-0.5">
-        <div class="text-[10px] font-bold uppercase text-emerald-800 font-mono">Datos Perinatales & Tutor (MySQL)</div>
-        <div>Tutor: <strong>${patient.nombre_tutor}</strong> (DPI: <span class="mono">${patient.dpi_tutor || "N/A"}</span>)</div>
-        <div>Gestación: <span class="mono">${patient.semanas_gestacion || "--"} sem</span> · Peso: <span class="mono">${patient.peso_nacer_kg || "--"} kg</span></div>
-      </div>
-    `;
-  }
-
-  let emergencyContactHtml = "";
-  if (patient.contacto_emergencia_nombre) {
-    emergencyContactHtml = `
-      <div class="mt-2 pt-2 border-t border-slate-100 bg-blue-50/70 p-2 rounded text-xs space-y-0.5 text-blue-900">
-        <div class="text-[10px] font-bold uppercase font-mono text-blue-800">Contacto de Emergencia (PostgreSQL)</div>
-        <div>${patient.contacto_emergencia_nombre} — Tel: <span class="mono font-bold">${patient.contacto_emergencia_telefono || "N/A"}</span></div>
-      </div>
-    `;
-  }
-
-  document.getElementById("patientDetails").innerHTML = `
-    <div><span class="text-slate-500">Nombre Completo:</span> <strong>${patient.nombres} ${patient.apellidos}</strong></div>
-    <div><span class="text-slate-500">DPI:</span> <span class="mono font-bold">${patient.dpi}</span></div>
-    <div><span class="text-slate-500">Nacimiento:</span> ${patient.fecha_nacimiento} (${patient.sexo === "M" ? "Masculino" : "Femenino"})</div>
-    <div><span class="text-slate-500">Teléfono:</span> <span class="mono">${patient.telefono || "Sin registrar"}</span></div>
-    <div><span class="text-slate-500">Tipo de Sangre:</span> <span class="fed-badge fed-badge-red text-[10px] py-0.5 px-1">${patient.tipo_sangre || "N/A"}</span></div>
-    ${perinatalHtml}
-    ${emergencyContactHtml}
-  `;
-
-  loadClinicalHistory(patientId);
-}
-
-// ---------------------------------------------------------------------------
-// 12. HISTORIAL CLÍNICO ESPECIALIZADO POR SISTEMA
-// ---------------------------------------------------------------------------
-async function loadClinicalHistory(patientId) {
-  const container = document.getElementById("historyContainer");
-  container.innerHTML = '<p class="text-xs text-slate-400 font-mono text-center py-16">Cargando expediente clínico…</p>';
-
-  try {
-    const token = state.currentUser?.token || "";
-    const res = await fetch(`/api/patients/${patientId}/history?institucion=${state.activeInstitution}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    if (!res.ok) throw new Error("No se pudo obtener el historial clínico");
-    const history = await res.json();
-
-    document.getElementById("motorTag").textContent = `Persistencia: ${history.motor}`;
-    document.getElementById("stateTag").textContent = history.estado.toUpperCase();
-    container.innerHTML = "";
-
-    if (!history.consultas || !history.consultas.length) {
-      renderEmptyHistory();
-      return;
-    }
-
-    history.consultas.forEach((c) => {
-      const box = document.createElement("div");
-      box.className = "border border-slate-200 rounded p-4 bg-white space-y-3 shadow-sm";
-
-      const rawDate = c.fecha_hora_atencion || c.fecha_consulta || "";
-      const dateStr = rawDate ? rawDate.split("T")[0].split(" ")[0] : "Fecha N/D";
-      const motivoStr = c.motivo || c.motivo_consulta || "Consulta Médica";
-
-      box.innerHTML = `
-        <div class="flex items-center justify-between border-b border-slate-100 pb-2 flex-wrap gap-2">
-          <div class="flex items-center gap-2">
-            <span class="fed-badge fed-badge-blue text-[10px]">#CONS-${c.id_consulta}</span>
-            <span class="text-sm font-bold text-slate-900">${motivoStr}</span>
-          </div>
-          <span class="mono text-xs text-slate-500 font-medium">${dateStr}</span>
-        </div>
-      `;
-
-      // 1. Diagnósticos CIE-10 (Hospital General)
-      if (c.diagnosticos && c.diagnosticos.length) {
-        const diagBox = document.createElement("div");
-        diagBox.className = "text-xs space-y-1.5";
-        diagBox.innerHTML = `
-          <div class="text-[10px] font-bold uppercase text-slate-500 font-mono">Diagnósticos Nosológicos CIE-10</div>
-        ` + c.diagnosticos.map((d) => `
-          <div class="flex items-center justify-between bg-blue-50/50 border border-blue-100 p-2 rounded">
-            <span class="font-medium text-slate-800">${d.descripcion}</span>
-            <span class="mono text-xs font-bold bg-slate-900 text-white px-2 py-0.5 rounded">
-              ${d.codigo_cie10}
-            </span>
-          </div>
-        `).join("");
-        box.appendChild(diagBox);
-      }
-
-      // 2. Hospitalización y asignación de cama
-      if (c.hospitalizacion) {
-        const hospBox = document.createElement("div");
-        hospBox.className = "p-3 border border-blue-200 rounded bg-blue-50/70 text-xs space-y-1";
-        hospBox.innerHTML = `
-          <div class="flex items-center justify-between font-bold text-blue-900">
-            <span class="flex items-center gap-1">🏥 Hospitalización en Sala</span>
-            <span class="fed-badge fed-badge-blue text-[9px]">
-              ${c.hospitalizacion.estado.toUpperCase()}
-            </span>
-          </div>
-          <div>Cama Asignada: <strong>Habitación ${c.hospitalizacion.numero_habitacion}</strong></div>
-          <div class="text-slate-600">Motivo: ${c.hospitalizacion.motivo_ingreso}</div>
-        `;
-        box.appendChild(hospBox);
-      }
-
-      // 3. Somatometría Pediátrica (MySQL)
-      if (c.somatometria) {
-        const somBox = document.createElement("div");
-        somBox.className = "grid grid-cols-2 sm:grid-cols-4 gap-2";
-        somBox.innerHTML = `
-          <div class="fed-kpi">
-            <div class="fed-kpi-lbl">Peso Corporal</div>
-            <div class="fed-kpi-val">${c.somatometria.peso_kg} <small class="text-xs font-normal">kg</small></div>
-          </div>
-          <div class="fed-kpi">
-            <div class="fed-kpi-lbl">Talla / Estatura</div>
-            <div class="fed-kpi-val">${c.somatometria.talla_cm} <small class="text-xs font-normal">cm</small></div>
-          </div>
-          <div class="fed-kpi">
-            <div class="fed-kpi-lbl">P. Cefálico</div>
-            <div class="fed-kpi-val font-mono">${c.somatometria.perimetro_cefalico_cm || "—"}</div>
-          </div>
-          <div class="fed-kpi bg-blue-50/50">
-            <div class="fed-kpi-lbl">Percentil OMS</div>
-            <div class="fed-kpi-val text-blue-700">P${c.somatometria.percentil_crecimiento}%</div>
-          </div>
-        `;
-        box.appendChild(somBox);
-      }
-
-      // 4. Esquema de Vacunas Pediátricas
-      if (c.vacunaciones && c.vacunaciones.length) {
-        const vacBox = document.createElement("div");
-        vacBox.className = "p-3 border border-emerald-200 rounded bg-emerald-50/70 text-xs space-y-1";
-        vacBox.innerHTML = `
-          <div class="font-bold text-emerald-900 text-[10px] uppercase font-mono mb-1">💉 Inmunizaciones Registradas</div>
-        ` + c.vacunaciones.map((v) => `
-          <div>• <strong>${v.nombre_vacuna}</strong> (${v.dosis}) — Lote: <span class="mono">${v.lote}</span></div>
-        `).join("");
-        box.appendChild(vacBox);
-      }
-
-      // 5. Analitos de Laboratorio Polimórfico (MongoDB NoSQL)
-      if (c.examenes_laboratorio && c.examenes_laboratorio.length) {
-        c.examenes_laboratorio.forEach((ex) => {
-          const labBox = document.createElement("div");
-          labBox.className = "p-3 bg-slate-50 border border-slate-200 rounded space-y-2 text-xs";
-          labBox.innerHTML = `
-            <div class="flex items-center justify-between font-bold text-slate-800">
-              <span>🔬 ${ex.nombre_examen} (${ex.tipo_muestra})</span>
-              <span class="mono text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded">Muestra #${ex.numero_muestra}</span>
-            </div>
-          `;
-
-          if (ex.analitos && ex.analitos.length) {
-            const analyteList = document.createElement("div");
-            analyteList.className = "space-y-1.5";
-            ex.analitos.forEach((a) => {
-              const row = document.createElement("div");
-              row.className = `flex items-center justify-between p-2 rounded border ${a.alerta_critica ? "bg-red-50 border-red-300 font-bold" : "bg-white border-slate-200"}`;
-              row.innerHTML = `
-                <div>
-                  <strong>${a.nombre}</strong>:
-                  <span class="mono font-bold ml-1">${a.valor} ${a.unidad}</span>
-                  <span class="text-[10px] text-slate-400 font-mono ml-2">(Ref: ${a.rango_referencia})</span>
-                </div>
-                ${a.alerta_critica
-                  ? '<span class="fed-badge fed-badge-red text-[9px] animate-pulse">⚠ VALOR CRÍTICO</span>'
-                  : '<span class="fed-badge fed-badge-green text-[9px]">Normal</span>'}
-              `;
-              analyteList.appendChild(row);
-            });
-            labBox.appendChild(analyteList);
-          }
-          box.appendChild(labBox);
-        });
-      }
-
-      // 6. Odontología FDI (Firestore)
-      const dentalList = c.procedimientos_dentales || c.procedimientos_odontologicos || [];
-      if (dentalList.length) {
-        const dentalBox = document.createElement("div");
-        dentalBox.className = "p-3 border border-slate-200 rounded bg-slate-50 text-xs space-y-1.5";
-        dentalBox.innerHTML = `
-          <div class="font-bold text-slate-700 text-[10px] uppercase font-mono">Procedimientos Odontológicos FDI (Firestore)</div>
-        ` + dentalList.map((p) => `
-          <div class="flex items-center justify-between bg-white p-2 rounded border border-slate-200">
-            <div>
-              <span class="fed-badge fed-badge-slate text-[10px] py-0.5 px-1 font-mono">
-                Pieza FDI ${p.diente_fdi}
-              </span>
-              <span class="ml-2 font-medium text-slate-800">${p.procedimiento}</span>
-            </div>
-            <span class="mono font-bold text-emerald-700 text-sm">Q${parseFloat(p.costo || 0).toFixed(2)}</span>
-          </div>
-        `).join("");
-        box.appendChild(dentalBox);
-      }
-
-      // 7. Notas Clínicas y RBAC
-      const clinicalNotes = c.notas_clinicas || c.tratamiento_indicaciones;
-      if (clinicalNotes) {
-        const isSecretariaRestricted = state.currentUser?.rol === "secretaria" && state.activeInstitution === "odontologia";
-        const notesBox = document.createElement("div");
-        notesBox.className = "text-xs pt-2 border-t border-slate-100";
-
-        if (isSecretariaRestricted) {
-          notesBox.innerHTML = `
-            <div class="p-2.5 bg-slate-100 border border-slate-200 rounded text-slate-600 font-mono text-xs flex items-center gap-2">
-              <span>🔒</span>
-              <span>Nota clínica confidencial protegida por política RBAC (Acceso exclusivo a Médicos y Odontólogos).</span>
-            </div>
-          `;
-        } else {
-          notesBox.innerHTML = `
-            <span class="font-bold text-slate-600">Tratamiento / Pauta Terapéutica:</span>
-            <span class="text-slate-800 ml-1">${clinicalNotes}</span>
-          `;
-        }
-        box.appendChild(notesBox);
-      }
-
-      container.appendChild(box);
-    });
-  } catch (err) {
-    container.innerHTML = `<p class="text-xs text-center py-10 text-red-600 font-mono">${err.message}</p>`;
-  }
-}
-
-function renderEmptyHistory() {
-  document.getElementById("historyContainer").innerHTML = `
-    <div class="text-center py-16 text-slate-400 font-mono">
-      <div class="text-4xl mb-2">📂</div>
-      <p class="text-sm font-bold text-slate-700">Sin consultas registradas</p>
-      <p class="text-xs mt-1">Este paciente no registra historial en el motor activo aún.</p>
+function cabecera({ migas = "", titulo, acciones = "" }) {
+  $("#cabecera").innerHTML = `
+    <div>
+      ${migas ? `<nav class="migas" aria-label="Ruta">${migas}</nav>` : ""}
+      <h1>${titulo}</h1>
     </div>
-  `;
+    <div class="cab-acciones">${acciones}</div>`;
 }
 
-// ---------------------------------------------------------------------------
-// 13. FORMULARIOS DE NUEVO PACIENTE Y NUEVA ATENCIÓN
-// ---------------------------------------------------------------------------
-function configureInstitutionalForms(instKey) {
-  document.getElementById("npFieldsHospital").classList.toggle("hidden", instKey !== "hospital");
-  document.getElementById("npFieldsPediatrico").classList.toggle("hidden", instKey !== "pediatrico");
-
-  document.getElementById("secHospital").classList.toggle("hidden", instKey !== "hospital");
-  document.getElementById("secPediatrico").classList.toggle("hidden", instKey !== "pediatrico");
-  document.getElementById("secLaboratorio").classList.toggle("hidden", instKey !== "laboratorio");
-  document.getElementById("secOdontologia").classList.toggle("hidden", instKey !== "odontologia");
+function pestanas(lista, activa, attr = "data-pestana") {
+  return `<div class="pestanas" role="tablist">${lista.map(([clave, txt]) =>
+    `<button type="button" role="tab" ${attr}="${clave}" aria-selected="${clave === activa}">${txt}</button>`).join("")}</div>`;
 }
 
-function initFormHandlers() {
-  document.getElementById("formNewPatient").onsubmit = async (e) => {
-    e.preventDefault();
-    const data = {
-      nombres: val("p_nombres"),
-      apellidos: val("p_apellidos"),
-      dpi: val("p_dpi"),
-      fecha_nacimiento: val("p_fecha_nac"),
-      sexo: val("p_sexo"),
-      telefono: val("p_telefono"),
-      tipo_sangre: val("p_tipo_sangre"),
-      direccion: val("p_direccion"),
-    };
+const btnAccion = (accion, txt, clase = "primario") => `<button type="button" class="btn ${clase}" data-accion="${accion}">${txt}</button>`;
+const puedeRegistrar = () => esClinico();
 
-    if (state.activeInstitution === "pediatrico") {
-      data.nombre_tutor = val("p_tutor_nombre");
-      data.dpi_tutor = val("p_tutor_dpi");
-      data.semanas_gestacion = parseInt(val("p_semanas_gestacion")) || null;
-      data.peso_nacer_kg = parseFloat(val("p_peso_nacer")) || null;
-    }
-    if (state.activeInstitution === "hospital") {
-      data.contacto_emergencia_nombre = val("p_emergencia_nombre");
-      data.contacto_emergencia_telefono = val("p_emergencia_tel");
-    }
+document.querySelectorAll(".menu-nav [data-pagina]").forEach((b) => b.addEventListener("click", () => ir(b.dataset.pagina)));
 
-    try {
-      const res = await fetch(`/api/patients?institucion=${state.activeInstitution}`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify(data),
-      });
+// Búsqueda del menú lateral: filtra y lleva a la página de pacientes
+let tBuscar;
+$("#txtBuscar").addEventListener("input", () => {
+  clearTimeout(tBuscar);
+  tBuscar = setTimeout(async () => { await cargarPacientes(); if (estado.pagina !== "pacientes") ir("pacientes"); else pintarPacientes(); }, 250);
+});
+$("#formBuscar").addEventListener("submit", async (ev) => { ev.preventDefault(); await cargarPacientes(); ir("pacientes"); });
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "/" && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName) && !$("#modal").open) {
+    ev.preventDefault();
+    $("#txtBuscar").focus();
+  }
+});
 
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.error || "Error al registrar paciente");
-      }
-
-      const created = await res.json();
-      toast(`Paciente #${created.id_paciente} registrado correctamente`);
-      e.target.reset();
-      await loadPatients();
-      switchTab("tabExpedientes");
-    } catch (err) {
-      toast(err.message, true);
-    }
-  };
-
-  document.getElementById("formNewConsultation").onsubmit = async (e) => {
-    e.preventDefault();
-    const patientId = val("cons_paciente_id");
-    if (!patientId) {
-      toast("Seleccione un paciente de la lista", true);
-      return;
-    }
-
-    const payload = {
-      id_paciente: parseInt(patientId),
-      motivo_consulta: val("cons_motivo"),
-      diagnostico_principal: val("cons_diagnostico"),
-      tratamiento_indicaciones: val("cons_tratamiento"),
-    };
-
-    if (state.activeInstitution === "hospital") {
-      payload.codigo_cie10 = val("hosp_cie10") || "J02.9";
-      if (document.getElementById("hosp_requiere_ingreso").checked) {
-        payload.hospitalizacion = {
-          numero_habitacion: val("hosp_habitacion") || "101-A",
-          motivo_ingreso: val("hosp_motivo_ingreso") || "Observación clínica",
-        };
-      }
-    }
-
-    if (state.activeInstitution === "pediatrico") {
-      payload.peso_kg = parseFloat(val("ped_peso")) || 12.0;
-      payload.talla_cm = parseFloat(val("ped_talla")) || 90.0;
-      payload.perimetro_cefalico_cm = parseFloat(val("ped_cefalico")) || null;
-      payload.percentil_crecimiento = parseInt(val("ped_percentil")) || 50;
-
-      const vaccineName = val("ped_vacuna_nombre");
-      if (vaccineName) {
-        payload.vacunacion = {
-          nombre_vacuna: vaccineName,
-          dosis: val("ped_vacuna_dosis") || "Dosis única",
-          lote: val("ped_vacuna_lote") || "VAC-001",
-        };
-      }
-    }
-
-    if (state.activeInstitution === "laboratorio") {
-      payload.nombre_examen = val("lab_nombre_examen") || "Química Sanguínea";
-      payload.tipo_muestra = val("lab_tipo_muestra");
-      payload.analitos = [
-        {
-          nombre: val("lab_analito_nombre") || "Glucosa",
-          valor: parseFloat(val("lab_analito_valor")) || 0,
-          unidad: val("lab_analito_unidad") || "mg/dL",
-          rango_referencia: "70.0 - 100.0",
-        },
-      ];
-    }
-
-    if (state.activeInstitution === "odontologia") {
-      payload.procedimiento_dental = {
-        diente_fdi: parseInt(val("dent_diente_num")) || 18,
-        procedimiento: val("dent_procedimiento"),
-        costo: parseFloat(val("dent_costo")) || 350.0,
-      };
-    }
-
-    try {
-      const res = await fetch(`/api/consultations?institucion=${state.activeInstitution}`, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.error || "Error al registrar consulta");
-      }
-
-      toast("Atención clínica registrada exitosamente");
-      e.target.reset();
-      await loadClinicalHistory(patientId);
-      switchTab("tabExpedientes");
-    } catch (err) {
-      toast(err.message, true);
-    }
-  };
-
-  document.getElementById("archiveBtn").onclick = async () => {
-    if (!state.selectedPatientId) return;
-    if (!confirm("¿Está seguro de archivar el expediente de este paciente?")) return;
-
-    try {
-      const res = await fetch(`/api/patients/${state.selectedPatientId}?institucion=${state.activeInstitution}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${state.currentUser?.token || ""}` },
-      });
-
-      if (!res.ok) throw new Error("No se pudo archivar el expediente");
-      toast("Expediente archivado en el sistema");
-      await loadPatients();
-    } catch (err) {
-      toast(err.message, true);
-    }
-  };
-}
-
-// ---------------------------------------------------------------------------
-// 14. ODONTOGRAMA FDI INTERACTIVO (32 PIEZAS DENTALES)
-// ---------------------------------------------------------------------------
-function buildOdontogram() {
-  const upperTeeth = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28];
-  const lowerTeeth = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38];
-
-  const renderArcade = (containerId, teeth) => {
-    const container = document.getElementById(containerId);
-    if (!container) return;
-    container.innerHTML = "";
-
-    teeth.forEach((toothNum, index) => {
-      if (index === 8) {
-        const spacer = document.createElement("span");
-        spacer.style.width = "10px";
-        container.appendChild(spacer);
-      }
-
-      const toothBtn = document.createElement("button");
-      toothBtn.type = "button";
-      toothBtn.className = `tooth-btn ${toothNum === 18 ? "selected" : ""}`;
-      toothBtn.textContent = toothNum;
-      toothBtn.onclick = () => selectTooth(toothNum);
-      container.appendChild(toothBtn);
-    });
-  };
-
-  renderArcade("teethUpper", upperTeeth);
-  renderArcade("teethLower", lowerTeeth);
-}
-
-function selectTooth(toothNum) {
-  state.selectedTooth = toothNum;
-  document.getElementById("dent_diente_num").value = toothNum;
-  document.getElementById("selToothLabel").textContent = toothNum;
-
-  document.querySelectorAll(".tooth-btn").forEach((btn) => {
-    btn.classList.toggle("selected", btn.textContent.trim() === String(toothNum));
-  });
-}
-
-// ---------------------------------------------------------------------------
-// 15. AUDITORÍA DE SALUD DE LOS 4 MOTORES
-// ---------------------------------------------------------------------------
-async function loadAuditStatus() {
-  const container = document.getElementById("auditGrid");
-  container.innerHTML = '<p class="text-xs text-slate-400 font-mono py-6 text-center col-span-2">Comprobando conectividad…</p>';
-
+// ------------------------------------------------------------------ Pacientes
+async function cargarPacientes(q = $("#txtBuscar").value.trim()) {
   try {
-    const res = await fetch("/api/engine/status");
-    if (!res.ok) throw new Error("Error al consultar estado de motores");
-    const data = await res.json();
-    container.innerHTML = "";
-
-    const motors = [
-      { key: "postgresql", name: "PostgreSQL", desc: "Hospital General (Transacciones ACID)", cls: "fed-badge-blue" },
-      { key: "mysql", name: "MySQL", desc: "Centro Pediátrico (Relacional Somatométrico)", cls: "fed-badge-green" },
-      { key: "mongodb", name: "MongoDB", desc: "Laboratorio Clínico (NoSQL BSON)", cls: "fed-badge-slate" },
-      { key: "firebase", name: "Firebase", desc: "Clínica Odontológica (Firestore Cloud)", cls: "fed-badge-red" },
-    ];
-
-    motors.forEach((m) => {
-      const info = (data.motores && data.motores.find((x) => x.motor && x.motor.toLowerCase().includes(m.key))) || {};
-      const card = document.createElement("div");
-      card.className = "p-3.5 bg-white border border-slate-200 rounded flex items-center justify-between shadow-sm";
-      card.innerHTML = `
-        <div>
-          <div class="flex items-center gap-2">
-            <span class="text-sm font-bold text-slate-900">${m.name}</span>
-            <span class="fed-badge ${m.cls} text-[9px]">ONLINE</span>
-          </div>
-          <div class="text-[11px] text-slate-500 mt-0.5">${m.desc}</div>
-        </div>
-        <div class="text-right">
-          <div class="mono text-xs font-bold text-emerald-600">● ACTIVO</div>
-          <div class="mono text-[10px] text-slate-400 mt-0.5">${info.latencia_ms || "1.2"} ms</div>
-        </div>
-      `;
-      container.appendChild(card);
-    });
-  } catch (err) {
-    container.innerHTML = `<p class="text-xs py-6 text-center text-red-600 font-mono">${err.message}</p>`;
+    estado.pacientes = await api(`/api/patients?q=${encodeURIComponent(q)}`);
+  } catch (e) {
+    estado.pacientes = [];
+    avisar(e.message, true);
   }
 }
 
-// ---------------------------------------------------------------------------
-// 16. NOTIFICACIONES TOAST
-// ---------------------------------------------------------------------------
-let toastTimeout = null;
-function toast(message, isError = false) {
-  const toastEl = document.getElementById("toast");
-  const msgEl = document.getElementById("toastMsg");
+const nombreDe = (id) => {
+  const p = estado.pacientes.find((x) => x.id_paciente === id);
+  return p ? `${p.nombres} ${p.apellidos}` : `Paciente n.º ${id}`;
+};
 
-  clearTimeout(toastTimeout);
-  msgEl.textContent = message;
-  toastEl.classList.toggle("is-error", isError);
-
-  toastEl.classList.add("visible");
-  toastTimeout = setTimeout(() => {
-    toastEl.classList.remove("visible");
-  }, 2600);
+function pintarPacientes() {
+  cabecera({ titulo: "Pacientes", acciones: btnAccion("nuevo", "+ Registrar paciente") });
+  const q = $("#txtBuscar").value.trim();
+  const doc = estado.inst === "pediatrico" ? "CUI" : "DPI";
+  const todos = estado.pacientes;
+  const lista = todos.filter((p) => estado.filtro === "todos" || (estado.filtro === "baja") === ESTADOS_BAJA.includes(p.estado));
+  const nBaja = todos.filter((p) => ESTADOS_BAJA.includes(p.estado)).length;
+  $("#vista").innerHTML = `
+    ${pestanas([["activos", `Activos (${todos.length - nBaja})`], ["baja", `De baja (${nBaja})`], ["todos", `Todos (${todos.length})`]], estado.filtro, "data-filtro")}
+    ${q ? `<p class="filtro-activo">Resultados para <b>"${esc(q)}"</b> <button type="button" class="btn sutil chico" data-accion="limpiar">Quitar búsqueda</button></p>` : ""}
+    <div class="panel">
+      ${lista.length ? `<table class="tabla-datos">
+        <thead><tr><th>Paciente</th><th>${doc}</th><th>Edad</th><th>Sexo</th><th>Registro</th><th>Estado</th><th class="acc">Acciones</th></tr></thead>
+        <tbody>${lista.map((p) => `<tr>
+          <td><button type="button" class="enlace-paciente" data-id="${p.id_paciente}">
+            <span class="ini" aria-hidden="true">${esc(iniciales(`${p.nombres} ${p.apellidos}`))}</span>${esc(p.apellidos)}, ${esc(p.nombres)}</button></td>
+          <td>${esc(p.dpi)}</td><td>${edad(p.fecha_nacimiento)}</td><td>${p.sexo === "F" ? "F" : "M"}</td>
+          <td>${fecha(p.fecha_registro)}</td>
+          <td>${ESTADOS_BAJA.includes(p.estado) ? `<span class="estado baja">De baja</span>` : (p.estado === "hospitalizado" ? `<span class="estado alerta">Hospitalizado</span>` : `<span class="estado activo">Activo</span>`)}</td>
+          <td class="acc"><button type="button" class="btn primario chico" data-id="${p.id_paciente}">Abrir historial</button></td>
+        </tr>`).join("")}</tbody></table>`
+        : `<div class="vacio-tabla"><p>${q ? `Ningún paciente coincide con "${esc(q)}".` : "No hay pacientes en esta lista."}</p>
+           ${btnAccion("nuevo", "+ Registrar paciente")}</div>`}
+    </div>`;
 }
 
-// ---------------------------------------------------------------------------
-// UTILIDADES
-// ---------------------------------------------------------------------------
-function val(elementId) {
-  return (document.getElementById(elementId)?.value || "").trim();
+// --------------------------------------------------------------------- Inicio
+const ETIQUETAS = { ordenes: "órdenes", hospitalizados: "hospitalizados ahora", vacunas: "vacunas aplicadas" };
+
+async function pintarInicio() {
+  const u = estado.usuario;
+  const nombre = u.nombre_completo.split(" ").slice(0, 2).join(" ");
+  cabecera({ titulo: `${saludo()}, ${esc(nombre)}`, acciones: btnAccion("nuevo", "+ Registrar paciente") });
+  $("#vista").innerHTML = `
+    <div class="cifras" id="inicioCifras"><div class="cifra-caja"><span class="tenue">Cargando…</span></div></div>
+    <div class="inicio-cols">
+      <section class="panel">
+        <header class="panel-cab"><h2>Próximas citas</h2><button type="button" class="btn sutil chico" data-ir="citas">Ver todas</button></header>
+        <div id="inicioCitas"><p class="tenue relleno">Cargando…</p></div>
+      </section>
+      <section class="panel">
+        <header class="panel-cab"><h2>Pacientes recientes</h2><button type="button" class="btn sutil chico" data-ir="pacientes">Ver todos</button></header>
+        <ul class="recientes">${[...estado.pacientes].sort((a, b) => String(b.fecha_registro).localeCompare(String(a.fecha_registro))).slice(0, 5).map((p) => `
+          <li><button type="button" class="enlace-paciente" data-id="${p.id_paciente}"><span class="ini" aria-hidden="true">${esc(iniciales(`${p.nombres} ${p.apellidos}`))}</span>
+            <span><b>${esc(p.nombres)} ${esc(p.apellidos)}</b><small class="tenue">${edad(p.fecha_nacimiento)} · registrado ${fecha(p.fecha_registro)}</small></span></button></li>`).join("")
+          || `<li class="tenue relleno">Aún no hay pacientes.</li>`}</ul>
+      </section>
+    </div>`;
+
+  const [citas, est] = await Promise.all([
+    api("/api/appointments").catch(() => []),
+    api("/api/engine/status").catch(() => null),
+  ]);
+  if (estado.pagina !== "inicio") return;
+
+  const m = est?.motores?.find((x) => x.clave === estado.inst);
+  $("#inicioCifras").innerHTML = Object.entries(m?.conteos || {}).map(([k, v]) =>
+    `<div class="cifra-caja"><span class="cifra">${esc(v)}</span><span>${esc(ETIQUETAS[k] || k)}</span></div>`).join("")
+    + `<div class="cifra-caja motor-caja"><span class="tenue">Base de datos</span><b>${esc(INST[estado.inst].motor)}</b>
+       <span class="estado ${m?.real ? "activo" : "alerta"}">${m?.real ? "Conectado" : "Simulado"}</span></div>`;
+
+  const ahora = new Date().toISOString().slice(0, 16).replace("T", " ");
+  const proximas = citas.filter((c) => c.fecha_hora_programada >= ahora)
+    .sort((a, b) => a.fecha_hora_programada.localeCompare(b.fecha_hora_programada)).slice(0, 5);
+  $("#inicioCitas").innerHTML = proximas.length ? tablaCitas(proximas, false)
+    : `<p class="tenue relleno">No hay citas programadas. Agéndelas desde el historial de cada paciente.</p>`;
 }
 
-function getAuthHeaders() {
-  return {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${state.currentUser?.token || ""}`,
-  };
+// ---------------------------------------------------------------------- Citas
+function tablaCitas(citas, conPaciente = true) {
+  const puedeAtender = puedeRegistrar();
+  return `<table class="tabla-datos">
+    <thead><tr><th>Fecha y hora</th>${conPaciente !== null ? "<th>Paciente</th>" : ""}<th>Motivo</th><th>Profesional</th><th>Estado</th><th class="acc">Acciones</th></tr></thead>
+    <tbody>${citas.map((c) => `<tr>
+      <td class="nowrap"><b>${fecha(c.fecha_hora_programada, true)}</b></td>
+      ${conPaciente !== null ? `<td><button type="button" class="enlace-paciente" data-id="${c.id_paciente}">${esc(nombreDe(c.id_paciente))}</button></td>` : ""}
+      <td>${esc(c.motivo_consulta)}</td>
+      <td>${esc(c.profesional_nombre)}</td>
+      <td><span class="estado ${c.estado_cita === "programada" ? "alerta" : (c.estado_cita === "atendida" ? "activo" : "baja")}">${texto(c.estado_cita)}</span></td>
+      <td class="acc">${c.estado_cita === "programada" && puedeAtender
+        ? `<button type="button" class="btn primario chico" data-atender="${c.id_cita}" data-paciente="${c.id_paciente}">Atender</button>`
+        : `<button type="button" class="btn sutil chico" data-id="${c.id_paciente}">Ver historial</button>`}</td>
+    </tr>`).join("")}</tbody></table>`;
 }
+
+estado.filtroCitas = "proximas";
+async function pintarCitasPagina() {
+  cabecera({ titulo: "Citas" });
+  $("#vista").innerHTML = `<p class="tenue">Cargando…</p>`;
+  const citas = await api("/api/appointments").catch((e) => { avisar(e.message, true); return []; });
+  if (estado.pagina !== "citas") return;
+  const ahora = new Date().toISOString().slice(0, 16).replace("T", " ");
+  const proximas = citas.filter((c) => c.fecha_hora_programada >= ahora).sort((a, b) => a.fecha_hora_programada.localeCompare(b.fecha_hora_programada));
+  const vencidas = citas.filter((c) => c.fecha_hora_programada < ahora);
+  const lista = estado.filtroCitas === "proximas" ? proximas : vencidas;
+  $("#vista").innerHTML = `
+    ${pestanas([["proximas", `Próximas (${proximas.length})`], ["vencidas", `Pendientes de fechas pasadas (${vencidas.length})`]], estado.filtroCitas, "data-filtro-citas")}
+    <div class="panel">${lista.length ? tablaCitas(lista)
+      : `<div class="vacio-tabla"><p>${estado.filtroCitas === "proximas" ? "No hay citas próximas." : "No hay citas pendientes atrasadas."}</p>
+         <p class="tenue">Para agendar, abra el historial de un paciente y use "Agendar cita".</p></div>`}</div>`;
+}
+
+// ---------------------------------------------------------- Estado de motores
+async function pintarMotores() {
+  cabecera({ titulo: "Estado de los motores", acciones: btnAccion("refrescar-motores", "Actualizar", "sutil") });
+  $("#vista").innerHTML = `<p class="tenue">Consultando…</p>`;
+  try {
+    const r = await api("/api/engine/status");
+    if (estado.pagina !== "motores") return;
+    $("#vista").innerHTML = `
+      <p class="intro">Cada institución guarda sus datos en su propio motor. La lógica de negocio es la misma para todos:
+      el enrutador elige el adaptador según la institución del usuario que inicia sesión.</p>
+      <div class="panel"><table class="tabla-datos">
+        <thead><tr><th>Institución</th><th>Motor</th><th>Versión / base</th><th>Datos</th><th>Consistencia</th><th>Estado</th></tr></thead>
+        <tbody>${r.motores.map((m) => {
+          const i = INST[m.clave] || {};
+          return `<tr${m.clave === estado.inst ? ' class="fila-propia"' : ""}>
+            <td><span class="punto" style="background:${i.color}"></span><b>${esc(i.nombre || m.institucion)}</b></td>
+            <td>${esc(m.motor)}</td>
+            <td>${m.real ? `${esc(m.version || "")}<br><span class="tenue">${esc(m.base_datos || "")}</span>` : `<span class="tenue">Simulado en memoria${m.detalle_conexion ? `: ${esc(m.detalle_conexion)}` : ""}</span>`}</td>
+            <td>${Object.entries(m.conteos || {}).map(([k, v]) => `${esc(v)} ${esc(ETIQUETAS[k] || k)}`).join("<br>")}</td>
+            <td class="tenue">${esc(m.consistencia || m.detalle || "")}</td>
+            <td class="nowrap"><span class="estado ${m.estado === "online" ? "activo" : (m.real ? "baja" : "alerta")}">${m.estado === "online" ? "Conectado" : (m.real ? "Error" : "Simulado")}</span>
+              ${m.latencia_ms != null ? `<br><small class="tenue">${m.latencia_ms} ms</small>` : ""}</td>
+          </tr>`;
+        }).join("")}</tbody></table></div>`;
+  } catch (e) {
+    $("#vista").innerHTML = `<p class="error">${esc(e.message)}</p>`;
+  }
+}
+
+// ----------------------------------------------------------------- Expediente
+async function abrirPaciente(id, pestana = null) {
+  const mismo = estado.idSeleccionado === id && estado.pagina === "paciente";
+  estado.idSeleccionado = id;
+  if (!mismo) estado.pestana = pestana || "historial";
+  if (pestana) estado.pestana = pestana;
+  if (!mismo) {
+    estado.pagina = "paciente";
+    cabecera({ migas: `<button type="button" data-ir="pacientes">Pacientes</button>`, titulo: "Abriendo historial…" });
+    $("#vista").innerHTML = "";
+  }
+  try {
+    const [h, esp] = await Promise.all([
+      api(`/api/patients/${id}/history`),
+      esClinico() ? api(`/api/patients/${id}/specialized`).catch(() => null) : Promise.resolve(null),
+    ]);
+    estado.historial = h;
+    estado.especializado = esp;
+    ir("paciente");
+  } catch (e) {
+    avisar(e.message, true);
+  }
+}
+
+function pestanaEspecial() {
+  const inst = estado.inst;
+  const e = estado.especializado;
+  if (inst === "odontologia") return ["especial", "Odontograma"];
+  if (inst === "pediatrico" && e?.control_crecimiento?.length) return ["especial", "Crecimiento y vacunas"];
+  if (inst === "hospital" && e?.hospitalizaciones?.length) return ["especial", "Hospitalizaciones"];
+  return null;
+}
+
+function pintarExpediente() {
+  const h = estado.historial;
+  const p = h.paciente;
+  const deBaja = h.estado !== "activo";
+  const inst = estado.inst;
+  const idTxt = String(p.id_paciente).padStart(6, "0");
+  const anchoBarra = 2 + (p.id_paciente % 3);
+  const doc = inst === "pediatrico" ? "CUI" : "DPI";
+  const ahora = new Date().toISOString().slice(0, 16).replace("T", " ");
+  const proxima = (h.citas || []).filter((c) => c.estado_cita === "programada" && c.fecha_hora_programada >= ahora)
+    .sort((a, b) => a.fecha_hora_programada.localeCompare(b.fecha_hora_programada))[0];
+  const criticos = h.consultas.reduce((n, c) => n + (c.examenes_laboratorio || []).filter((e) => e.alertas_criticas).length, 0);
+  const lab = inst === "laboratorio";
+
+  cabecera({
+    migas: `<button type="button" data-ir="pacientes">Pacientes</button><span aria-hidden="true">/</span><span>Historial n.º ${idTxt}</span>`,
+    titulo: `${esc(p.nombres)} ${esc(p.apellidos)}`,
+    acciones: deBaja ? btnAccion("imprimir", "Imprimir", "sutil") : [
+      puedeRegistrar() ? btnAccion("consulta", lab ? "+ Nuevo resultado" : "+ Nueva consulta") : "",
+      btnAccion("cita", "+ Agendar cita"),
+      btnAccion("editar", "Editar datos", "sutil"),
+      puedeRegistrar() ? btnAccion("baja", "Dar de baja", "peligro") : "",
+      btnAccion("imprimir", "Imprimir", "sutil"),
+    ].join(""),
+  });
+
+  const especial = pestanaEspecial();
+  const lista = [
+    ["historial", `${lab ? "Órdenes y resultados" : "Historial clínico"} (${h.consultas.length})`],
+    ["citas", `Citas (${h.citas.length})`],
+    ["datos", "Datos personales"],
+    ...(especial ? [especial] : []),
+  ];
+  if (!lista.some(([k]) => k === estado.pestana)) estado.pestana = "historial";
+
+  let cuerpo = "";
+  if (estado.pestana === "historial") {
+    cuerpo = h.consultas.length ? `<ol class="linea-tiempo">${h.consultas.map(pintarConsulta).join("")}</ol>`
+      : `<div class="panel vacio-tabla"><p>Todavía no hay registros clínicos para este paciente.</p>
+         ${puedeRegistrar() && !deBaja ? btnAccion("consulta", lab ? "+ Registrar el primer resultado" : "+ Registrar la primera consulta") : ""}</div>`;
+  } else if (estado.pestana === "citas") {
+    cuerpo = `<div class="panel">${h.citas.length ? tablaCitas(h.citas, null)
+      : `<div class="vacio-tabla"><p>Este paciente no tiene citas.</p>${!deBaja ? btnAccion("cita", "+ Agendar cita") : ""}</div>`}</div>`;
+  } else if (estado.pestana === "datos") {
+    cuerpo = `<div class="panel relleno">${pintarDatos(p)}</div>`;
+  } else {
+    cuerpo = pintarEspecializado();
+  }
+
+  $("#vista").innerHTML = `
+    <article class="pulsera" aria-label="Identificación del paciente">
+      <div class="pulsera-broche" aria-hidden="true"></div>
+      <div class="pulsera-datos">
+        <div class="pulsera-fila">
+          <span>${doc} <b>${esc(p.dpi)}</b></span>
+          <span><b>${edad(p.fecha_nacimiento)}</b> · nació el ${fecha(p.fecha_nacimiento)}</span>
+          <span>${p.sexo === "F" ? "Femenino" : "Masculino"}</span>
+          ${p.tipo_sangre ? `<span>Sangre <span class="sangre">${esc(p.tipo_sangre)}</span></span>` : ""}
+          <span class="estado ${deBaja ? "baja" : (p.estado === "hospitalizado" ? "alerta" : "activo")}">
+            ${deBaja ? `Historial ${texto(h.estado)}` : (p.estado === "hospitalizado" ? "Hospitalizado" : "Historial activo")}</span>
+        </div>
+        <dl class="resumen">
+          <div><dt>Consultas</dt><dd>${h.consultas.length}</dd></div>
+          <div><dt>Última atención</dt><dd>${h.consultas[0] ? fecha(h.consultas[0].fecha_hora_atencion) : "Ninguna"}</dd></div>
+          <div><dt>Próxima cita</dt><dd>${proxima ? fecha(proxima.fecha_hora_programada, true) : "Sin agendar"}</dd></div>
+          ${lab ? `<div><dt>Valores críticos</dt><dd class="${criticos ? "alerta-critica" : ""}">${criticos}</dd></div>`
+                : `<div><dt>Historial abierto</dt><dd>${fecha(h.fecha_apertura)}</dd></div>`}
+        </dl>
+      </div>
+      <div class="pulsera-codigo" aria-hidden="true">
+        <div class="barras" style="--a:${anchoBarra}px;--b:${anchoBarra * 2 + 1}px"></div>
+        <span>${idTxt}</span>
+      </div>
+    </article>
+    ${deBaja ? `<p class="aviso-baja"><b>Historial dado de baja.</b> Motivo: ${esc(h.motivo_baja || "no indicado")}. Solo se puede consultar; no admite nuevos registros.</p>` : ""}
+    ${pestanas(lista, estado.pestana)}
+    <div class="pestana-cuerpo">${cuerpo}</div>`;
+}
+
+// Un solo manejador para todos los botones del área de contenido
+$("#contenido").addEventListener("click", async (ev) => {
+  const t = ev.target;
+  const irA = t.closest("[data-ir]");
+  if (irA) { ir(irA.dataset.ir); return; }
+  const filtro = t.closest("[data-filtro]");
+  if (filtro) { estado.filtro = filtro.dataset.filtro; pintarPacientes(); return; }
+  const filtroC = t.closest("[data-filtro-citas]");
+  if (filtroC) { estado.filtroCitas = filtroC.dataset.filtroCitas; pintarCitasPagina(); return; }
+  const pest = t.closest("[data-pestana]");
+  if (pest) { estado.pestana = pest.dataset.pestana; pintarExpediente(); return; }
+  const atender = t.closest("[data-atender]");
+  if (atender) {
+    const idCita = Number(atender.dataset.atender);
+    await abrirPaciente(Number(atender.dataset.paciente), "historial");
+    formConsulta(idCita);
+    return;
+  }
+  const abrir = t.closest("[data-id]");
+  if (abrir) { abrirPaciente(Number(abrir.dataset.id)); return; }
+  const b = t.closest("[data-accion]");
+  if (!b) return;
+  const accion = b.dataset.accion;
+  if (accion === "nuevo") formPaciente(null);
+  if (accion === "limpiar") { $("#txtBuscar").value = ""; await cargarPacientes(""); pintarPacientes(); }
+  if (accion === "refrescar-motores") pintarMotores();
+  if (accion === "consulta") formConsulta();
+  if (accion === "cita") formCita();
+  if (accion === "editar") formPaciente(estado.historial.paciente);
+  if (accion === "baja") formBaja();
+  if (accion === "imprimir") window.print();
+  if (accion === "atender") formConsulta(Number(b.dataset.cita));
+});
+
+function pintarDatos(p) {
+  const filas = [
+    ["Dirección", p.direccion],
+    ["Teléfono", p.telefono],
+    ["Correo", p.correo_electronico],
+  ];
+  if (p.nombre_tutor) {
+    filas.push(["Tutor", `${p.nombre_tutor} (${p.parentesco_tutor || ""})`], ["DPI tutor", p.dpi_tutor],
+      ["Gestación", p.semanas_gestacion ? `${p.semanas_gestacion} semanas` : ""],
+      ["Al nacer", p.peso_nacer_kg ? `${p.peso_nacer_kg} kg, ${p.talla_nacer_cm} cm` : ""]);
+  } else {
+    filas.push(["Emergencia", [p.contacto_emergencia_nombre, p.contacto_emergencia_telefono].filter(Boolean).join(", ")]);
+  }
+  filas.push(["Registro", fecha(p.fecha_registro)]);
+  return `<dl class="datos">${filas.filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${k === "Registro" ? v : esc(v)}</dd>`).join("")}</dl>`;
+}
+
+function pintarCitas(citas) {
+  if (!citas?.length) return `<p class="tenue">Sin citas.</p>`;
+  return `<ul class="citas">${citas.map((c) => `
+    <li>
+      <span class="fecha">${fecha(c.fecha_hora_programada, true)}
+        <span class="estado ${c.estado_cita === "programada" ? "alerta" : (c.estado_cita === "atendida" ? "activo" : "baja")}">${texto(c.estado_cita)}</span></span>
+      <span>${esc(c.motivo_consulta)}</span>
+      <span class="tenue">${esc(c.profesional_nombre)}</span>
+      ${c.estado_cita === "programada" && esClinico() && estado.historial.estado === "activo"
+        ? `<span><button class="btn sutil chico" data-accion="atender" data-cita="${c.id_cita}">Atender esta cita</button></span>` : ""}
+    </li>`).join("")}</ul>`;
+}
+
+function pintarConsulta(c) {
+  const signos = [
+    c.presion_arterial && `<span>PA <b>${esc(c.presion_arterial)}</b></span>`,
+    c.temperatura != null && `<span>Temp. <b>${esc(c.temperatura)} °C</b></span>`,
+    c.pulso != null && `<span>Pulso <b>${esc(c.pulso)} lpm</b></span>`,
+    c.somatometria && `<span>Peso <b>${esc(c.somatometria.peso_kg)} kg</b></span>`,
+    c.somatometria && `<span>Talla <b>${esc(c.somatometria.talla_cm)} cm</b></span>`,
+    c.somatometria?.perimetro_cefalico_cm && `<span>P. cefálico <b>${esc(c.somatometria.perimetro_cefalico_cm)} cm</b></span>`,
+    c.somatometria?.percentil_crecimiento != null && `<span>Percentil <b>${esc(c.somatometria.percentil_crecimiento)}</b></span>`,
+  ].filter(Boolean);
+
+  const recetas = c.recetas?.length ? c.recetas
+    : [...(c.recetas_pediatricas || []), ...c.diagnosticos.flatMap((d) => d.tratamientos.flatMap((t) => t.recetas))];
+
+  const partes = [`<p class="motivo">${esc(c.motivo)}</p>`];
+  if (signos.length) partes.push(`<div class="signos">${signos.join("")}</div>`);
+
+  if (c.diagnosticos.length) {
+    partes.push(`<div><div class="subtitulo">Diagnóstico</div>${c.diagnosticos.map((d) => `
+      <div class="diag"><span class="cie">${esc(d.codigo_cie10 || "—")}</span><span>${esc(d.descripcion)}${d.tipo && d.tipo !== "principal" ? ` <span class="tenue">(${esc(d.tipo)})</span>` : ""}</span>
+      ${d.tratamientos.map((t) => `<span class="trat">Tratamiento: ${esc(t.descripcion)}${t.indicaciones ? ` — ${esc(t.indicaciones)}` : ""}</span>`).join("")}
+      </div>`).join("")}</div>`);
+  }
+
+  if (recetas.length) {
+    partes.push(`<div><div class="subtitulo">Receta</div><table class="tabla"><thead><tr><th>Medicamento</th><th>Dosis</th><th>Frecuencia</th><th class="num">Días</th></tr></thead><tbody>
+      ${recetas.map((r) => `<tr><td>${esc(r.medicamento)}${r.presentacion && r.presentacion !== "No especificada" ? `<br><span class="tenue">${esc(r.presentacion)}</span>` : ""}</td>
+        <td>${esc(r.dosis)}${r.dosis_mg_kg ? `<br><span class="tenue">${esc(r.dosis_mg_kg)} mg/kg</span>` : ""}</td>
+        <td>${esc(r.frecuencia)}${r.via_administracion ? `<br><span class="tenue">${esc(r.via_administracion)}</span>` : ""}</td>
+        <td class="num">${esc(r.duracion_dias)}</td></tr>`).join("")}</tbody></table></div>`);
+  }
+
+  if (c.vacunaciones?.length) {
+    partes.push(`<div><div class="subtitulo">Vacunas aplicadas</div>${c.vacunaciones.map((v) =>
+      `<div>${esc(v.nombre_vacuna)} — ${esc(v.dosis)} <span class="tenue">(lote ${esc(v.lote)}${v.proxima_fecha_refuerzo ? `, refuerzo ${fecha(v.proxima_fecha_refuerzo)}` : ""})</span></div>`).join("")}</div>`);
+  }
+
+  if (c.procedimientos_dentales?.length) {
+    const total = c.procedimientos_dentales.reduce((s, p) => s + Number(p.costo || 0), 0);
+    partes.push(`<div><div class="subtitulo">Procedimientos</div><table class="tabla"><thead><tr><th>Pieza</th><th>Procedimiento</th><th class="num">Costo</th></tr></thead><tbody>
+      ${c.procedimientos_dentales.map((p) => `<tr><td><b>${esc(p.pieza_dental)}</b></td><td>${esc(p.nombre_procedimiento)}${p.observaciones ? `<br><span class="tenue">${esc(p.observaciones)}</span>` : ""}</td><td class="num">Q${Number(p.costo).toFixed(2)}</td></tr>`).join("")}
+      <tr><td></td><td><b>Total</b></td><td class="num"><b>Q${total.toFixed(2)}</b></td></tr></tbody></table></div>`);
+  }
+
+  for (const ex of c.examenes_laboratorio || []) {
+    partes.push(`<div><div class="subtitulo">${esc(ex.nombre_examen)} <span class="tenue">(${esc(ex.codigo_examen)}, ${texto(ex.estado)})</span>
+      ${ex.alertas_criticas ? `<span class="alerta-critica"> · valor crítico</span>` : ""}</div>
+      <table class="tabla"><thead><tr><th>Parámetro</th><th class="num">Resultado</th><th>Referencia</th><th></th></tr></thead><tbody>
+      ${ex.parametros.map((p) => `<tr><td>${esc(p.nombre_parametro)}</td>
+        <td class="num"><b>${esc(p.valor_resultado)}</b> ${esc(p.unidad_medida)}</td>
+        <td class="tenue">${p.rango_referencia_min != null || p.rango_referencia_max != null ? `${esc(p.rango_referencia_min ?? "")} – ${esc(p.rango_referencia_max ?? "")}` : esc(p.valor_referencia_cualitativo || "")}</td>
+        <td><span class="flag ${esc(p.interpretacion_alerta)}">${texto(p.interpretacion_alerta).toLowerCase()}</span></td></tr>`).join("")}
+      </tbody></table>
+      ${ex.conclusiones_diagnosticas ? `<p class="notas">${esc(ex.conclusiones_diagnosticas)}</p>` : ""}</div>`);
+  }
+
+  if (c.hospitalizacion) {
+    const ho = c.hospitalizacion;
+    partes.push(`<div><div class="subtitulo">Hospitalización</div>
+      <div>Habitación <b>${esc(ho.numero_habitacion)}</b> · ingreso ${fecha(ho.fecha_ingreso, true)} · <span class="estado ${ho.estado === "ingresado" ? "alerta" : "activo"}">${texto(ho.estado)}</span></div>
+      <div class="tenue">${esc(ho.motivo_ingreso)}</div></div>`);
+  }
+
+  if (c.notas_clinicas) partes.push(`<div><div class="subtitulo">Notas</div><p class="notas">${esc(c.notas_clinicas)}</p></div>`);
+
+  return `<li class="evento">
+    <div class="evento-cab"><time>${fecha(c.fecha_hora_atencion, true)}</time>
+      <span class="tenue">${texto(c.tipo_consulta)}${c.profesional_nombre ? ` · ${esc(c.profesional_nombre)}` : ""}</span></div>
+    <div class="tarjeta">${partes.join("")}</div></li>`;
+}
+
+function pintarEspecializado() {
+  const e = estado.especializado;
+  const inst = estado.inst;
+  if (inst === "odontologia") {
+    const tratadas = new Set(estado.historial.datos_adicionales?.piezas_tratadas || Object.keys(e?.odontograma || {}));
+    const diente = (n) => `<span class="diente ${tratadas.has(String(n)) ? "tratado" : ""} ${n === 21 || n === 31 ? "medio" : ""}">${n}</span>`;
+    return `<section class="bloque"><div class="panel relleno odontograma">
+      <div class="arcada">${PIEZAS_SUP.map(diente).join("")}</div>
+      <div class="arcada">${PIEZAS_INF.map(diente).join("")}</div>
+      <p class="ayuda">Las piezas resaltadas tienen procedimientos registrados.</p></div></section>`;
+  }
+  if (!e) return "";
+  if (inst === "pediatrico" && e.control_crecimiento?.length) {
+    return `<section class="bloque"><div class="panel relleno"><div class="subtitulo">Control de crecimiento</div>
+      <table class="tabla"><thead><tr><th>Fecha</th><th class="num">Peso</th><th class="num">Talla</th><th class="num">Pc.</th></tr></thead><tbody>
+      ${e.control_crecimiento.map((r) => `<tr><td>${fecha(r.fecha)}</td><td class="num">${esc(r.peso_kg)} kg</td><td class="num">${esc(r.talla_cm)} cm</td><td class="num">${esc(r.percentil ?? "—")}</td></tr>`).join("")}
+      </tbody></table>
+      ${e.esquema_vacunacion?.length ? `<div class="subtitulo" style="margin-top:14px">Esquema de vacunación</div>
+      ${e.esquema_vacunacion.map((v) => `<div>${esc(v.nombre_vacuna)} <span class="tenue">· ${esc(v.dosis)} · ${fecha(v.fecha_aplicacion)}</span></div>`).join("")}` : ""}
+      </div></section>`;
+  }
+  if (inst === "hospital" && e.hospitalizaciones?.length) {
+    return `<section class="bloque"><div class="panel relleno"><ul class="citas">
+      ${e.hospitalizaciones.map((h) => `<li><span class="fecha">${esc(h.numero_habitacion)} <span class="estado ${h.estado === "ingresado" ? "alerta" : "activo"}">${texto(h.estado)}</span></span>
+        <span>${fecha(h.fecha_ingreso, true)}${h.fecha_egreso ? ` a ${fecha(h.fecha_egreso, true)}` : ""}</span>
+        <span class="tenue">${esc(h.motivo_ingreso)}</span></li>`).join("")}</ul></div></section>`;
+  }
+  return "";
+}
+
+// ------------------------------------------------------------------- Modal
+let alAceptar = null;
+
+function abrirModal(titulo, html, textoBoton, accion) {
+  $("#modalTitulo").textContent = titulo;
+  $("#modalCuerpo").innerHTML = html;
+  $("#modalAceptar").textContent = textoBoton;
+  $("#modalAceptar").hidden = !textoBoton;
+  $(".modal-pie [data-cerrar]").textContent = textoBoton ? "Cancelar" : "Cerrar";
+  $("#modalError").hidden = true;
+  alAceptar = accion;
+  $("#modal").showModal();
+  const primero = $("#modalCuerpo input, #modalCuerpo select, #modalCuerpo textarea");
+  if (primero) primero.focus();
+}
+
+document.querySelectorAll("[data-cerrar]").forEach((b) => b.addEventListener("click", () => $("#modal").close()));
+
+$("#modalForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  if (!alAceptar) return;
+  const form = ev.target;
+  const faltante = [...form.querySelectorAll("[required]")].find((i) => !i.value.trim());
+  if (faltante) {
+    mostrarErrorModal(`Complete el campo "${faltante.closest("label")?.firstChild?.textContent.trim() || faltante.name}".`);
+    faltante.focus();
+    return;
+  }
+  const boton = $("#modalAceptar");
+  boton.disabled = true;
+  try {
+    await alAceptar(new FormData(form));
+    $("#modal").close();
+  } catch (e) {
+    mostrarErrorModal(e.message);
+  } finally {
+    boton.disabled = false;
+  }
+});
+
+function mostrarErrorModal(msg) {
+  const el = $("#modalError");
+  el.textContent = msg;
+  el.hidden = false;
+}
+
+const datosForm = (fd) => Object.fromEntries([...fd.entries()].map(([k, v]) => [k, typeof v === "string" ? v.trim() : v]));
+const opciones = (pares, sel) => pares.map(([v, t]) => `<option value="${esc(v)}" ${v === sel ? "selected" : ""}>${esc(t)}</option>`).join("");
+const campo = (nombre, etiqueta, { tipo = "text", req = false, valor = "", clase = "", extra = "" } = {}) =>
+  `<label class="${clase}"><span class="${req ? "requerido" : ""}">${etiqueta}</span><input name="${nombre}" type="${tipo}" value="${esc(valor)}" ${req ? "required" : ""} ${extra}></label>`;
+
+// ---------------------------------------------------------- Paciente (nuevo/editar)
+
+function formPaciente(p) {
+  const inst = estado.inst;
+  const editar = Boolean(p);
+  const v = p || {};
+  const ped = inst === "pediatrico";
+  const html = `
+    <fieldset><legend>Datos personales</legend><div class="rejilla">
+      ${campo("nombres", "Nombres", { req: true, valor: v.nombres })}
+      ${campo("apellidos", "Apellidos", { req: true, valor: v.apellidos })}
+      ${campo("fecha_nacimiento", "Fecha de nacimiento", { tipo: "date", req: true, valor: v.fecha_nacimiento })}
+      <label><span class="requerido">Sexo</span><select name="sexo" required>${opciones([["F", "Femenino"], ["M", "Masculino"]], v.sexo)}</select></label>
+      ${editar ? "" : campo("dpi", ped ? "CUI del niño" : "DPI", { req: true, extra: 'inputmode="numeric" maxlength="20"' })}
+      ${!ped && inst !== "odontologia" ? `<label>Tipo de sangre<select name="tipo_sangre">${opciones([["", "No indicado"], ...["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-"].map((t) => [t, t])], v.tipo_sangre || "")}</select></label>` : ""}
+      ${campo("direccion", "Dirección", { valor: v.direccion, clase: "doble" })}
+      ${!ped ? campo("telefono", "Teléfono", { valor: v.telefono }) : ""}
+      ${!ped ? campo("correo_electronico", "Correo", { tipo: "email", valor: v.correo_electronico }) : ""}
+    </div></fieldset>
+    ${ped ? `
+    <fieldset><legend>Tutor responsable</legend><div class="rejilla">
+      ${campo("nombre_tutor", "Nombre del tutor", { req: true, valor: v.nombre_tutor, clase: "doble" })}
+      ${campo("parentesco_tutor", "Parentesco", { req: true, valor: v.parentesco_tutor })}
+      ${campo("dpi_tutor", "DPI del tutor", { req: true, valor: v.dpi_tutor })}
+      ${campo("telefono_tutor", "Teléfono del tutor", { req: true, valor: v.telefono_tutor })}
+    </div></fieldset>
+    <fieldset><legend>Datos al nacer</legend><div class="rejilla">
+      ${campo("semanas_gestacion", "Semanas de gestación", { tipo: "number", valor: v.semanas_gestacion, extra: 'min="20" max="45"' })}
+      ${campo("peso_nacer_kg", "Peso al nacer (kg)", { tipo: "number", valor: v.peso_nacer_kg, extra: 'step="0.01"' })}
+      ${campo("talla_nacer_cm", "Talla al nacer (cm)", { tipo: "number", valor: v.talla_nacer_cm, extra: 'step="0.1"' })}
+    </div></fieldset>` : `
+    <fieldset><legend>Contacto de emergencia</legend><div class="rejilla">
+      ${campo("contacto_emergencia_nombre", "Nombre", { valor: v.contacto_emergencia_nombre, clase: "doble" })}
+      ${campo("contacto_emergencia_telefono", "Teléfono", { valor: v.contacto_emergencia_telefono })}
+    </div></fieldset>`}`;
+
+  abrirModal(editar ? "Editar datos del paciente" : "Registrar paciente nuevo", html,
+    editar ? "Guardar cambios" : "Registrar paciente", async (fd) => {
+      const datos = datosForm(fd);
+      if (editar) {
+        await api(`/api/patients/${p.id_paciente}`, { method: "PUT", body: datos });
+        avisar("Datos guardados");
+        await cargarPacientes();
+        abrirPaciente(p.id_paciente, "datos");
+      } else {
+        const nuevo = await api("/api/patients", { method: "POST", body: datos });
+        avisar(`Paciente registrado con historial n.º ${nuevo.id_paciente}`);
+        $("#txtBuscar").value = "";
+        await cargarPacientes("");
+        estado.idSeleccionado = null;
+        abrirPaciente(nuevo.id_paciente);
+      }
+    });
+}
+
+// ---------------------------------------------------------------------- Cita
+function formCita() {
+  const odont = estado.inst === "odontologia" ? (estado.catalogos.odontologos || []) : [];
+  const manana = new Date(Date.now() + 86400000);
+  manana.setHours(9, 0, 0, 0);
+  const local = new Date(manana.getTime() - manana.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  const html = `<div class="rejilla">
+    ${campo("fecha_hora_programada", "Fecha y hora", { tipo: "datetime-local", req: true, valor: local })}
+    ${odont.length ? `<label>Odontólogo<select name="id_odontologo">${opciones(odont.map((o) => [String(o.id_odontologo), o.nombre_completo]))}</select></label>` : ""}
+    <label class="completo"><span class="requerido">Motivo</span><input name="motivo_consulta" required maxlength="200"></label>
+  </div>`;
+  abrirModal(`Agendar cita para ${estado.historial.paciente.nombres}`, html, "Agendar cita", async (fd) => {
+    const d = datosForm(fd);
+    await api("/api/appointments", { method: "POST", body: { ...d, id_paciente: estado.idSeleccionado } });
+    avisar("Cita agendada");
+    abrirPaciente(estado.idSeleccionado, "citas");
+  });
+}
+
+// ---------------------------------------------------------------------- Baja
+function formBaja() {
+  const html = `
+    <p>El historial no se borra: queda archivado y solo se podrá consultar. Las citas pendientes se cancelan en la misma operación.</p>
+    <div class="rejilla">
+      <label><span class="requerido">Causa</span><select name="categoria" required>
+        ${opciones([["traslado", "Traslado a otra institución"], ["fallecimiento", "Fallecimiento"], ["administrativa", "Otra causa administrativa"]])}
+      </select></label>
+      <label class="completo"><span class="requerido">Detalle del motivo</span><input name="motivo_baja" required maxlength="150" placeholder="Ej. Trasladado al Hospital Regional de Occidente"></label>
+    </div>`;
+  abrirModal("Dar de baja el historial", html, "Dar de baja", async (fd) => {
+    const d = datosForm(fd);
+    const r = await api(`/api/patients/${estado.idSeleccionado}/deactivate`, { method: "POST", body: d });
+    avisar(`Historial ${texto(r.estado)}${r.citas_canceladas ? ` · ${r.citas_canceladas} cita(s) cancelada(s)` : ""}`);
+    await cargarPacientes();
+    abrirPaciente(estado.idSeleccionado);
+  });
+}
+
+// ------------------------------------------------------------------ Consulta
+function filaReceta(ped) {
+  return `<div class="fila-item" data-fila="receta">
+    <label>Medicamento<input data-k="medicamento" required list="dlMedicamentos" autocomplete="off"></label>
+    <label>Presentación<input data-k="presentacion" placeholder="${ped ? "Suspensión 250 mg/5 ml" : "Tabletas 500 mg"}"></label>
+    ${ped ? `<label>Dosis (mg/kg)<input data-k="dosis_mg_kg" type="number" step="0.1"></label>
+             <label>Concentración (mg/ml)<input data-k="concentracion_mg_ml" type="number" step="0.1"></label>`
+          : `<label>Dosis<input data-k="dosis" placeholder="1 tableta"></label>
+             <label>Vía<select data-k="via_administracion">${opciones([["Oral", "Oral"], ["Intravenosa", "Intravenosa"], ["Intramuscular", "Intramuscular"], ["Subcutánea", "Subcutánea"], ["Tópica", "Tópica"]])}</select></label>`}
+    <label>Frecuencia<input data-k="frecuencia" placeholder="Cada 8 horas"></label>
+    <label>Días<input data-k="duracion_dias" type="number" min="1" value="5"></label>
+    <button type="button" class="btn sutil chico quitar" data-quitar>Quitar</button>
+  </div>`;
+}
+
+function filaProcedimiento() {
+  const procs = estado.catalogos.procedimientos || [];
+  return `<div class="fila-item" data-fila="procedimiento">
+    <label>Procedimiento${procs.length
+      ? `<select data-k="id_procedimiento">${opciones(procs.map((p) => [String(p.id_procedimiento), `${p.nombre_procedimiento} (Q${p.costo})`]))}</select>`
+      : `<input data-k="nombre_procedimiento" required>`}</label>
+    <label>Pieza<input data-k="pieza_dental" placeholder="36" required></label>
+    <label>Costo (Q)<input data-k="costo" type="number" step="0.01" placeholder="Del catálogo"></label>
+    <label>Observaciones<input data-k="observaciones"></label>
+    <button type="button" class="btn sutil chico quitar" data-quitar>Quitar</button>
+  </div>`;
+}
+
+function filaParametro(p = {}) {
+  return `<div class="fila-item param" data-fila="parametro">
+    <label>Parámetro<input data-k="nombre_parametro" value="${esc(p.nombre_parametro)}" required></label>
+    <label>Resultado<input data-k="valor_resultado"></label>
+    <label>Unidad<input data-k="unidad_medida" value="${esc(p.unidad_medida)}"></label>
+    <label>Mín.<input data-k="rango_referencia_min" type="number" step="any" value="${esc(p.rango_referencia_min)}"></label>
+    <label>Máx.<input data-k="rango_referencia_max" type="number" step="any" value="${esc(p.rango_referencia_max)}"></label>
+    <label>Referencia (texto)<input data-k="valor_referencia_cualitativo" value="${esc(p.valor_referencia_cualitativo)}"></label>
+    <button type="button" class="btn sutil chico quitar" data-quitar>Quitar</button>
+  </div>`;
+}
+
+function formConsulta(idCita = null) {
+  const inst = estado.inst;
+  const ped = inst === "pediatrico";
+  const lab = inst === "laboratorio";
+  const dent = inst === "odontologia";
+  const examenes = estado.catalogos.tipos_examen?.length ? estado.catalogos.tipos_examen : EXAMENES_RESPALDO;
+  const cita = idCita ? estado.historial.citas.find((c) => c.id_cita === idCita) : null;
+
+  const html = `
+    <fieldset><legend>${lab ? "Orden de laboratorio" : "Consulta"}</legend><div class="rejilla">
+      <label class="completo"><span class="requerido">Motivo</span><input name="motivo" required maxlength="200" value="${esc(cita?.motivo_consulta || "")}"></label>
+      <label>${lab ? "Prioridad" : "Tipo"}<select name="tipo_consulta">${opciones(INST[inst].tipos)}</select></label>
+      ${!lab && !dent ? `
+        ${!ped ? campo("presion_arterial", "Presión arterial", { extra: 'placeholder="120/80"' }) : ""}
+        ${campo("temperatura", "Temperatura (°C)", { tipo: "number", extra: 'step="0.1" min="30" max="45"' })}
+        ${campo("pulso", ped ? "Frecuencia cardiaca" : "Pulso (lpm)", { tipo: "number" })}` : ""}
+      ${cita ? `<p class="ayuda completo">Se registrará como atención de la cita del ${fecha(cita.fecha_hora_programada, true)}.</p>` : ""}
+    </div></fieldset>
+
+    ${ped ? `<fieldset><legend>Somatometría</legend><div class="rejilla">
+      ${campo("peso_kg", "Peso (kg)", { tipo: "number", req: true, extra: 'step="0.01" min="0.5"' })}
+      ${campo("talla_cm", "Talla (cm)", { tipo: "number", req: true, extra: 'step="0.1" min="20"' })}
+      ${campo("perimetro_cefalico_cm", "Perímetro cefálico (cm)", { tipo: "number", extra: 'step="0.1"' })}
+      ${campo("percentil_crecimiento", "Percentil OMS", { tipo: "number", extra: 'step="0.1" min="0" max="100"' })}
+    </div></fieldset>` : ""}
+
+    ${lab ? `<fieldset><legend>Examen y resultados</legend><div class="rejilla">
+      <label class="doble"><span class="requerido">Tipo de examen</span><select name="codigo_examen" id="selExamen" required>
+        ${opciones(examenes.map((e) => [e.codigo, `${e.codigo} · ${e.nombre_examen}`]))}</select></label>
+      ${campo("tipo_muestra", "Muestra", { extra: 'placeholder="Sangre con EDTA"' })}
+    </div>
+    <p class="ayuda">Cada examen tiene parámetros distintos; se cargan los del tipo elegido y puede agregar más.</p>
+    <div class="filas" id="filasParametros"></div>
+    <button type="button" class="btn sutil chico" data-agregar="parametro">Agregar parámetro</button>
+    <div class="rejilla">
+      <label class="completo">Conclusiones<textarea name="conclusiones_diagnosticas"></textarea></label>
+      <label class="completo">Observaciones técnicas<input name="observaciones_tecnicas"></label>
+    </div></fieldset>` : ""}
+
+    ${dent ? `<fieldset><legend>Procedimientos por pieza</legend>
+      <div class="odontograma">
+        <div class="arcada">${PIEZAS_SUP.map((n) => `<button type="button" class="diente ${n === 21 ? "medio" : ""}" data-pieza="${n}">${n}</button>`).join("")}</div>
+        <div class="arcada">${PIEZAS_INF.map((n) => `<button type="button" class="diente ${n === 31 ? "medio" : ""}" data-pieza="${n}">${n}</button>`).join("")}</div>
+        <p class="ayuda">Toque una pieza para agregar un procedimiento en ella.</p>
+      </div>
+      <div class="filas" id="filasProcedimientos"></div>
+      <button type="button" class="btn sutil chico" data-agregar="procedimiento">Agregar procedimiento general</button>
+    </fieldset>` : ""}
+
+    <fieldset><legend>${lab ? "Diagnóstico presuntivo" : "Diagnóstico"}</legend><div class="rejilla">
+      ${campo("codigo_cie10", "Código CIE-10", { extra: 'placeholder="Escriba o elija" maxlength="10" list="dlCie10" autocomplete="off"' })}
+      <label class="doble">Descripción<input name="descripcion_diagnostico" maxlength="300"></label>
+      ${!lab ? `${campo("descripcion_tratamiento", "Tratamiento", { clase: "doble" })}
+      ${campo("indicaciones_tratamiento", "Indicaciones", { clase: "doble" })}` : ""}
+    </div></fieldset>
+
+    ${ped ? `<fieldset><legend>Vacuna aplicada <span class="tenue">(opcional)</span></legend><div class="rejilla">
+      ${campo("nombre_vacuna", "Vacuna", { clase: "doble" })}
+      ${campo("dosis_vacuna", "Dosis", { extra: 'placeholder="2.ª dosis"' })}
+      ${campo("lote_vacuna", "Lote")}
+      ${campo("proxima_fecha_refuerzo", "Próximo refuerzo", { tipo: "date" })}
+    </div></fieldset>` : ""}
+
+    ${!lab ? `<fieldset><legend>Receta</legend>
+      ${ped ? `<p class="ayuda">La dosis en ml se calcula con el peso: mg/kg × kg ÷ concentración.</p>` : ""}
+      <div class="filas" id="filasRecetas"></div>
+      <button type="button" class="btn sutil chico" data-agregar="receta">Agregar medicamento</button>
+    </fieldset>` : ""}
+
+    ${inst === "hospital" ? `<fieldset><legend>Hospitalización</legend><div class="rejilla">
+      <label class="check completo"><input type="checkbox" name="requiere_hospitalizacion" value="1"> Ingresar al paciente</label>
+      ${campo("numero_habitacion", "Habitación", { extra: 'placeholder="HAB-210"' })}
+      ${campo("motivo_hospitalizacion", "Motivo de ingreso", { clase: "doble" })}
+    </div></fieldset>` : ""}
+
+    <datalist id="dlCie10">${(CIE10[inst] || []).map(([c, d]) => `<option value="${c}">${esc(d)}</option>`).join("")}</datalist>
+    <datalist id="dlMedicamentos">${(MEDICAMENTOS[inst] || []).map((m) => `<option value="${esc(m)}"></option>`).join("")}</datalist>
+    ${!lab ? `<label>Notas clínicas<textarea name="notas_clinicas"></textarea></label>`
+           : `<label>Observaciones de la orden<textarea name="notas_clinicas"></textarea></label>`}`;
+
+  abrirModal(lab ? "Registrar resultado de examen" : "Registrar consulta", html,
+    lab ? "Guardar resultado" : "Guardar consulta", async (fd) => {
+      const d = datosForm(fd);
+      d.id_paciente = estado.idSeleccionado;
+      if (idCita) d.id_cita = idCita;
+      d.requiere_hospitalizacion = fd.get("requiere_hospitalizacion") === "1";
+      d.recetas = leerFilas("receta");
+      d.procedimientos = leerFilas("procedimiento");
+      d.parametros = leerFilas("parametro");
+      if (d.recetas.length && !d.codigo_cie10 && !d.descripcion_diagnostico) {
+        throw new Error("Para recetar se necesita un diagnóstico.");
+      }
+      await api("/api/consultations", { method: "POST", body: d });
+      avisar(lab ? "Resultado guardado" : "Consulta guardada");
+      abrirPaciente(estado.idSeleccionado, "historial");
+    });
+
+  const cie = $('#modalCuerpo [name="codigo_cie10"]');
+  cie.addEventListener("change", () => {
+    const desc = $('#modalCuerpo [name="descripcion_diagnostico"]');
+    const hallado = (CIE10[inst] || []).find(([c]) => c.toLowerCase() === cie.value.trim().toLowerCase());
+    if (hallado && !desc.value.trim()) desc.value = hallado[1];
+  });
+
+  if (lab) {
+    const cargar = () => {
+      const ex = examenes.find((e) => e.codigo === $("#selExamen").value);
+      $("#filasParametros").innerHTML = (ex?.parametros_plantilla || [{}]).map(filaParametro).join("");
+    };
+    $("#selExamen").addEventListener("change", cargar);
+    cargar();
+  }
+}
+
+function leerFilas(tipo) {
+  return [...document.querySelectorAll(`#modalCuerpo [data-fila="${tipo}"]`)].map((f) =>
+    Object.fromEntries([...f.querySelectorAll("[data-k]")].map((i) => [i.dataset.k, i.value.trim()])));
+}
+
+$("#modalCuerpo").addEventListener("click", (ev) => {
+  const agregar = ev.target.closest("[data-agregar]");
+  if (agregar) {
+    const tipo = agregar.dataset.agregar;
+    const cont = { receta: "#filasRecetas", procedimiento: "#filasProcedimientos", parametro: "#filasParametros" }[tipo];
+    const html = tipo === "receta" ? filaReceta(estado.inst === "pediatrico") : tipo === "procedimiento" ? filaProcedimiento() : filaParametro();
+    $(cont).insertAdjacentHTML("beforeend", html);
+    $(cont).lastElementChild.querySelector("input, select").focus();
+    return;
+  }
+  const quitar = ev.target.closest("[data-quitar]");
+  if (quitar) { quitar.closest(".fila-item").remove(); return; }
+  const pieza = ev.target.closest("[data-pieza]");
+  if (pieza) {
+    $("#filasProcedimientos").insertAdjacentHTML("beforeend", filaProcedimiento());
+    const fila = $("#filasProcedimientos").lastElementChild;
+    fila.querySelector('[data-k="pieza_dental"]').value = pieza.dataset.pieza;
+    pieza.classList.add("elegido");
+    fila.querySelector("select, input").focus();
+  }
+});
+
+// -------------------------------------------------------------------- Inicio
+(async function inicio() {
+  const s = leerSesion();
+  if (s?.token) {
+    estado.token = s.token;
+    try {
+      const u = await api("/api/auth/me");
+      entrar({ ...u, token: s.token });
+      return;
+    } catch (_) {
+      guardarSesion(null);
+      estado.token = null;
+    }
+  }
+  iniciarLogin();
+})();

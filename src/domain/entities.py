@@ -54,6 +54,7 @@ class User:
     motor_asignado: DatabaseEngine
     numero_colegiado: Optional[str] = None
     token: Optional[str] = None
+    id_profesional: Optional[int] = None
 
 
 @dataclass
@@ -99,6 +100,7 @@ class Prescription:
     # Pediátrico
     dosis_mg_kg: Optional[float] = None
     dosis_calculada_ml: Optional[float] = None
+    presentacion: Optional[str] = None
 
 
 @dataclass
@@ -202,6 +204,8 @@ class Consultation:
     tipo_consulta: str = "ordinaria"
     profesional_nombre: Optional[str] = None
     diagnosticos: List[Diagnosis] = field(default_factory=list)
+    # Todas las recetas emitidas en la consulta (vista uniforme para la interfaz)
+    recetas: List[Prescription] = field(default_factory=list)
     # Específicos por institución
     hospitalizacion: Optional[HospitalizationRecord] = None
     somatometria: Optional[SomatometryRecord] = None
