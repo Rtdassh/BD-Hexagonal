@@ -111,6 +111,25 @@ class TestFirestore(FlujoComun, unittest.TestCase):
     consulta_extra = {"procedimientos": [{"id_procedimiento": 1, "pieza_dental": "11"}]}
 
 
+def _cama_libre(a, excepto=()):
+    for d in a.list_departments():
+        for h in d["habitaciones"]:
+            if h["estado"] == "disponible" and len(h["ocupantes"]) < h["camas"] and h["codigo"] not in excepto:
+                return h["codigo"]
+    raise unittest.SkipTest("No hay camas libres")
+
+
+def _ingresar(a, nombre):
+    dpi = str(int(time.time() * 1000000))[-13:]
+    p = a.create_patient({"nombres": nombre, "apellidos": "Prueba", "fecha_nacimiento": "1990-01-01",
+                          "sexo": "M", "dpi": dpi})
+    a.register_consultation({"id_paciente": p.id_paciente, "motivo": "Ingreso de prueba", "id_profesional": 1,
+                             "codigo_cie10": "K35.8", "descripcion_diagnostico": "Apendicitis",
+                             "requiere_hospitalizacion": True, "numero_habitacion": _cama_libre(a)})
+    hosp = next(h for h in a.list_hospitalizations() if h["id_paciente"] == p.id_paciente)
+    return p, hosp, dpi
+
+
 class TestHospitalCirugiasEnfermeria(unittest.TestCase):
     """Reglas que garantiza PostgreSQL: quirófano y cirujano sin traslapes, máximo por turno."""
 
@@ -119,13 +138,7 @@ class TestHospitalCirugiasEnfermeria(unittest.TestCase):
 
     def test_flujo_quirofano_y_turnos(self):
         a = self.a
-        dpi = str(int(time.time() * 1000))[-13:]
-        p = a.create_patient({"nombres": "Qx", "apellidos": "Prueba", "fecha_nacimiento": "1990-01-01",
-                              "sexo": "M", "dpi": dpi})
-        a.register_consultation({"id_paciente": p.id_paciente, "motivo": "Abdomen agudo", "id_profesional": 1,
-                                 "codigo_cie10": "K35.8", "descripcion_diagnostico": "Apendicitis",
-                                 "requiere_hospitalizacion": True, "numero_habitacion": "HAB-T"})
-        hosp = next(h for h in a.list_hospitalizations() if h["id_paciente"] == p.id_paciente)
+        p, hosp, dpi = _ingresar(a, "Qx")
         cuando = "2031-01-15 10:00"
         c = a.schedule_surgery({"id_paciente": p.id_paciente, "id_medico": 1, "procedimiento": "Apendicectomía",
                                 "codigo_quirofano": "QX-2", "fecha_hora_programada": cuando, "duracion_estimada_min": 60})
@@ -154,6 +167,50 @@ class TestHospitalCirugiasEnfermeria(unittest.TestCase):
         with self.assertRaises(ValueError):   # ya no está ingresado
             a.assign_shift({"id_enfermero": enf.id_profesional, "id_hospitalizacion": hosp["id_hospitalizacion"],
                             "fecha": "2031-01-17", "turno": "tarde"})
+
+
+    def test_habitaciones_y_medicacion(self):
+        a = self.a
+        with self.assertRaises(ValueError):   # sin habitación no hay ingreso
+            pp = a.create_patient({"nombres": "Sin", "apellidos": "Cama", "fecha_nacimiento": "1990-01-01",
+                                   "sexo": "F", "dpi": str(int(time.time() * 1000000))[-13:]})
+            a.register_consultation({"id_paciente": pp.id_paciente, "motivo": "x", "id_profesional": 1,
+                                     "requiere_hospitalizacion": True})
+        p, hosp, dpi = _ingresar(a, "Kardex")
+        hid = hosp["id_hospitalizacion"]
+        self.assertTrue(hosp["departamento"])
+        with self.assertRaises(ValueError):   # habitación llena (CG-304 tiene 1 cama ocupada por el seed)
+            a.change_room(hid, "CG-304")
+        with self.assertRaises(ValueError):   # no existe
+            a.change_room(hid, "ZZ-999")
+        destino = _cama_libre(a, excepto=(hosp["numero_habitacion"],))
+        self.assertEqual(a.change_room(hid, destino)["numero_habitacion"], destino)
+
+        orden = a.create_medication_order({"id_hospitalizacion": hid, "id_medicamento": 2, "id_medico": 1,
+                                           "dosis": "40 mg", "via_administracion": "Intravenosa",
+                                           "frecuencia_horas": 12, "duracion_dias": 2})
+        self.assertEqual(orden["total_dosis"], 4)
+        enf = a.create_nurse({"nombre_completo": "Enf. Kardex", "numero_colegiado": f"K-{dpi}"})
+        dosis = a.list_doses(hid)
+        primera = dosis[0]
+        self.assertEqual(a.apply_dose(primera["id_administracion"], enf.id_profesional)["estado"], "aplicada")
+        with self.assertRaises(ValueError):   # no se aplica dos veces
+            a.apply_dose(primera["id_administracion"], enf.id_profesional)
+        with self.assertRaises(ValueError):   # la última dosis aún no toca
+            a.apply_dose(dosis[-1]["id_administracion"], enf.id_profesional)
+        self.assertEqual(a.omit_dose(dosis[1]["id_administracion"], enf.id_profesional, "Paciente en ayuno")["estado"],
+                         "omitida")
+        susp = a.suspend_medication_order(orden["id_orden"], "Cambio de tratamiento")
+        self.assertEqual((susp["estado"], susp["aplicadas"], susp["omitidas"]), ("suspendida", 1, 1))
+        with self.assertRaises(ValueError):   # orden suspendida
+            a.apply_dose(dosis[2]["id_administracion"], enf.id_profesional)
+        a.create_medication_order({"id_hospitalizacion": hid, "id_medicamento": 4, "id_medico": 1,
+                                   "dosis": "1 g", "frecuencia_horas": 8, "duracion_dias": 1})
+        a.discharge(hid, "alta")
+        self.assertTrue(all(o["estado"] != "activa" for o in a.list_medication_orders(hid)))
+        with self.assertRaises(ValueError):   # ya no se indica medicación tras el alta
+            a.create_medication_order({"id_hospitalizacion": hid, "id_medicamento": 4, "id_medico": 1,
+                                       "dosis": "1 g", "frecuencia_horas": 8})
 
 
 if __name__ == "__main__":

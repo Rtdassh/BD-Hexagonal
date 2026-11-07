@@ -83,16 +83,24 @@ python -m pytest tests -v
 `tests/test_motores_reales.py` corre **el mismo flujo** (registrar paciente, cita, consulta con diagnóstico,
 cita repetida rechazada, filtro de secretaria, baja y bloqueo) contra los 4 motores reales.
 
-### Hospital General: quirófanos y enfermería
+### Hospital General: quirófanos, habitaciones, enfermería y medicación
 
-Solo el administrador del hospital ve dos secciones extra en el menú:
+Solo el administrador del hospital ve tres secciones extra en el menú:
 
 - **Quirófanos**: tablero de QX-1, QX-2 y QX-3 (libre o en uso), agenda del día, pendientes y búsqueda por fecha.
   Una cirugía pasa por *programada → en curso → realizada* o *cancelada*. PostgreSQL rechaza programar dos
   cirugías que se traslapen en el mismo quirófano o con el mismo cirujano.
 - **Enfermería**: pacientes ingresados por turno (mañana 07–15, tarde 15–23, noche 23–07) con sus enfermeros
   asignados y la carga de cada enfermero. Máximo 6 pacientes por enfermero por turno y solo pacientes ingresados
-  (lo verifica un trigger de PostgreSQL).
+  (lo verifica un trigger de PostgreSQL). Abajo aparecen los **medicamentos de ese turno** para registrar quién
+  aplicó cada dosis.
+- **Habitaciones**: los 5 departamentos (Medicina Interna, Cardiología, Traumatología, Cirugía General y Cuidados
+  Intensivos) con sus habitaciones y camas, libres u ocupadas. Al ingresar a un paciente desde la consulta se elige
+  la habitación; luego se puede cambiar. Un trigger impide ocupar más camas de las que tiene la habitación.
+- **Medicación del internamiento**: en la ficha del paciente ingresado, *Indicar medicamento* (dosis, vía, cada
+  cuántas horas y cuántos días). PostgreSQL genera cada dosis con `generate_series`; cada dosis muestra al enfermero
+  encargado (el asignado al paciente en el turno en que cae) y se registra como aplicada (quién y a qué hora) o no
+  aplicada (con motivo). Una dosis no se registra dos veces, ni con la orden suspendida o el paciente ya de alta.
 - En **Personal médico** hay una pestaña para **Enfermeros**, y en cada paciente la pestaña
   **Internamiento y cirugías** permite registrar el egreso (alta o referido), asignar enfermeros y programar cirugías.
 
@@ -179,7 +187,7 @@ cuentas con permisos limitados.
 
 **Modelado**
 
-- *PostgreSQL*: 3FN. `Receta → Tratamiento → Diagnóstico → Consulta → Cita → Paciente`; catálogos de `Medicamento` y `Especialidad`. Quirófanos y enfermería: `Quirofano`, `Cirugia` (paciente, cirujano, hospitalización, quirófano), `Enfermero` y `Asignacion_Turno` (enfermero × hospitalización × fecha × turno).
+- *PostgreSQL*: 3FN. `Receta → Tratamiento → Diagnóstico → Consulta → Cita → Paciente`; catálogos de `Medicamento` y `Especialidad`. Quirófanos y enfermería: `Quirofano`, `Cirugia` (paciente, cirujano, hospitalización, quirófano), `Enfermero` y `Asignacion_Turno` (enfermero × hospitalización × fecha × turno). Camas: `Departamento` y `Habitacion` (FK desde `Hospitalizacion.numero_habitacion`). Medicación: `Orden_Medicacion` (hospitalización, medicamento, médico, frecuencia) y `Administracion_Medicamento` (una fila por dosis, con el enfermero que la aplicó).
 - *MySQL*: el diagnóstico principal y la somatometría van en la fila de `consulta` (una consulta pediátrica es corta y tiene un diagnóstico); `vacunacion` y `receta` son tablas hijas. La dosis en ml se calcula con el peso (mg/kg × kg ÷ mg/ml).
 - *MongoDB*: `resultados` se **referencian** (un paciente acumula cientos de exámenes; embeberlos haría crecer el documento del paciente sin límite, y MongoDB limita a 16 MB). Los `parametros` de cada resultado se **embeben** (siempre se leen juntos y su estructura cambia por examen; la plantilla vive en `tipos_examen`). El contacto de emergencia se embebe (1:1).
 - *Firestore*: el historial se **embebe** en el documento del paciente (1:1). Las consultas son una **subcolección** `pacientes/{id}/consultas` (crecen sin límite; Firestore limita a 1 MB por documento). Cada consulta embebe sus diagnósticos, recetas y procedimientos por pieza. `citas` es colección raíz con el nombre del paciente **duplicado** para que la secretaria liste la agenda con una sola lectura.

@@ -290,6 +290,54 @@ def create_app(config: Config = None, router: EngineRouter = None):
     def hosp_discharge(hid):
         return _json(hospital_service.dar_alta(request.current_user, hid, body().get("tipo", "alta")))
 
+    @app.route("/api/hospital/hospitalizations/<int:hid>/room", methods=["POST"])
+    @require_auth
+    def hosp_change_room(hid):
+        return _json(hospital_service.cambiar_habitacion(request.current_user, hid, body().get("numero_habitacion")))
+
+    @app.route("/api/hospital/departments", methods=["GET"])
+    @require_auth
+    def hosp_departments():
+        return _json(hospital_service.departamentos(request.current_user))
+
+    # Medicación del internamiento ----------------------------------------
+    @app.route("/api/hospital/medicines", methods=["GET"])
+    @require_auth
+    def hosp_medicines():
+        return _json(hospital_service.medicamentos(request.current_user))
+
+    @app.route("/api/hospital/hospitalizations/<int:hid>/medication", methods=["GET"])
+    @require_auth
+    def hosp_orders(hid):
+        return _json(hospital_service.ordenes_medicacion(request.current_user, hid))
+
+    @app.route("/api/hospital/medication", methods=["POST"])
+    @require_auth
+    def hosp_create_order():
+        return _json(hospital_service.indicar_medicacion(request.current_user, body()), 201)
+
+    @app.route("/api/hospital/medication/<int:oid>/suspend", methods=["POST"])
+    @require_auth
+    def hosp_suspend_order(oid):
+        return _json(hospital_service.suspender_medicacion(request.current_user, oid, body().get("motivo", "")))
+
+    @app.route("/api/hospital/doses", methods=["GET"])
+    @require_auth
+    def hosp_doses():
+        a = request.args
+        return _json(hospital_service.dosis(request.current_user, a.get("id_hospitalizacion", type=int),
+                                            a.get("fecha") or None, a.get("turno") or None))
+
+    @app.route("/api/hospital/doses/<int:did>/<accion>", methods=["POST"])
+    @require_auth
+    def hosp_dose_action(did, accion):
+        u, b = request.current_user, body()
+        if accion == "apply":
+            return _json(hospital_service.aplicar_dosis(u, did, b.get("id_enfermero"), b.get("observaciones")))
+        if accion == "omit":
+            return _json(hospital_service.omitir_dosis(u, did, b.get("id_enfermero"), b.get("motivo", "")))
+        return _json({"error": "Acción inválida"}, 404)
+
     # Estado de los motores ----------------------------------------------
     @app.route("/api/engine/status", methods=["GET"])
     def engine_status():

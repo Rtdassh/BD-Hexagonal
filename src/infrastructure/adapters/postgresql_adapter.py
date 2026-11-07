@@ -208,6 +208,12 @@ class PostgreSQLAdapter(BaseClinicalAdapter, HospitalOperationsPort):
                 """UPDATE Asignacion_Turno t SET estado = 'anulada' FROM Hospitalizacion h
                    WHERE h.id_hospitalizacion = t.id_hospitalizacion AND h.id_paciente = %s
                      AND t.estado = 'activa' AND t.fecha > CURRENT_DATE""", (patient_id,))
+            cur.execute("""UPDATE Administracion_Medicamento a SET estado = 'cancelada'
+                           FROM Orden_Medicacion o JOIN Hospitalizacion h ON h.id_hospitalizacion = o.id_hospitalizacion
+                           WHERE o.id_orden = a.id_orden AND h.id_paciente = %s AND a.estado = 'pendiente'""", (patient_id,))
+            cur.execute("""UPDATE Orden_Medicacion o SET estado = 'finalizada' FROM Hospitalizacion h
+                           WHERE h.id_hospitalizacion = o.id_hospitalizacion AND h.id_paciente = %s
+                             AND o.estado = 'activa'""", (patient_id,))
             cur.execute("UPDATE Paciente SET estado_salud = 'dado_de_baja' WHERE id_paciente = %s", (patient_id,))
             cur.execute(
                 "UPDATE Cita SET estado_cita = 'cancelada' WHERE id_paciente = %s AND estado_cita = 'programada'",
@@ -274,8 +280,10 @@ class PostgreSQLAdapter(BaseClinicalAdapter, HospitalOperationsPort):
         self.requerido(data, "id_paciente", "motivo")
         pid = int(data["id_paciente"])
         recetas = self.recetas_del_payload(data)
+        if data.get("requiere_hospitalizacion") and not (data.get("numero_habitacion") or "").strip():
+            raise ValueError("Elija el departamento y la habitación del ingreso")
 
-        with self._tx() as cur:
+        with self._tx_hosp() as cur:
             self._exigir_activo(cur, pid, bloquear=True)
 
             # 1. Cita: se usa la programada o se crea una cita "atendida" en el momento.
@@ -370,7 +378,7 @@ class PostgreSQLAdapter(BaseClinicalAdapter, HospitalOperationsPort):
                 cur.execute(
                     """INSERT INTO Hospitalizacion (id_paciente, id_consulta, numero_habitacion, motivo_ingreso)
                        VALUES (%s, %s, %s, %s)""",
-                    (pid, id_consulta, data.get("numero_habitacion") or "POR-ASIGNAR",
+                    (pid, id_consulta, data["numero_habitacion"].strip().upper(),
                      data.get("motivo_hospitalizacion") or data["motivo"][:200]),
                 )
                 cur.execute("UPDATE Paciente SET estado_salud = 'hospitalizado' WHERE id_paciente = %s", (pid,))
@@ -582,8 +590,12 @@ class PostgreSQLAdapter(BaseClinicalAdapter, HospitalOperationsPort):
             if e.diag.constraint_name == "uq_turno_activo":
                 raise ValueError("Ese enfermero ya está asignado a este paciente en ese turno")
             raise ValueError("Registro duplicado")
+        except psycopg2.errors.ForeignKeyViolation as e:
+            if e.diag.constraint_name == "fk_hospitalizacion_habitacion":
+                raise ValueError("Esa habitación no existe")
+            raise ValueError("Referencia inválida: " + (e.diag.constraint_name or ""))
         except psycopg2.errors.CheckViolation as e:
-            # Mensajes del trigger validar_asignacion_turno() o de los CHECK
+            # Mensajes de los triggers (turnos, capacidad, dosis) o de los CHECK
             raise ValueError(e.diag.message_primary)
 
     _SQL_CIRUGIA = """SELECT c.*, p.nombres || ' ' || p.apellidos AS paciente, m.nombre AS cirujano
@@ -804,9 +816,11 @@ class PostgreSQLAdapter(BaseClinicalAdapter, HospitalOperationsPort):
     def list_hospitalizations(self, solo_ingresados: bool = True) -> List[Dict[str, Any]]:
         with self._tx() as cur:
             cur.execute(
-                f"""SELECT h.*, p.nombres || ' ' || p.apellidos AS paciente,
+                f"""SELECT h.*, p.nombres || ' ' || p.apellidos AS paciente, d.nombre AS departamento,
                            EXISTS (SELECT 1 FROM Cirugia c WHERE c.id_paciente = h.id_paciente AND c.estado = 'en_curso') AS en_cirugia
                     FROM Hospitalizacion h JOIN Paciente p ON p.id_paciente = h.id_paciente
+                    LEFT JOIN Habitacion hb ON hb.codigo = h.numero_habitacion
+                    LEFT JOIN Departamento d ON d.id_departamento = hb.id_departamento
                     {"WHERE h.estado = 'ingresado'" if solo_ingresados else ""}
                     ORDER BY h.numero_habitacion""")
             return [{**{k: (self._s(v) if k.startswith("fecha") else v) for k, v in r.items()}} for r in cur.fetchall()]
@@ -832,6 +846,11 @@ class PostgreSQLAdapter(BaseClinicalAdapter, HospitalOperationsPort):
             cur.execute("""UPDATE Asignacion_Turno SET estado = 'anulada'
                            WHERE id_hospitalizacion = %s AND estado = 'activa' AND fecha > CURRENT_DATE""",
                         (hospitalization_id,))
+            cur.execute("""UPDATE Administracion_Medicamento a SET estado = 'cancelada'
+                           FROM Orden_Medicacion o WHERE o.id_orden = a.id_orden
+                             AND o.id_hospitalizacion = %s AND a.estado = 'pendiente'""", (hospitalization_id,))
+            cur.execute("""UPDATE Orden_Medicacion SET estado = 'finalizada'
+                           WHERE id_hospitalizacion = %s AND estado = 'activa'""", (hospitalization_id,))
             cur.execute("""UPDATE Paciente SET estado_salud = 'activo'
                            WHERE id_paciente = %s AND estado_salud = 'hospitalizado'
                              AND NOT EXISTS (SELECT 1 FROM Hospitalizacion WHERE id_paciente = %s AND estado = 'ingresado')""",
@@ -839,6 +858,195 @@ class PostgreSQLAdapter(BaseClinicalAdapter, HospitalOperationsPort):
             cur.execute("UPDATE Historial_Clinico SET fecha_ultima_actualizacion = NOW() WHERE id_paciente = %s",
                         (h["id_paciente"],))
         return {"id_hospitalizacion": hospitalization_id, "estado": tipo, "cirugias_canceladas": canceladas}
+
+    # ---- Departamentos y habitaciones -------------------------------------
+    def list_departments(self) -> List[Dict[str, Any]]:
+        with self._tx() as cur:
+            cur.execute("SELECT * FROM Departamento ORDER BY piso, nombre")
+            deps = {d["id_departamento"]: {**d, "habitaciones": []} for d in cur.fetchall()}
+            cur.execute("SELECT * FROM Habitacion ORDER BY codigo")
+            habs = {}
+            for h in cur.fetchall():
+                h = {**h, "ocupantes": []}
+                habs[h["codigo"]] = h
+                deps[h["id_departamento"]]["habitaciones"].append(h)
+            cur.execute("""SELECT h.id_hospitalizacion, h.id_paciente, h.numero_habitacion, h.fecha_ingreso,
+                                  p.nombres || ' ' || p.apellidos AS paciente
+                           FROM Hospitalizacion h JOIN Paciente p ON p.id_paciente = h.id_paciente
+                           WHERE h.estado = 'ingresado' ORDER BY h.fecha_ingreso""")
+            for o in cur.fetchall():
+                if o["numero_habitacion"] in habs:
+                    habs[o["numero_habitacion"]]["ocupantes"].append(
+                        {**o, "fecha_ingreso": self._s(o["fecha_ingreso"])})
+        for d in deps.values():
+            d["camas"] = sum(h["camas"] for h in d["habitaciones"] if h["estado"] == "disponible")
+            d["ocupadas"] = sum(len(h["ocupantes"]) for h in d["habitaciones"])
+        return list(deps.values())
+
+    def change_room(self, hospitalization_id: int, codigo_habitacion: str) -> Dict[str, Any]:
+        codigo = (codigo_habitacion or "").strip().upper()
+        if not codigo:
+            raise ValueError("Elija la nueva habitación")
+        with self._tx_hosp() as cur:
+            cur.execute("SELECT * FROM Hospitalizacion WHERE id_hospitalizacion = %s FOR UPDATE", (hospitalization_id,))
+            h = cur.fetchone()
+            if not h:
+                raise ValueError("Hospitalización no encontrada")
+            if h["estado"] != "ingresado":
+                raise ValueError("El paciente ya no está ingresado")
+            if h["numero_habitacion"] == codigo:
+                raise ValueError("El paciente ya está en esa habitación")
+            # Bloquea la habitación destino: dos traslados simultáneos no pueden llenar la misma cama
+            cur.execute("SELECT 1 FROM Habitacion WHERE codigo = %s FOR UPDATE", (codigo,))
+            if not cur.fetchone():
+                raise ValueError("Esa habitación no existe")
+            cur.execute("UPDATE Hospitalizacion SET numero_habitacion = %s WHERE id_hospitalizacion = %s",
+                        (codigo, hospitalization_id))
+        return {"id_hospitalizacion": hospitalization_id, "anterior": h["numero_habitacion"], "numero_habitacion": codigo}
+
+    # ---- Medicación del internamiento (kárdex) ------------------------------
+    def list_medicines(self) -> List[Dict[str, Any]]:
+        with self._tx() as cur:
+            cur.execute("SELECT id_medicamento, nombre, presentacion, unidad_medida FROM Medicamento ORDER BY nombre")
+            return cur.fetchall()
+
+    _SQL_ORDEN = """SELECT o.*, m.nombre AS medicamento, m.presentacion, md.nombre AS medico,
+                           COUNT(a.*) AS total_dosis,
+                           COUNT(a.*) FILTER (WHERE a.estado = 'aplicada') AS aplicadas,
+                           COUNT(a.*) FILTER (WHERE a.estado = 'omitida') AS omitidas,
+                           MIN(a.fecha_hora_programada) FILTER (WHERE a.estado = 'pendiente') AS proxima
+                    FROM Orden_Medicacion o
+                    JOIN Medicamento m ON m.id_medicamento = o.id_medicamento
+                    JOIN Medico md ON md.id_medico = o.id_medico
+                    LEFT JOIN Administracion_Medicamento a ON a.id_orden = o.id_orden"""
+
+    def _ordenes(self, cur, where, params):
+        cur.execute(f"""{self._SQL_ORDEN} WHERE {where}
+                        GROUP BY o.id_orden, m.nombre, m.presentacion, md.nombre
+                        ORDER BY (o.estado = 'activa') DESC, o.fecha_inicio DESC""", params)
+        return [self._fechas(r) for r in cur.fetchall()]
+
+    def _fechas(self, r):
+        return {k: (self._s(v) if k.startswith("fecha") or k == "proxima" else v) for k, v in r.items()}
+
+    def create_medication_order(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        self.requerido(data, "id_hospitalizacion", "id_medicamento", "id_medico", "dosis", "frecuencia_horas")
+        frecuencia = self._i(data.get("frecuencia_horas"))
+        dias = self._i(data.get("duracion_dias")) or 1
+        if not frecuencia or not 1 <= frecuencia <= 72:
+            raise ValueError("La frecuencia debe estar entre 1 y 72 horas")
+        if not 1 <= dias <= 30:
+            raise ValueError("La duración debe estar entre 1 y 30 días")
+        with self._tx_hosp() as cur:
+            cur.execute("SELECT estado FROM Hospitalizacion WHERE id_hospitalizacion = %s FOR UPDATE",
+                        (int(data["id_hospitalizacion"]),))
+            h = cur.fetchone()
+            if not h:
+                raise ValueError("Hospitalización no encontrada")
+            if h["estado"] != "ingresado":
+                raise ValueError("Solo se indica medicación a pacientes ingresados")
+            # Primera dosis: la hora indicada o la próxima hora en punto
+            cur.execute("""SELECT COALESCE(%s::timestamp, date_trunc('hour', LOCALTIMESTAMP) + INTERVAL '1 hour') AS ini""",
+                        (data.get("fecha_inicio") or None,))
+            inicio = cur.fetchone()["ini"]
+            cur.execute("SELECT %s::timestamp < LOCALTIMESTAMP - INTERVAL '1 hour' AS pasado", (inicio,))
+            if cur.fetchone()["pasado"]:
+                raise ValueError("La primera dosis no puede quedar en el pasado")
+            cur.execute(
+                """INSERT INTO Orden_Medicacion (id_hospitalizacion, id_medicamento, id_medico, dosis,
+                       via_administracion, frecuencia_horas, fecha_inicio, fecha_fin, indicaciones)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s::timestamp + %s * INTERVAL '1 day', %s) RETURNING id_orden""",
+                (int(data["id_hospitalizacion"]), int(data["id_medicamento"]), int(data["id_medico"]),
+                 data["dosis"].strip()[:50], (data.get("via_administracion") or "Oral")[:30], frecuencia,
+                 inicio, inicio, dias, (data.get("indicaciones") or "").strip()[:200] or None))
+            oid = cur.fetchone()["id_orden"]
+            # Una fila por dosis: generate_series desde el inicio hasta el fin, cada N horas
+            cur.execute(
+                """INSERT INTO Administracion_Medicamento (id_orden, fecha_hora_programada)
+                   SELECT id_orden, gs FROM Orden_Medicacion,
+                          generate_series(fecha_inicio, fecha_fin - INTERVAL '1 second', frecuencia_horas * INTERVAL '1 hour') gs
+                   WHERE id_orden = %s""", (oid,))
+            return self._ordenes(cur, "o.id_orden = %s", (oid,))[0]
+
+    def list_medication_orders(self, hospitalization_id: int) -> List[Dict[str, Any]]:
+        with self._tx() as cur:
+            return self._ordenes(cur, "o.id_hospitalizacion = %s", (hospitalization_id,))
+
+    def suspend_medication_order(self, order_id: int, motivo: str) -> Dict[str, Any]:
+        with self._tx_hosp() as cur:
+            cur.execute("""UPDATE Orden_Medicacion SET estado = 'suspendida', motivo_suspension = %s
+                           WHERE id_orden = %s AND estado = 'activa'""", (motivo[:200], order_id))
+            if cur.rowcount == 0:
+                raise ValueError("La orden no existe o ya no está activa")
+            cur.execute("""UPDATE Administracion_Medicamento SET estado = 'cancelada'
+                           WHERE id_orden = %s AND estado = 'pendiente'""", (order_id,))
+            return self._ordenes(cur, "o.id_orden = %s", (order_id,))[0]
+
+    # Dosis + enfermero encargado: el asignado al paciente en el turno en que cae la dosis
+    _SQL_DOSIS = """SELECT a.*, o.id_hospitalizacion, o.dosis, o.via_administracion, o.indicaciones,
+                           o.estado AS estado_orden, m.nombre AS medicamento,
+                           h.id_paciente, h.numero_habitacion, p.nombres || ' ' || p.apellidos AS paciente,
+                           hospital.turno_de(a.fecha_hora_programada) AS turno,
+                           hospital.fecha_turno(a.fecha_hora_programada) AS fecha_turno,
+                           e.nombre AS aplicada_por,
+                           (SELECT t.id_enfermero FROM Asignacion_Turno t
+                             WHERE t.id_hospitalizacion = o.id_hospitalizacion AND t.estado = 'activa'
+                               AND t.fecha = hospital.fecha_turno(a.fecha_hora_programada)
+                               AND t.turno = hospital.turno_de(a.fecha_hora_programada)
+                             ORDER BY t.id_asignacion LIMIT 1) AS id_encargado,
+                           (SELECT en.nombre FROM Asignacion_Turno t JOIN Enfermero en ON en.id_enfermero = t.id_enfermero
+                             WHERE t.id_hospitalizacion = o.id_hospitalizacion AND t.estado = 'activa'
+                               AND t.fecha = hospital.fecha_turno(a.fecha_hora_programada)
+                               AND t.turno = hospital.turno_de(a.fecha_hora_programada)
+                             ORDER BY t.id_asignacion LIMIT 1) AS encargado
+                    FROM Administracion_Medicamento a
+                    JOIN Orden_Medicacion o ON o.id_orden = a.id_orden
+                    JOIN Medicamento m ON m.id_medicamento = o.id_medicamento
+                    JOIN Hospitalizacion h ON h.id_hospitalizacion = o.id_hospitalizacion
+                    JOIN Paciente p ON p.id_paciente = h.id_paciente
+                    LEFT JOIN Enfermero e ON e.id_enfermero = a.id_enfermero"""
+
+    def _dosis(self, cur, where, params):
+        cur.execute(f"{self._SQL_DOSIS} WHERE {where} ORDER BY a.fecha_hora_programada, h.numero_habitacion", params)
+        return [self._fechas(r) for r in cur.fetchall()]
+
+    def list_doses(self, hospitalization_id=None, fecha=None, turno=None) -> List[Dict[str, Any]]:
+        cond, params = ["a.estado <> 'cancelada'"], []
+        if hospitalization_id:
+            cond.append("o.id_hospitalizacion = %s")
+            params.append(hospitalization_id)
+        if fecha:
+            cond += ["hospital.fecha_turno(a.fecha_hora_programada) = %s", "h.estado = 'ingresado'"]
+            params.append(fecha)
+        if turno:
+            cond.append("hospital.turno_de(a.fecha_hora_programada) = %s")
+            params.append(turno)
+        with self._tx() as cur:
+            return self._dosis(cur, " AND ".join(cond), tuple(params))
+
+    def _registrar_dosis(self, dose_id, estado, nurse_id, observaciones):
+        with self._tx_hosp() as cur:
+            cur.execute("""SELECT estado, fecha_hora_programada > LOCALTIMESTAMP + INTERVAL '1 hour' AS adelantada
+                           FROM Administracion_Medicamento WHERE id_administracion = %s FOR UPDATE""", (dose_id,))
+            d = cur.fetchone()
+            if not d:
+                raise ValueError("Dosis no encontrada")
+            if d["estado"] != "pendiente":
+                raise ValueError(f"Esta dosis ya fue registrada como {d['estado']}")
+            if estado == "aplicada" and d["adelantada"]:
+                raise ValueError("Esta dosis aún no toca: se puede aplicar desde una hora antes de lo programado")
+            cur.execute("""UPDATE Administracion_Medicamento
+                           SET estado = %s, id_enfermero = %s, observaciones = %s,
+                               fecha_hora_aplicada = CASE WHEN %s = 'aplicada' THEN LOCALTIMESTAMP END
+                           WHERE id_administracion = %s""",
+                        (estado, nurse_id, observaciones, estado, dose_id))
+            return self._dosis(cur, "a.id_administracion = %s", (dose_id,))[0]
+
+    def apply_dose(self, dose_id: int, nurse_id: int, observaciones: Optional[str] = None) -> Dict[str, Any]:
+        return self._registrar_dosis(dose_id, "aplicada", int(nurse_id), (observaciones or "").strip()[:200] or None)
+
+    def omit_dose(self, dose_id: int, nurse_id: Optional[int], motivo: str) -> Dict[str, Any]:
+        return self._registrar_dosis(dose_id, "omitida", int(nurse_id) if nurse_id else None, motivo.strip()[:200])
 
     # ------------------------------------------------------------------
     def _to_patient(self, r: Dict[str, Any]) -> Patient:

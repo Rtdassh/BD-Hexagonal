@@ -203,6 +203,48 @@ class HospitalOperationsPort(ABC):
     def discharge(self, hospitalization_id: int, tipo: str = "alta") -> Dict[str, Any]:
         pass
 
+    # ---- Departamentos y habitaciones ----
+    @abstractmethod
+    def list_departments(self) -> List[Dict[str, Any]]:
+        """Departamentos con sus habitaciones, camas y pacientes que las ocupan."""
+        pass
+
+    @abstractmethod
+    def change_room(self, hospitalization_id: int, codigo_habitacion: str) -> Dict[str, Any]:
+        pass
+
+    # ---- Medicación del internamiento (kárdex) ----
+    @abstractmethod
+    def list_medicines(self) -> List[Dict[str, Any]]:
+        pass
+
+    @abstractmethod
+    def create_medication_order(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Crea la orden y genera todas sus dosis programadas."""
+        pass
+
+    @abstractmethod
+    def list_medication_orders(self, hospitalization_id: int) -> List[Dict[str, Any]]:
+        pass
+
+    @abstractmethod
+    def suspend_medication_order(self, order_id: int, motivo: str) -> Dict[str, Any]:
+        pass
+
+    @abstractmethod
+    def list_doses(self, hospitalization_id: Optional[int] = None, fecha: Optional[str] = None,
+                   turno: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Dosis con el enfermero encargado según el turno en que caen."""
+        pass
+
+    @abstractmethod
+    def apply_dose(self, dose_id: int, nurse_id: int, observaciones: Optional[str] = None) -> Dict[str, Any]:
+        pass
+
+    @abstractmethod
+    def omit_dose(self, dose_id: int, nurse_id: Optional[int], motivo: str) -> Dict[str, Any]:
+        pass
+
 
 class AuthPort(ABC):
     """

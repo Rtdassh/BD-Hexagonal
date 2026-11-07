@@ -100,7 +100,7 @@ async function api(ruta, opciones = {}) {
 
 function avisar(texto, esError = false) {
   const el = $("#aviso");
-  el.textContent = texto;
+  el.innerHTML = `<span class="aviso-ico" aria-hidden="true">${esError ? "!" : "✓"}</span><span>${esc(texto)}</span>`;
   el.classList.toggle("error-aviso", esError);
   el.hidden = false;
   clearTimeout(avisar.t);
@@ -139,16 +139,16 @@ async function iniciarLogin() {
   $("#vistaLogin").hidden = false;
 
   $("#listaInstituciones").innerHTML = Object.values(INST).map((i) => `
-    <li><span class="franja" style="background:${i.color}"></span><span>${i.nombre}</span>
+    <li><span class="punto" style="background:${i.color}"></span><span>${i.nombre}</span>
     <span class="motor-nombre">${i.motor}</span></li>`).join("");
 
   try {
     const cuentas = await api("/api/auth/demo-users");
     $("#cuentasDemo").innerHTML = cuentas.map((c) => `
       <button type="button" class="cuenta" data-u="${esc(c.username)}" style="--c:${INST[c.institucion].color}">
-        <span class="u">${esc(c.username)}</span>
-        <span class="r">${esc(c.nombre_completo)} · ${esc(ROLES[c.rol] || c.rol)}</span>
-        <span class="m">${esc(INST[c.institucion].nombre)}</span>
+        <span class="cuenta-ini" aria-hidden="true">${esc(iniciales(INST[c.institucion].nombre))}</span>
+        <span class="cuenta-txt"><b>${esc(INST[c.institucion].nombre)}</b>
+          <small>${esc(c.username)} · ${esc(INST[c.institucion].motor)}</small></span>
       </button>`).join("");
   } catch (e) {
     $("#cuentasDemo").textContent = "No se pudo contactar al servidor.";
@@ -187,6 +187,11 @@ const ICONO = {
   personal: '<circle cx="12" cy="7" r="3.5"/><path d="M5 21c.6-4 3.3-6.5 7-6.5s6.4 2.5 7 6.5"/><path d="M12 14.5v4M10 16.5h4"/>',
   quirofanos: '<path d="M4 20h16"/><path d="M6 20v-6h12v6"/><path d="M9 14V9a3 3 0 0 1 6 0v5"/><path d="M12 3v2"/>',
   enfermeria: '<path d="M20.5 8.5c0 5-8.5 11-8.5 11S3.5 13.5 3.5 8.5A4.3 4.3 0 0 1 12 6a4.3 4.3 0 0 1 8.5 2.5z"/><path d="M6 12h3l1.5-2.5 2 5 1.5-2.5H18"/>',
+  consultas: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1"/><path d="M9 10h6M9 14h6M9 18h3"/>',
+  cama: '<path d="M3 18V7"/><path d="M3 14h18v4"/><path d="M21 14v-2a3 3 0 0 0-3-3h-7v5"/><circle cx="7" cy="11" r="2"/>',
+  vacuna: '<path d="M18 2l4 4"/><path d="M17 7l3-3"/><path d="M19 9L9 19l-4 1 1-4L16 6z"/><path d="M12 10l2 2M9 13l2 2"/>',
+  frasco: '<path d="M9 3h6"/><path d="M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4a2 2 0 0 0 1.8-3l-5-9V3"/><path d="M7.5 15h9"/>',
+  resultados: '<path d="M4 20V4"/><path d="M4 20h16"/><path d="M8 16l3-4 3 2 5-6"/>',
   motores: '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
   salir: '<path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/>',
 };
@@ -246,7 +251,7 @@ function ir(pagina) {
   $("#contenido").scrollTo?.(0, 0);
   window.scrollTo(0, 0);
   ({ inicio: pintarInicio, pacientes: pintarPacientes, citas: pintarCitasPagina, personal: pintarPersonal,
-     quirofanos: pintarQuirofanos, enfermeria: pintarEnfermeria, motores: pintarMotores, paciente: pintarExpediente })[pagina]();
+     quirofanos: pintarQuirofanos, enfermeria: pintarEnfermeria, habitaciones: pintarHabitaciones, motores: pintarMotores, paciente: pintarExpediente })[pagina]();
 }
 
 function cabecera({ migas = "", titulo, acciones = "" }) {
@@ -305,8 +310,11 @@ function pintarPacientes() {
   const lista = todos.filter((p) => estado.filtro === "todos" || (estado.filtro === "baja") === ESTADOS_BAJA.includes(p.estado));
   const nBaja = todos.filter((p) => ESTADOS_BAJA.includes(p.estado)).length;
   $("#vista").innerHTML = `
-    ${pestanas([["activos", `Activos (${todos.length - nBaja})`], ["baja", `De baja (${nBaja})`], ["todos", `Todos (${todos.length})`]], estado.filtro, "data-filtro")}
-    ${q ? `<p class="filtro-activo">Resultados para <b>"${esc(q)}"</b> <button type="button" class="btn sutil chico" data-accion="limpiar">Quitar búsqueda</button></p>` : ""}
+    <div class="barra-filtros">
+      ${pestanas([["activos", `Activos (${todos.length - nBaja})`], ["baja", `De baja (${nBaja})`], ["todos", `Todos (${todos.length})`]], estado.filtro, "data-filtro")}
+      <label class="buscar-pagina"><span class="oculto">Buscar paciente</span>
+        <input type="search" id="buscarPagina" value="${esc(q)}" placeholder="Buscar por nombre, DPI o n.º de historial"></label>
+    </div>
     <div class="panel">
       ${lista.length ? `<table class="tabla-datos">
         <thead><tr><th>Paciente</th><th>${doc}</th><th>Edad</th><th>Sexo</th><th>Registro</th><th>Estado</th><th class="acc">Acciones</th></tr></thead>
@@ -318,7 +326,7 @@ function pintarPacientes() {
           <td>${ESTADOS_BAJA.includes(p.estado) ? `<span class="estado baja">De baja</span>` : (p.estado === "hospitalizado" ? `<span class="estado alerta">Hospitalizado</span>` : `<span class="estado activo">Activo</span>`)}</td>
           <td class="acc"><button type="button" class="btn primario chico" data-id="${p.id_paciente}">Abrir historial</button></td>
         </tr>`).join("")}</tbody></table>`
-        : `<div class="vacio-tabla"><p>${q ? `Ningún paciente coincide con "${esc(q)}".` : "No hay pacientes en esta lista."}</p>
+        : `<div class="vacio-tabla"><span class="vacio-ico">${svg("pacientes")}</span><p>${q ? `Ningún paciente coincide con "${esc(q)}".` : "No hay pacientes en esta lista."}</p>
            ${btnAccion("nuevo", "+ Registrar paciente")}</div>`}
     </div>`;
 }
@@ -402,10 +410,17 @@ function formProfesional(p = null) {
   });
 }
 
-async function cambiarEstadoProfesional(id) {
+async function cambiarEstadoProfesional(id, confirmado = false) {
   const f = fuentePersonal();
   const p = f.lista.find((x) => x.id_profesional === id);
   const nuevo = p.estado === "activo" ? "inactivo" : "activo";
+  if (nuevo === "inactivo" && !confirmado) {
+    abrirModal(`Desactivar a ${p.nombre_completo}`,
+      `<p>Dejará de aparecer al agendar y al asignar. Su historial de trabajo se conserva y puede activarlo de nuevo cuando quiera.</p>
+       ${f.uno === "enfermero" ? "<p>Sus turnos de días siguientes se anulan.</p>" : ""}`,
+      "Desactivar", async () => { await cambiarEstadoProfesional(id, true); });
+    return;
+  }
   try {
     await api(`${f.url}/${id}`, { method: "PUT", body: { estado: nuevo } });
     avisar(`${p.nombre_completo} ${nuevo === "activo" ? "activado" : "desactivado"}`);
@@ -431,13 +446,32 @@ function campoProfesional(etiqueta, seleccionado = null) {
 // --------------------------------------------------------------------- Inicio
 const ETIQUETAS = { ordenes: "órdenes", hospitalizados: "hospitalizados ahora", vacunas: "vacunas aplicadas" };
 
+const ICONO_CIFRA = { pacientes: "pacientes", consultas: "consultas", hospitalizados: "cama", vacunas: "vacuna",
+  ordenes: "frasco", resultados: "resultados", citas: "citas" };
+
+const cifra = (icono, valor, etiqueta, ir = null, clase = "") =>
+  `<${ir ? `button type="button" data-ir="${ir}"` : "div"} class="cifra-caja ${ir ? "cifra-boton" : ""} ${clase}">
+     <span class="cifra-ico">${svg(icono)}</span>
+     <span class="cifra-texto"><span class="cifra">${esc(valor)}</span><span class="cifra-etq">${esc(etiqueta)}</span></span>
+   </${ir ? "button" : "div"}>`;
+
 async function pintarInicio() {
-  const u = estado.usuario;
-  const nombre = u.nombre_completo.split(" ").slice(0, 2).join(" ");
-  cabecera({ migas: `<span>Administración · ${esc(INST[estado.inst].nombre)}</span>`, titulo: saludo(),
-    acciones: btnAccion("nuevo", "+ Registrar paciente") });
+  const inst = INST[estado.inst];
+  cabecera({ titulo: "Inicio", acciones: btnAccion("nuevo", "+ Registrar paciente") });
+  const hoyTxt = new Date().toLocaleDateString("es-GT", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   $("#vista").innerHTML = `
-    <div class="cifras" id="inicioCifras"><div class="cifra-caja"><span class="tenue">Cargando…</span></div></div>
+    <section class="bienvenida">
+      <div>
+        <p class="fecha-hoy">${esc(hoyTxt.charAt(0).toUpperCase() + hoyTxt.slice(1))}</p>
+        <h2>${saludo()}</h2>
+        <p>Panel de administración · ${esc(inst.nombre)}</p>
+      </div>
+      <div class="bienvenida-motor" id="inicioMotor">
+        <span class="cifra-ico">${svg("motores")}</span>
+        <span><small>Base de datos</small><b>${esc(inst.motor)}</b></span>
+      </div>
+    </section>
+    <div class="cifras" id="inicioCifras">${'<div class="cifra-caja esqueleto"></div>'.repeat(4)}</div>
     <div class="inicio-cols">
       <section class="panel">
         <header class="panel-cab"><h2>Próximas citas</h2><button type="button" class="btn sutil chico" data-ir="citas">Ver todas</button></header>
@@ -446,7 +480,7 @@ async function pintarInicio() {
       <section class="panel">
         <header class="panel-cab"><h2>Pacientes recientes</h2><button type="button" class="btn sutil chico" data-ir="pacientes">Ver todos</button></header>
         <ul class="recientes">${[...estado.pacientes].sort((a, b) => String(b.fecha_registro).localeCompare(String(a.fecha_registro))).slice(0, 5).map((p) => `
-          <li><button type="button" class="enlace-paciente" data-id="${p.id_paciente}"><span class="ini" aria-hidden="true">${esc(iniciales(`${p.nombres} ${p.apellidos}`))}</span>
+          <li><button type="button" class="fila-reciente" data-id="${p.id_paciente}"><span class="ini" aria-hidden="true">${esc(iniciales(`${p.nombres} ${p.apellidos}`))}</span>
             <span><b>${esc(p.nombres)} ${esc(p.apellidos)}</b><small class="tenue">${edad(p.fecha_nacimiento)} · registrado ${fecha(p.fecha_registro)}</small></span></button></li>`).join("")
           || `<li class="tenue relleno">Aún no hay pacientes.</li>`}</ul>
       </section>
@@ -463,23 +497,33 @@ async function pintarInicio() {
     const cxHoy = await api(`/api/hospital/surgeries?fecha=${hoyISO()}`).catch(() => []);
     if (estado.pagina !== "inicio") return;
     const enCurso = cxHoy.filter((c) => c.estado === "en_curso").length;
-    extra = `<button type="button" class="cifra-caja cifra-boton ${enCurso ? "cifra-alerta" : ""}" data-ir="quirofanos"><span class="cifra">${enCurso}</span><span>en cirugía ahora</span></button>
-      <button type="button" class="cifra-caja cifra-boton" data-ir="quirofanos"><span class="cifra">${cxHoy.filter((c) => c.estado !== "cancelada").length}</span><span>cirugías hoy</span></button>`;
+    extra = cifra("quirofanos", enCurso, "en cirugía ahora", "quirofanos", enCurso ? "cifra-alerta" : "")
+      + cifra("citas", cxHoy.filter((c) => c.estado !== "cancelada").length, "cirugías hoy", "quirofanos");
   }
   const m = est?.motores?.find((x) => x.clave === estado.inst);
   $("#inicioCifras").innerHTML = Object.entries(m?.conteos || {}).map(([k, v]) =>
-    `<div class="cifra-caja"><span class="cifra">${esc(v)}</span><span>${esc(ETIQUETAS[k] || k)}</span></div>`).join("")
+      cifra(ICONO_CIFRA[k] || "consultas", v, ETIQUETAS[k] || k, k === "pacientes" ? "pacientes" : null)).join("")
     + extra
-    + `<button type="button" class="cifra-caja cifra-boton" data-ir="personal"><span class="cifra">${personalActivo().length}</span>
-       <span>${esc(nombrePersonal(true).toLowerCase())} activos</span></button>`
-    + `<div class="cifra-caja motor-caja"><span class="tenue">Base de datos</span><b>${esc(INST[estado.inst].motor)}</b>
-       <span class="estado ${m?.real ? "activo" : "alerta"}">${m?.real ? "Conectado" : "Simulado"}</span></div>`;
+    + cifra("personal", personalActivo().length, `${nombrePersonal(true).toLowerCase()} activos`, "personal");
+  $("#inicioMotor").insertAdjacentHTML("beforeend",
+    `<span class="estado ${m?.real ? "activo" : "alerta"}">${m?.real ? "Conectado" : "Simulado"}</span>`);
 
-  const ahora = new Date().toISOString().slice(0, 16).replace("T", " ");
+  const ahora = new Date().toLocaleString("sv-SE").slice(0, 16);
   const proximas = citas.filter((c) => c.fecha_hora_programada >= ahora)
     .sort((a, b) => a.fecha_hora_programada.localeCompare(b.fecha_hora_programada)).slice(0, 5);
-  $("#inicioCitas").innerHTML = proximas.length ? tablaCitas(proximas, false)
-    : `<p class="tenue relleno">No hay citas programadas. Agéndelas desde el historial de cada paciente.</p>`;
+  const mesCorto = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+  $("#inicioCitas").innerHTML = proximas.length ? `<ul class="agenda">${proximas.map((c) => {
+      const [d, h] = c.fecha_hora_programada.split(" ");
+      const [, mm, dd] = d.split("-");
+      return `<li>
+        <span class="agenda-dia"><b>${Number(dd)}</b><small>${mesCorto[Number(mm) - 1]}</small></span>
+        <span class="agenda-txt"><b>${esc(nombreDe(c.id_paciente))}</b>
+          <small>${esc((h || "").slice(0, 5))} · ${esc(c.motivo_consulta)} · ${esc(c.profesional_nombre)}</small></span>
+        <button type="button" class="btn primario chico" data-atender="${c.id_cita}" data-paciente="${c.id_paciente}">Atender</button>
+      </li>`;
+    }).join("")}</ul>`
+    : `<div class="vacio-tabla compacto"><span class="vacio-ico">${svg("citas")}</span><p>No hay citas programadas.</p>
+       ${btnAccion("cita-nueva", "+ Agendar cita", "sutil chico")}</div>`;
 }
 
 // ---------------------------------------------------------------------- Citas
@@ -501,7 +545,7 @@ function tablaCitas(citas, conPaciente = true) {
 
 estado.filtroCitas = "proximas";
 async function pintarCitasPagina() {
-  cabecera({ titulo: "Citas" });
+  cabecera({ titulo: "Citas", acciones: btnAccion("cita-nueva", "+ Agendar cita") });
   $("#vista").innerHTML = `<p class="tenue">Cargando…</p>`;
   const citas = await api("/api/appointments").catch((e) => { avisar(e.message, true); return []; });
   if (estado.pagina !== "citas") return;
@@ -512,8 +556,8 @@ async function pintarCitasPagina() {
   $("#vista").innerHTML = `
     ${pestanas([["proximas", `Próximas (${proximas.length})`], ["vencidas", `Pendientes de fechas pasadas (${vencidas.length})`]], estado.filtroCitas, "data-filtro-citas")}
     <div class="panel">${lista.length ? tablaCitas(lista)
-      : `<div class="vacio-tabla"><p>${estado.filtroCitas === "proximas" ? "No hay citas próximas." : "No hay citas pendientes atrasadas."}</p>
-         <p class="tenue">Para agendar, abra el historial de un paciente y use "Agendar cita".</p></div>`}</div>`;
+      : `<div class="vacio-tabla"><span class="vacio-ico">${svg("citas")}</span><p>${estado.filtroCitas === "proximas" ? "No hay citas próximas." : "No hay citas pendientes atrasadas."}</p>
+         ${btnAccion("cita-nueva", "+ Agendar cita")}</div>`}</div>`;
 }
 
 // ---------------------------------------------------------- Estado de motores
@@ -694,16 +738,197 @@ function refrescarHospital() {
   else ir(estado.pagina);
 }
 
+
+// ------------------------------------------------------- Habitaciones y camas
+const TIPO_HAB = { individual: "Individual", compartida: "Compartida", aislamiento: "Aislamiento", intensivo: "Cuidados intensivos" };
+const VIAS = ["Oral", "Intravenosa", "Intramuscular", "Subcutánea", "Sublingual", "Inhalada", "Tópica", "Rectal"];
+const FRECUENCIAS = [[4, "Cada 4 horas"], [6, "Cada 6 horas"], [8, "Cada 8 horas"], [12, "Cada 12 horas"], [24, "Una vez al día"], [48, "Cada 48 horas"]];
+const ts = (v) => String(v || "").replace("T", " ").slice(0, 16);
+const ahoraTs = (masMin = 0) => new Date(Date.now() + masMin * 60000).toLocaleString("sv-SE").slice(0, 16);
+estado.departamentos = [];
+
+async function cargarDepartamentos() {
+  try { estado.departamentos = await api("/api/hospital/departments"); } catch (_) { estado.departamentos = []; }
+  return estado.departamentos;
+}
+const habitacionDe = (codigo) => {
+  for (const d of estado.departamentos) {
+    const h = d.habitaciones.find((x) => x.codigo === codigo);
+    if (h) return { ...h, departamento: d.nombre, piso: d.piso };
+  }
+  return null;
+};
+const libres = (h) => (h.estado === "disponible" ? h.camas - h.ocupantes.length : 0);
+
+// <select> de habitaciones agrupado por departamento; solo se pueden elegir las que tienen cama libre
+function selectHabitacion(nombre, excepto = null, req = false) {
+  const grupos = estado.departamentos.map((d) => `<optgroup label="${esc(d.nombre)} · piso ${d.piso}">
+    ${d.habitaciones.filter((h) => h.codigo !== excepto).map((h) => {
+      const l = libres(h);
+      const txt = h.estado !== "disponible" ? "en mantenimiento" : l ? `${l} de ${h.camas} cama${h.camas > 1 ? "s" : ""} libre${l > 1 ? "s" : ""}` : "llena";
+      return `<option value="${esc(h.codigo)}" ${l ? "" : "disabled"}>${esc(h.codigo)} — ${esc(TIPO_HAB[h.tipo] || h.tipo)}, ${txt}</option>`;
+    }).join("")}</optgroup>`).join("");
+  return `<select name="${nombre}" ${req ? "required" : ""}><option value="">Seleccione…</option>${grupos}</select>`;
+}
+
+async function pintarHabitaciones() {
+  cabecera({ titulo: "Habitaciones" });
+  $("#vista").innerHTML = `<p class="tenue">Cargando…</p>`;
+  try {
+    const deps = await cargarDepartamentos();
+    if (estado.pagina !== "habitaciones") return;
+    const camas = deps.reduce((s, d) => s + d.camas, 0);
+    const ocupadas = deps.reduce((s, d) => s + d.ocupadas, 0);
+    $("#vista").innerHTML = `
+      <p class="resumen-camas"><b>${ocupadas}</b> de <b>${camas}</b> camas ocupadas · <b>${camas - ocupadas}</b> libres</p>
+      ${deps.map((d) => `<section class="depto">
+        <header class="depto-cab">
+          <div><h2>${esc(d.nombre)}</h2><small class="tenue">Piso ${d.piso}${d.extension ? ` · extensión ${esc(d.extension)}` : ""}</small></div>
+          <div class="depto-ocupacion"><span class="barra-carga" aria-hidden="true"><span style="width:${d.camas ? (d.ocupadas / d.camas) * 100 : 0}%"></span></span>
+            <span>${d.ocupadas}/${d.camas} camas</span></div>
+        </header>
+        <div class="habs">${d.habitaciones.map((h) => `<article class="hab ${h.estado !== "disponible" ? "mantenimiento" : libres(h) ? "" : "llena"}">
+          <div class="hab-cab"><b>${esc(h.codigo)}</b><small class="tenue">${esc(TIPO_HAB[h.tipo] || h.tipo)}</small></div>
+          <ul class="camas">${Array.from({ length: h.camas }, (_, i) => {
+            const o = h.ocupantes[i];
+            return o ? `<li class="cama ocupada"><span class="cama-n">Cama ${i + 1}</span>
+                <button type="button" class="enlace-paciente" data-id="${o.id_paciente}" data-pestana-ir="especial">${esc(o.paciente)}</button>
+                <small class="tenue">Desde ${fecha(o.fecha_ingreso)}</small>
+                <button type="button" class="btn sutil chico" data-cambiar-hab="${o.id_hospitalizacion}" data-hab-actual="${esc(h.codigo)}">Cambiar habitación</button></li>`
+              : `<li class="cama"><span class="cama-n">Cama ${i + 1}</span><span class="tenue">${h.estado !== "disponible" ? "Fuera de servicio" : "Libre"}</span></li>`;
+          }).join("")}</ul>
+        </article>`).join("")}</div>
+      </section>`).join("")}
+      <p class="ayuda">Los pacientes se ingresan al registrar una consulta. La base de datos no permite ocupar más camas de las que tiene una habitación.</p>`;
+  } catch (e) {
+    $("#vista").innerHTML = `<p class="error">${esc(e.message)}</p>`;
+  }
+}
+
+async function formCambiarHabitacion(idHosp, actual) {
+  await cargarDepartamentos();
+  const h = habitacionDe(actual);
+  abrirModal("Cambiar de habitación", `<div class="rejilla">
+      <p class="completo">Habitación actual: <b>${esc(actual)}</b>${h ? ` · ${esc(h.departamento)}` : ""}</p>
+      <label class="completo"><span class="requerido">Nueva habitación</span>${selectHabitacion("numero_habitacion", actual, true)}</label>
+    </div><p class="ayuda">Los turnos de enfermería y la medicación siguen con el paciente.</p>`,
+  "Cambiar habitación", async (fd) => {
+    const r = await api(`/api/hospital/hospitalizations/${idHosp}/room`, { method: "POST", body: datosForm(fd) });
+    avisar(`Paciente trasladado de ${r.anterior} a ${r.numero_habitacion}`);
+    refrescarHospital();
+  });
+}
+
+// --------------------------------------------------- Medicación (kárdex)
+estado.medicamentos = [];
+const ESTADO_DOSIS = { pendiente: ["Pendiente", "alerta"], aplicada: ["Aplicada", "activo"], omitida: ["No aplicada", "baja"] };
+const ESTADO_ORDEN = { activa: ["Activa", "activo"], suspendida: ["Suspendida", "baja"], finalizada: ["Finalizada", "neutro"] };
+const atrasada = (d) => d.estado === "pendiente" && ts(d.fecha_hora_programada) < ahoraTs(-60);
+const tocaYa = (d) => d.estado === "pendiente" && ts(d.fecha_hora_programada) <= ahoraTs(60);
+
+async function formOrdenMedicacion(idHosp) {
+  if (!estado.medicamentos.length) { try { estado.medicamentos = await api("/api/hospital/medicines"); } catch (_) { /* */ } }
+  const inicio = ahoraTs(60).slice(0, 13) + ":00";
+  const html = `<div class="rejilla">
+      <label class="doble"><span class="requerido">Medicamento</span><select name="id_medicamento" required>
+        <option value="">Seleccione…</option>${estado.medicamentos.map((m) => `<option value="${m.id_medicamento}">${esc(m.nombre)} — ${esc(m.presentacion)}</option>`).join("")}
+      </select></label>
+      ${campo("dosis", "Dosis", { req: true, extra: 'maxlength="50" placeholder="500 mg"' })}
+      <label><span class="requerido">Vía</span><select name="via_administracion">${opciones(VIAS.map((v) => [v, v]), "Intravenosa")}</select></label>
+      <label><span class="requerido">Frecuencia</span><select name="frecuencia_horas">${opciones(FRECUENCIAS.map(([h, t]) => [String(h), t]), "8")}</select></label>
+      <label><span class="requerido">Durante (días)</span><input name="duracion_dias" type="number" min="1" max="30" value="3" required></label>
+      ${campo("fecha_inicio", "Primera dosis", { tipo: "datetime-local", req: true, valor: inicio.replace(" ", "T") })}
+      ${campoProfesional("Indicado por")}
+      <label class="completo">Indicaciones<input name="indicaciones" maxlength="200" placeholder="Pasar en 30 minutos, diluido en 100 ml de SSN"></label>
+    </div>
+    <p class="ayuda" id="resumenOrden"></p>`;
+  abrirModal("Indicar medicamento", html, "Indicar medicamento", async (fd) => {
+    const d = datosForm(fd);
+    d.id_medico = d.id_profesional;
+    delete d.id_profesional;
+    const o = await api("/api/hospital/medication", { method: "POST", body: { ...d, id_hospitalizacion: idHosp } });
+    avisar(`${o.medicamento}: ${o.total_dosis} dosis programadas`);
+    refrescarHospital();
+  });
+  const f = $("#modalForm");
+  const resumen = () => {
+    const h = Number(f.frecuencia_horas.value), dias = Number(f.duracion_dias.value) || 0;
+    const n = Math.ceil((dias * 24) / h);
+    $("#resumenOrden").textContent = n > 0 ? `Se programarán ${n} dosis, cada una con su enfermero encargado según el turno.` : "";
+  };
+  f.frecuencia_horas.addEventListener("change", resumen);
+  f.duracion_dias.addEventListener("input", resumen);
+  resumen();
+}
+
+function formSuspenderOrden(id) {
+  abrirModal("Suspender medicamento", `<label><span class="requerido">Motivo</span><input name="motivo" required maxlength="200" placeholder="Cambio de antibiótico"></label>
+    <p class="ayuda">Las dosis pendientes se cancelan. Las ya aplicadas quedan en el registro.</p>`,
+  "Suspender", async (fd) => {
+    await api(`/api/hospital/medication/${id}/suspend`, { method: "POST", body: datosForm(fd) });
+    avisar("Medicamento suspendido");
+    refrescarHospital();
+  });
+}
+
+const opcionesEnfermeros = (sel) => enfermerosActivos().map((n) => `<option value="${n.id_profesional}" ${n.id_profesional === sel ? "selected" : ""}>${esc(n.nombre_completo)}</option>`).join("");
+
+function formRegistrarDosis(dosis, aplicar = true) {
+  const encargado = dosis.id_encargado;
+  const html = `<div class="dosis-resumen">
+      <b>${esc(dosis.medicamento)} ${esc(dosis.dosis)}</b> · ${esc(dosis.via_administracion)}
+      <span class="tenue">Programada ${fecha(dosis.fecha_hora_programada, true)} · ${esc(dosis.paciente)} (${esc(dosis.numero_habitacion)})</span>
+      ${dosis.indicaciones ? `<span>${esc(dosis.indicaciones)}</span>` : ""}
+    </div>
+    <div class="rejilla">
+      <label class="doble"><span class="${aplicar ? "requerido" : ""}">${aplicar ? "Aplicada por" : "Enfermero que reporta"}</span>
+        <select name="id_enfermero" ${aplicar ? "required" : ""}><option value="">Seleccione…</option>${opcionesEnfermeros(encargado)}</select></label>
+      ${aplicar ? `<label class="completo">Observaciones<input name="observaciones" maxlength="200" placeholder="Sin reacciones adversas"></label>`
+        : `<label class="completo"><span class="requerido">¿Por qué no se aplicó?</span><input name="motivo" required maxlength="200" placeholder="Paciente en ayuno para cirugía"></label>`}
+    </div>
+    <p class="ayuda">${encargado ? `Encargado del turno: <b>${esc(dosis.encargado)}</b>.` : "Nadie tiene asignado a este paciente en ese turno."}
+      ${aplicar ? " Se guarda la hora actual como hora de aplicación." : ""}</p>`;
+  abrirModal(aplicar ? "Registrar aplicación" : "Dosis no aplicada", html, aplicar ? "Registrar aplicación" : "Registrar omisión", async (fd) => {
+    await api(`/api/hospital/doses/${dosis.id_administracion}/${aplicar ? "apply" : "omit"}`, { method: "POST", body: datosForm(fd) });
+    avisar(aplicar ? "Dosis aplicada" : "Omisión registrada");
+    refrescarHospital();
+  });
+}
+
+// Tabla de dosis: la usan la ficha del paciente y la página de Enfermería
+function tablaDosis(lista, conPaciente = false) {
+  return `<table class="tabla-datos tabla-dosis">
+    <thead><tr><th>Hora</th>${conPaciente ? "<th>Paciente</th>" : ""}<th>Medicamento</th><th>Encargado</th><th>Estado</th><th class="acc"></th></tr></thead>
+    <tbody>${lista.map((d) => {
+      const [txt, cls] = ESTADO_DOSIS[d.estado] || [d.estado, ""];
+      return `<tr class="${atrasada(d) ? "fila-atrasada" : ""}">
+        <td class="nowrap"><b>${horaDe(d.fecha_hora_programada)}</b><br><small class="tenue">${fecha(d.fecha_hora_programada)} · ${nombreTurno(d.turno)}</small></td>
+        ${conPaciente ? `<td><button type="button" class="enlace-paciente" data-id="${d.id_paciente}" data-pestana-ir="especial">${esc(d.paciente)}</button><br><small class="tenue">${esc(d.numero_habitacion)}</small></td>` : ""}
+        <td><b>${esc(d.medicamento)}</b> ${esc(d.dosis)}<br><small class="tenue">${esc(d.via_administracion)}${d.indicaciones ? ` · ${esc(d.indicaciones)}` : ""}</small></td>
+        <td>${d.encargado ? esc(d.encargado) : '<span class="sin-asignar">Sin asignar</span>'}</td>
+        <td><span class="estado ${atrasada(d) ? "baja" : cls}">${atrasada(d) ? "Atrasada" : txt}</span>
+          ${d.estado === "aplicada" ? `<br><small class="tenue">${esc(d.aplicada_por)} a las ${horaDe(d.fecha_hora_aplicada)}</small>` : ""}
+          ${d.estado === "omitida" ? `<br><small class="tenue">${esc(d.observaciones)}</small>` : ""}</td>
+        <td class="acc">${d.estado === "pendiente" && d.estado_orden === "activa"
+          ? `${tocaYa(d) ? `<button type="button" class="btn primario chico" data-aplicar-dosis="${d.id_administracion}">Aplicar</button>` : ""}
+             <button type="button" class="btn sutil chico" data-omitir-dosis="${d.id_administracion}">No aplicada</button>` : ""}</td>
+      </tr>`;
+    }).join("")}</tbody></table>`;
+}
+
 // ---------------------------------------------------------------- Enfermería
 async function pintarEnfermeria() {
   cabecera({ titulo: "Enfermería" });
   $("#vista").innerHTML = `<p class="tenue">Cargando…</p>`;
   try {
-    const [hosp, turnos] = await Promise.all([
+    const [hosp, turnos, dosis] = await Promise.all([
       api("/api/hospital/hospitalizations"), api(`/api/hospital/shifts?fecha=${estado.enfFecha}`),
+      api(`/api/hospital/doses?fecha=${estado.enfFecha}&turno=${estado.enfTurno}`).catch(() => []),
     ]);
     if (estado.pagina !== "enfermeria") return;
     estado.cacheTurnos = turnos;
+    guardarDosis(dosis);
+    const pendientes = dosis.filter((d) => d.estado === "pendiente").length;
     const actual = turnoActual();
     const enTurno = turnos.filter((t) => t.turno === estado.enfTurno);
     const carga = enfermerosActivos().map((n) => ({ n, c: enTurno.filter((t) => t.id_enfermero === n.id_profesional).length }));
@@ -718,7 +943,7 @@ async function pintarEnfermeria() {
           <tbody>${hosp.map((h) => {
             const asignados = enTurno.filter((t) => t.id_hospitalizacion === h.id_hospitalizacion);
             return `<tr>
-              <td><b>${esc(h.numero_habitacion)}</b></td>
+              <td><b>${esc(h.numero_habitacion)}</b>${h.departamento ? `<br><small class="tenue">${esc(h.departamento)}</small>` : ""}</td>
               <td><button type="button" class="enlace-paciente" data-id="${h.id_paciente}" data-pestana-ir="especial">${esc(h.paciente)}</button>
                 ${h.en_cirugia ? ' <span class="estado critico">En cirugía</span>' : ""}<br><small class="tenue">${esc(h.motivo_ingreso)}</small></td>
               <td class="nowrap">${fecha(h.fecha_ingreso)}</td>
@@ -736,7 +961,13 @@ async function pintarEnfermeria() {
             <b class="${c >= MAX_PACIENTES_TURNO ? "alerta-critica" : ""}">${c}/${MAX_PACIENTES_TURNO}</b></li>`).join("")
             || `<li class="tenue">No hay enfermeros activos. <button type="button" class="btn sutil chico" data-ir-enfermeros>Registrar</button></li>`}</ul>
         </section>
-      </div>`;
+      </div>
+      <section class="bloque-hosp bloque-dosis">
+        <header class="panel-cab sin-borde"><h2>Medicamentos de este turno</h2>
+          <span class="tenue">${dosis.length ? `${pendientes} pendiente${pendientes === 1 ? "" : "s"} de ${dosis.length}` : ""}</span></header>
+        <div class="panel">${dosis.length ? tablaDosis(dosis, true)
+          : `<p class="relleno tenue">No hay dosis programadas en el turno de ${nombreTurno(estado.enfTurno).toLowerCase()}. Los medicamentos se indican desde la ficha del paciente, en "Internamiento y cirugías".</p>`}</div>
+      </section>`;
   } catch (e) {
     $("#vista").innerHTML = `<p class="error">${esc(e.message)}</p>`;
   }
@@ -792,7 +1023,7 @@ function formAlta(idHosp) {
 // Pestaña del paciente: internamiento, enfermería y cirugías
 function pintarHospitalPaciente() {
   const e = estado.especializado || {};
-  const hp = estado.hospPaciente || { cirugias: [], turnos: [] };
+  const hp = estado.hospPaciente || { cirugias: [], turnos: [], ordenes: [], dosis: [] };
   const activo = estado.historial.estado === "activo";
   const internamientos = e.hospitalizaciones || [];
   const ingresado = internamientos.find((h) => h.estado === "ingresado");
@@ -805,13 +1036,15 @@ function pintarHospitalPaciente() {
       <div class="panel">${internamientos.length ? `<table class="tabla-datos">
         <thead><tr><th>Habitación</th><th>Ingreso</th><th>Egreso</th><th>Motivo</th><th>Estado</th><th class="acc"></th></tr></thead>
         <tbody>${internamientos.map((h) => `<tr>
-          <td><b>${esc(h.numero_habitacion)}</b></td><td class="nowrap">${fecha(h.fecha_ingreso, true)}</td>
+          <td><b>${esc(h.numero_habitacion)}</b>${habitacionDe(h.numero_habitacion) ? `<br><small class="tenue">${esc(habitacionDe(h.numero_habitacion).departamento)}</small>` : ""}</td><td class="nowrap">${fecha(h.fecha_ingreso, true)}</td>
           <td class="nowrap">${h.fecha_egreso ? fecha(h.fecha_egreso, true) : "—"}</td><td>${esc(h.motivo_ingreso)}</td>
           <td><span class="estado ${h.estado === "ingresado" ? "alerta" : "activo"}">${texto(h.estado)}</span></td>
-          <td class="acc">${h.estado === "ingresado" && activo ? `<button type="button" class="btn sutil chico" data-alta="${h.id_hospitalizacion}">Registrar egreso</button>` : ""}</td>
+          <td class="acc">${h.estado === "ingresado" && activo ? `<button type="button" class="btn sutil chico" data-cambiar-hab="${h.id_hospitalizacion}" data-hab-actual="${esc(h.numero_habitacion)}">Cambiar habitación</button><button type="button" class="btn sutil chico" data-alta="${h.id_hospitalizacion}">Registrar egreso</button>` : ""}</td>
         </tr>`).join("")}</tbody></table>`
         : `<p class="relleno tenue">No ha estado internado. Para ingresarlo, registre una consulta y marque "Ingresar al paciente".</p>`}</div>
     </section>
+
+    ${ingresado ? seccionKardex(ingresado, hp, activo) : ""}
 
     ${ingresado ? `<section class="bloque-hosp">
       <header class="panel-cab sin-borde"><h2>Enfermería</h2>
@@ -831,6 +1064,47 @@ function pintarHospitalPaciente() {
         : `<p class="relleno tenue">Sin cirugías registradas.</p>`}</div>
     </section>`;
 }
+
+
+// Kárdex del paciente ingresado: órdenes del médico y dosis con su enfermero encargado
+estado.kardexTodo = false;
+function seccionKardex(ingreso, hp, activo) {
+  const ordenes = hp.ordenes || [];
+  const todas = hp.dosis || [];
+  // Por defecto: lo atrasado, lo de las últimas 8 horas y lo de las próximas 24
+  const visibles = estado.kardexTodo ? todas
+    : todas.filter((d) => atrasada(d) || (ts(d.fecha_hora_programada) >= ahoraTs(-8 * 60) && ts(d.fecha_hora_programada) <= ahoraTs(24 * 60)));
+  const atrasadas = todas.filter(atrasada).length;
+  return `<section class="bloque-hosp">
+      <header class="panel-cab sin-borde"><h2>Medicación</h2>
+        ${activo ? `<button type="button" class="btn primario chico" data-indicar-med="${ingreso.id_hospitalizacion}">+ Indicar medicamento</button>` : ""}</header>
+      <div class="panel">${ordenes.length ? `<table class="tabla-datos">
+        <thead><tr><th>Medicamento</th><th>Dosis y vía</th><th>Frecuencia</th><th>Periodo</th><th>Aplicadas</th><th>Estado</th><th class="acc"></th></tr></thead>
+        <tbody>${ordenes.map((o) => {
+          const [txt, cls] = ESTADO_ORDEN[o.estado] || [o.estado, ""];
+          return `<tr>
+            <td><b>${esc(o.medicamento)}</b><br><small class="tenue">Indicado por ${esc(o.medico)}</small></td>
+            <td>${esc(o.dosis)}<br><small class="tenue">${esc(o.via_administracion)}</small></td>
+            <td class="nowrap">${(FRECUENCIAS.find(([h]) => h === o.frecuencia_horas) || [0, `Cada ${o.frecuencia_horas} h`])[1]}</td>
+            <td class="nowrap">${fecha(o.fecha_inicio)} – ${fecha(o.fecha_fin)}${o.proxima && o.estado === "activa" ? `<br><small class="tenue">Próxima ${fecha(o.proxima, true)}</small>` : ""}</td>
+            <td class="nowrap"><span class="progreso" aria-hidden="true"><span style="width:${o.total_dosis ? (o.aplicadas / o.total_dosis) * 100 : 0}%"></span></span>
+              ${o.aplicadas}/${o.total_dosis}${o.omitidas ? `<br><small class="tenue">${o.omitidas} no aplicada${o.omitidas > 1 ? "s" : ""}</small>` : ""}</td>
+            <td><span class="estado ${cls}">${txt}</span>${o.motivo_suspension ? `<br><small class="tenue">${esc(o.motivo_suspension)}</small>` : ""}</td>
+            <td class="acc">${o.estado === "activa" && activo ? `<button type="button" class="btn sutil chico" data-suspender-orden="${o.id_orden}">Suspender</button>` : ""}</td>
+          </tr>`;
+        }).join("")}</tbody></table>`
+        : `<p class="relleno tenue">Sin medicamentos indicados en este internamiento.</p>`}</div>
+      ${todas.length ? `<div class="sub-cab">
+          <h3>Dosis ${estado.kardexTodo ? "de todo el internamiento" : "de las próximas 24 horas"}
+            ${atrasadas ? `<span class="estado baja">${atrasadas} atrasada${atrasadas > 1 ? "s" : ""}</span>` : ""}</h3>
+          <button type="button" class="btn sutil chico" data-kardex-todo>${estado.kardexTodo ? "Ver solo las próximas 24 horas" : "Ver todas las dosis"}</button>
+        </div>
+        <div class="panel">${visibles.length ? tablaDosis(visibles) : `<p class="relleno tenue">No hay dosis en estos días.</p>`}</div>` : ""}
+    </section>`;
+}
+
+estado.cacheDosis = {};
+function guardarDosis(lista) { lista.forEach((d) => { estado.cacheDosis[d.id_administracion] = d; }); }
 
 // ----------------------------------------------------------------- Expediente
 async function abrirPaciente(id, pestana = null) {
@@ -852,11 +1126,16 @@ async function abrirPaciente(id, pestana = null) {
     estado.especializado = esp;
     estado.hospPaciente = null;
     if (estado.inst === "hospital") {
-      const [cirugias, turnos] = await Promise.all([
+      const ingreso = (esp?.hospitalizaciones || []).find((x) => x.estado === "ingresado");
+      const [cirugias, turnos, ordenes, dosis] = await Promise.all([
         api(`/api/hospital/surgeries?id_paciente=${id}`).catch(() => []),
         api(`/api/hospital/shifts?id_paciente=${id}`).catch(() => []),
+        ingreso ? api(`/api/hospital/hospitalizations/${ingreso.id_hospitalizacion}/medication`).catch(() => []) : [],
+        ingreso ? api(`/api/hospital/doses?id_hospitalizacion=${ingreso.id_hospitalizacion}`).catch(() => []) : [],
+        cargarDepartamentos(),
       ]);
-      estado.hospPaciente = { cirugias, turnos };
+      guardarDosis(dosis);
+      estado.hospPaciente = { cirugias, turnos, ordenes, dosis };
     }
     ir("paciente");
   } catch (e) {
@@ -891,11 +1170,12 @@ function pintarExpediente() {
     migas: `<button type="button" data-ir="pacientes">Pacientes</button><span aria-hidden="true">/</span><span>Historial n.º ${idTxt}</span>`,
     titulo: `${esc(p.nombres)} ${esc(p.apellidos)}`,
     acciones: deBaja ? btnAccion("imprimir", "Imprimir", "sutil") : [
-      puedeRegistrar() ? btnAccion("consulta", lab ? "+ Nuevo resultado" : "+ Nueva consulta") : "",
-      btnAccion("cita", "+ Agendar cita"),
       btnAccion("editar", "Editar datos", "sutil"),
-      puedeRegistrar() ? btnAccion("baja", "Dar de baja", "peligro") : "",
-      btnAccion("imprimir", "Imprimir", "sutil"),
+      btnAccion("cita", "Agendar cita", "secundario"),
+      puedeRegistrar() ? btnAccion("consulta", lab ? "+ Registrar resultado" : "+ Registrar consulta") : "",
+      `<details class="mas-acciones"><summary class="btn sutil" aria-label="Más acciones">Más</summary>
+        <div class="mas-menu">${btnAccion("imprimir", "Imprimir historial", "item")}
+        ${puedeRegistrar() ? btnAccion("baja", "Dar de baja el historial…", "item peligro-txt") : ""}</div></details>`,
     ].join(""),
   });
 
@@ -953,9 +1233,30 @@ function pintarExpediente() {
     <div class="pestana-cuerpo">${cuerpo}</div>`;
 }
 
+let tBuscarPagina;
+$("#contenido").addEventListener("input", (ev) => {
+  if (ev.target.id !== "buscarPagina") return;
+  clearTimeout(tBuscarPagina);
+  tBuscarPagina = setTimeout(async () => {
+    const v = ev.target.value;
+    $("#txtBuscar").value = v;
+    await cargarPacientes(v.trim());
+    pintarPacientes();
+    const campo = $("#buscarPagina");
+    campo.focus();
+    campo.setSelectionRange(v.length, v.length);
+  }, 250);
+});
+
 $("#contenido").addEventListener("change", (ev) => {
   if (ev.target.id === "qxFecha") { estado.qxFecha = ev.target.value; pintarQuirofanos(); }
   if (ev.target.id === "enfFecha") { estado.enfFecha = ev.target.value; pintarEnfermeria(); }
+});
+
+document.addEventListener("click", (ev) => {
+  document.querySelectorAll("details.mas-acciones[open]").forEach((d) => {
+    if (!d.contains(ev.target) || ev.target.closest(".mas-menu button")) d.open = false;
+  });
 });
 
 // Un solo manejador para todos los botones del área de contenido
@@ -990,6 +1291,17 @@ $("#contenido").addEventListener("click", async (ev) => {
   if (anu) { confirmarAnular(Number(anu.dataset.anular)); return; }
   const alta = t.closest("[data-alta]");
   if (alta) { formAlta(Number(alta.dataset.alta)); return; }
+  const camb = t.closest("[data-cambiar-hab]");
+  if (camb) { formCambiarHabitacion(Number(camb.dataset.cambiarHab), camb.dataset.habActual); return; }
+  const indMed = t.closest("[data-indicar-med]");
+  if (indMed) { formOrdenMedicacion(Number(indMed.dataset.indicarMed)); return; }
+  const susp = t.closest("[data-suspender-orden]");
+  if (susp) { formSuspenderOrden(Number(susp.dataset.suspenderOrden)); return; }
+  const apl = t.closest("[data-aplicar-dosis]");
+  if (apl) { formRegistrarDosis(estado.cacheDosis[apl.dataset.aplicarDosis], true); return; }
+  const omi = t.closest("[data-omitir-dosis]");
+  if (omi) { formRegistrarDosis(estado.cacheDosis[omi.dataset.omitirDosis], false); return; }
+  if (t.closest("[data-kardex-todo]")) { estado.kardexTodo = !estado.kardexTodo; pintarExpediente(); return; }
   if (t.closest("[data-ir-enfermeros]")) { estado.tipoPersonal = "enfermeros"; ir("personal"); return; }
   const filtroP = t.closest("[data-filtro-personal]");
   if (filtroP) { estado.filtroPersonal = filtroP.dataset.filtroPersonal; pintarPersonal(); return; }
@@ -1013,6 +1325,7 @@ $("#contenido").addEventListener("click", async (ev) => {
   const accion = b.dataset.accion;
   if (accion === "nuevo") formPaciente(null);
   if (accion === "nuevo-prof") formProfesional(null);
+  if (accion === "cita-nueva") formCita(null);
   if (accion === "programar-cx") formCirugia(null);
   if (accion === "programar-cx-paciente") formCirugia(estado.idSeleccionado);
   if (accion === "limpiar") { $("#txtBuscar").value = ""; await cargarPacientes(""); pintarPacientes(); }
@@ -1201,6 +1514,7 @@ function mostrarErrorModal(msg) {
   const el = $("#modalError");
   el.textContent = msg;
   el.hidden = false;
+  el.scrollIntoView({ block: "nearest" });
 }
 
 const datosForm = (fd) => Object.fromEntries([...fd.entries()].map(([k, v]) => [k, typeof v === "string" ? v.trim() : v]));
@@ -1264,20 +1578,27 @@ function formPaciente(p) {
 }
 
 // ---------------------------------------------------------------------- Cita
-function formCita() {
+async function formCita(idPaciente = estado.idSeleccionado) {
+  const conPaciente = Boolean(idPaciente) && estado.pagina === "paciente";
+  const pacientes = conPaciente ? [] : (await todosLosPacientes()).filter((p) => !ESTADOS_BAJA.includes(p.estado));
   const manana = new Date(Date.now() + 86400000);
   manana.setHours(9, 0, 0, 0);
   const local = new Date(manana.getTime() - manana.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   const html = `<div class="rejilla">
+    ${conPaciente ? "" : `<label class="completo"><span class="requerido">Paciente</span><select name="id_paciente" required>
+      <option value="">Seleccione…</option>${pacientes.map((p) => `<option value="${p.id_paciente}">${esc(p.apellidos)}, ${esc(p.nombres)} — ${esc(p.dpi)}</option>`).join("")}
+    </select></label>`}
     ${campo("fecha_hora_programada", "Fecha y hora", { tipo: "datetime-local", req: true, valor: local })}
     ${campoProfesional(`${nombrePersonal()[0].toUpperCase()}${nombrePersonal().slice(1)} asignado`)}
     <label class="completo"><span class="requerido">Motivo</span><input name="motivo_consulta" required maxlength="200"></label>
   </div>`;
-  abrirModal(`Agendar cita para ${estado.historial.paciente.nombres}`, html, "Agendar cita", async (fd) => {
+  abrirModal(conPaciente ? `Agendar cita para ${estado.historial.paciente.nombres}` : "Agendar cita", html, "Agendar cita", async (fd) => {
     const d = datosForm(fd);
-    await api("/api/appointments", { method: "POST", body: { ...d, id_paciente: estado.idSeleccionado } });
+    const pid = conPaciente ? idPaciente : Number(d.id_paciente);
+    await api("/api/appointments", { method: "POST", body: { ...d, id_paciente: pid } });
     avisar("Cita agendada");
-    abrirPaciente(estado.idSeleccionado, "citas");
+    if (conPaciente) abrirPaciente(pid, "citas");
+    else ir(estado.pagina);
   });
 }
 
@@ -1349,77 +1670,81 @@ function formConsulta(idCita = null) {
   const cita = idCita ? estado.historial.citas.find((c) => c.id_cita === idCita) : null;
 
   const html = `
-    <fieldset><legend>${lab ? "Orden de laboratorio" : "Consulta"}</legend><div class="rejilla">
+    <fieldset class="paso"><legend>${lab ? "Orden de laboratorio" : "Consulta"}</legend><div class="rejilla">
       <label class="completo"><span class="requerido">Motivo</span><input name="motivo" required maxlength="200" value="${esc(cita?.motivo_consulta || "")}"></label>
       ${campoProfesional(lab ? "Laboratorista que procesa" : "Atendido por", cita?.id_profesional ?? null)}
       <label>${lab ? "Prioridad" : "Tipo"}<select name="tipo_consulta">${opciones(INST[inst].tipos)}</select></label>
-      ${!lab && !dent ? `
-        ${!ped ? campo("presion_arterial", "Presión arterial", { extra: 'placeholder="120/80"' }) : ""}
-        ${campo("temperatura", "Temperatura (°C)", { tipo: "number", extra: 'step="0.1" min="30" max="45"' })}
-        ${campo("pulso", ped ? "Frecuencia cardiaca" : "Pulso (lpm)", { tipo: "number" })}` : ""}
       ${cita ? `<p class="ayuda completo">Se registrará como atención de la cita del ${fecha(cita.fecha_hora_programada, true)}.</p>` : ""}
     </div></fieldset>
 
-    ${ped ? `<fieldset><legend>Somatometría</legend><div class="rejilla">
+    ${!lab && !dent ? `<fieldset class="paso"><legend>${ped ? "Signos vitales y somatometría" : "Signos vitales"} <span class="tenue">(opcional${ped ? " salvo peso y talla" : ""})</span></legend><div class="rejilla">
+        ${!ped ? campo("presion_arterial", "Presión arterial", { extra: 'placeholder="120/80"' }) : ""}
+        ${campo("temperatura", "Temperatura (°C)", { tipo: "number", extra: 'step="0.1" min="30" max="45"' })}
+        ${campo("pulso", ped ? "Frecuencia cardiaca" : "Pulso (lpm)", { tipo: "number" })}
+    ${ped ? `
       ${campo("peso_kg", "Peso (kg)", { tipo: "number", req: true, extra: 'step="0.01" min="0.5"' })}
       ${campo("talla_cm", "Talla (cm)", { tipo: "number", req: true, extra: 'step="0.1" min="20"' })}
       ${campo("perimetro_cefalico_cm", "Perímetro cefálico (cm)", { tipo: "number", extra: 'step="0.1"' })}
-      ${campo("percentil_crecimiento", "Percentil OMS", { tipo: "number", extra: 'step="0.1" min="0" max="100"' })}
+      ${campo("percentil_crecimiento", "Percentil OMS", { tipo: "number", extra: 'step="0.1" min="0" max="100"' })}` : ""}
     </div></fieldset>` : ""}
 
-    ${lab ? `<fieldset><legend>Examen y resultados</legend><div class="rejilla">
+    ${lab ? `<fieldset class="paso"><legend>Examen y resultados</legend><div class="rejilla">
       <label class="doble"><span class="requerido">Tipo de examen</span><select name="codigo_examen" id="selExamen" required>
         ${opciones(examenes.map((e) => [e.codigo, `${e.codigo} · ${e.nombre_examen}`]))}</select></label>
       ${campo("tipo_muestra", "Muestra", { extra: 'placeholder="Sangre con EDTA"' })}
     </div>
     <p class="ayuda">Cada examen tiene parámetros distintos; se cargan los del tipo elegido y puede agregar más.</p>
     <div class="filas" id="filasParametros"></div>
-    <button type="button" class="btn sutil chico" data-agregar="parametro">Agregar parámetro</button>
+    <button type="button" class="btn sutil chico btn-agregar" data-agregar="parametro">+ Agregar parámetro</button>
     <div class="rejilla">
       <label class="completo">Conclusiones<textarea name="conclusiones_diagnosticas"></textarea></label>
       <label class="completo">Observaciones técnicas<input name="observaciones_tecnicas"></label>
     </div></fieldset>` : ""}
 
-    ${dent ? `<fieldset><legend>Procedimientos por pieza</legend>
+    ${dent ? `<fieldset class="paso"><legend>Procedimientos por pieza</legend>
       <div class="odontograma">
         <div class="arcada">${PIEZAS_SUP.map((n) => `<button type="button" class="diente ${n === 21 ? "medio" : ""}" data-pieza="${n}">${n}</button>`).join("")}</div>
         <div class="arcada">${PIEZAS_INF.map((n) => `<button type="button" class="diente ${n === 31 ? "medio" : ""}" data-pieza="${n}">${n}</button>`).join("")}</div>
         <p class="ayuda">Toque una pieza para agregar un procedimiento en ella.</p>
       </div>
       <div class="filas" id="filasProcedimientos"></div>
-      <button type="button" class="btn sutil chico" data-agregar="procedimiento">Agregar procedimiento general</button>
+      <button type="button" class="btn sutil chico btn-agregar" data-agregar="procedimiento">+ Agregar procedimiento general</button>
     </fieldset>` : ""}
 
-    <fieldset><legend>${lab ? "Diagnóstico presuntivo" : "Diagnóstico"}</legend><div class="rejilla">
+    <fieldset class="paso"><legend>${lab ? "Diagnóstico presuntivo" : "Diagnóstico y tratamiento"}</legend><div class="rejilla">
       ${campo("codigo_cie10", "Código CIE-10", { extra: 'placeholder="Escriba o elija" maxlength="10" list="dlCie10" autocomplete="off"' })}
       <label class="doble">Descripción<input name="descripcion_diagnostico" maxlength="300"></label>
       ${!lab ? `${campo("descripcion_tratamiento", "Tratamiento", { clase: "doble" })}
       ${campo("indicaciones_tratamiento", "Indicaciones", { clase: "doble" })}` : ""}
     </div></fieldset>
 
-    ${ped ? `<fieldset><legend>Vacuna aplicada <span class="tenue">(opcional)</span></legend><div class="rejilla">
+    ${ped ? `<fieldset class="paso"><legend>Vacunación</legend>
+      <label class="check"><input type="checkbox" data-revela="secVacuna"> Se aplicó una vacuna en esta consulta</label>
+      <div class="rejilla" id="secVacuna" hidden>
       ${campo("nombre_vacuna", "Vacuna", { clase: "doble" })}
       ${campo("dosis_vacuna", "Dosis", { extra: 'placeholder="2.ª dosis"' })}
       ${campo("lote_vacuna", "Lote")}
       ${campo("proxima_fecha_refuerzo", "Próximo refuerzo", { tipo: "date" })}
     </div></fieldset>` : ""}
 
-    ${!lab ? `<fieldset><legend>Receta</legend>
+    ${!lab ? `<fieldset class="paso"><legend>Receta</legend>
       ${ped ? `<p class="ayuda">La dosis en ml se calcula con el peso: mg/kg × kg ÷ concentración.</p>` : ""}
-      <div class="filas" id="filasRecetas"></div>
-      <button type="button" class="btn sutil chico" data-agregar="receta">Agregar medicamento</button>
+      <div class="filas" id="filasRecetas"><p class="ayuda vacio-filas">Sin medicamentos. Para recetar, primero indique el diagnóstico.</p></div>
+      <button type="button" class="btn sutil chico btn-agregar" data-agregar="receta">+ Agregar medicamento</button>
     </fieldset>` : ""}
 
-    ${inst === "hospital" ? `<fieldset><legend>Hospitalización</legend><div class="rejilla">
-      <label class="check completo"><input type="checkbox" name="requiere_hospitalizacion" value="1"> Ingresar al paciente</label>
-      ${campo("numero_habitacion", "Habitación", { extra: 'placeholder="HAB-210"' })}
-      ${campo("motivo_hospitalizacion", "Motivo de ingreso", { clase: "doble" })}
+    ${inst === "hospital" ? `<fieldset class="paso"><legend>Hospitalización</legend>
+      <label class="check"><input type="checkbox" name="requiere_hospitalizacion" value="1" data-revela="secHosp"> Ingresar al paciente en el hospital</label>
+      <div class="rejilla" id="secHosp" hidden>
+      <label class="completo"><span class="requerido">Habitación</span>${selectHabitacion("numero_habitacion")}</label>
+      ${campo("motivo_hospitalizacion", "Motivo de ingreso", { clase: "completo", extra: 'maxlength="200" placeholder="Si se deja vacío se usa el motivo de la consulta"' })}
     </div></fieldset>` : ""}
 
     <datalist id="dlCie10">${(CIE10[inst] || []).map(([c, d]) => `<option value="${c}">${esc(d)}</option>`).join("")}</datalist>
     <datalist id="dlMedicamentos">${(MEDICAMENTOS[inst] || []).map((m) => `<option value="${esc(m)}"></option>`).join("")}</datalist>
-    ${!lab ? `<label>Notas clínicas<textarea name="notas_clinicas"></textarea></label>`
-           : `<label>Observaciones de la orden<textarea name="notas_clinicas"></textarea></label>`}`;
+    <fieldset class="paso"><legend>${lab ? "Observaciones de la orden" : "Notas clínicas"} <span class="tenue">(opcional)</span></legend>
+      <textarea name="notas_clinicas" aria-label="${lab ? "Observaciones de la orden" : "Notas clínicas"}"></textarea>
+    </fieldset>`;
 
   abrirModal(lab ? "Registrar resultado de examen" : "Registrar consulta", html,
     lab ? "Guardar resultado" : "Guardar consulta", async (fd) => {
@@ -1427,6 +1752,7 @@ function formConsulta(idCita = null) {
       d.id_paciente = estado.idSeleccionado;
       if (idCita) d.id_cita = idCita;
       d.requiere_hospitalizacion = fd.get("requiere_hospitalizacion") === "1";
+      if (d.requiere_hospitalizacion && !d.numero_habitacion) throw new Error("Elija la habitación donde se ingresa al paciente.");
       d.recetas = leerFilas("receta");
       d.procedimientos = leerFilas("procedimiento");
       d.parametros = leerFilas("parametro");
@@ -1460,6 +1786,14 @@ function leerFilas(tipo) {
     Object.fromEntries([...f.querySelectorAll("[data-k]")].map((i) => [i.dataset.k, i.value.trim()])));
 }
 
+$("#modalCuerpo").addEventListener("change", (ev) => {
+  const r = ev.target.closest("[data-revela]");
+  if (!r) return;
+  const sec = document.getElementById(r.dataset.revela);
+  sec.hidden = !r.checked;
+  if (r.checked) sec.querySelector("input, select")?.focus();
+});
+
 $("#modalCuerpo").addEventListener("click", (ev) => {
   if (ev.target.closest("[data-ir-personal]")) { $("#modal").close(); estado.tipoPersonal = "medicos"; ir("personal"); return; }
   if (ev.target.closest("[data-ir-enfermeros]")) { $("#modal").close(); estado.tipoPersonal = "enfermeros"; ir("personal"); return; }
@@ -1468,6 +1802,7 @@ $("#modalCuerpo").addEventListener("click", (ev) => {
     const tipo = agregar.dataset.agregar;
     const cont = { receta: "#filasRecetas", procedimiento: "#filasProcedimientos", parametro: "#filasParametros" }[tipo];
     const html = tipo === "receta" ? filaReceta(estado.inst === "pediatrico") : tipo === "procedimiento" ? filaProcedimiento() : filaParametro();
+    $(cont).querySelector(".vacio-filas")?.remove();
     $(cont).insertAdjacentHTML("beforeend", html);
     $(cont).lastElementChild.querySelector("input, select").focus();
     return;

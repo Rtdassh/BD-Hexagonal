@@ -13,27 +13,32 @@
 
   <!-- =========================== INICIO DE SESIÓN =========================== -->
   <main id="vistaLogin" class="login" hidden>
-    <section class="login-intro">
-      <h1>Red de historiales clínicos</h1>
-      <p>Cuatro instituciones comparten esta plataforma, pero cada una guarda sus datos en su propio motor de base de datos. Cada institución tiene su administrador: al iniciar sesión, sus operaciones se dirigen automáticamente al motor de su institución.</p>
-      <ul class="lista-inst" id="listaInstituciones"></ul>
+    <section class="login-marca">
+      <div class="menu-marca"><span class="cruz" aria-hidden="true"></span><span><b>Red</b> de historiales</span></div>
+      <div class="login-centro">
+        <h1>Los historiales clínicos de cuatro instituciones, en una sola plataforma.</h1>
+        <p>Cada institución guarda sus datos en su propio motor de base de datos. Al iniciar sesión, el sistema dirige sus operaciones al motor de su institución.</p>
+        <ul class="lista-inst" id="listaInstituciones"></ul>
+      </div>
+      <p class="login-pie">Proyecto final · Bases de Datos II · Universidad Rafael Landívar</p>
     </section>
 
     <section class="login-panel">
-      <form id="formLogin" class="tarjeta" autocomplete="off">
+      <form id="formLogin" class="login-form" autocomplete="off">
         <h2>Iniciar sesión</h2>
+        <p class="tenue">Use la cuenta de administrador de su institución.</p>
         <label>Usuario
-          <input name="username" id="loginUsuario" required autocomplete="username">
+          <input name="username" id="loginUsuario" required autocomplete="username" placeholder="admin_hospital">
         </label>
         <label>Contraseña
           <input name="password" id="loginClave" type="password" required autocomplete="current-password">
         </label>
         <p class="error" id="loginError" hidden></p>
-        <button class="btn primario" type="submit">Entrar</button>
+        <button class="btn primario grande" type="submit">Entrar</button>
       </form>
 
       <div class="cuentas">
-        <h3>Cuentas de demostración <span class="tenue">(contraseña 123)</span></h3>
+        <p class="separador"><span>o entre con una cuenta de demostración (contraseña 123)</span></p>
         <div id="cuentasDemo" class="cuentas-lista"></div>
       </div>
     </section>
@@ -57,15 +62,25 @@
         <button type="submit" aria-label="Buscar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg></button>
       </form>
 
-      <ul class="menu-nav">
-        <li><button type="button" data-pagina="inicio"><span class="ico" data-icono="inicio"></span>Inicio</button></li>
-        <li><button type="button" data-pagina="pacientes"><span class="ico" data-icono="pacientes"></span>Pacientes</button></li>
-        <li><button type="button" data-pagina="citas"><span class="ico" data-icono="citas"></span>Citas</button></li>
-        <li data-solo="hospital" hidden><button type="button" data-pagina="quirofanos"><span class="ico" data-icono="quirofanos"></span>Quirófanos</button></li>
-        <li data-solo="hospital" hidden><button type="button" data-pagina="enfermeria"><span class="ico" data-icono="enfermeria"></span>Enfermería</button></li>
-        <li><button type="button" data-pagina="personal"><span class="ico" data-icono="personal"></span><span id="menuPersonal">Personal médico</span></button></li>
-        <li><button type="button" data-pagina="motores"><span class="ico" data-icono="motores"></span>Estado de los motores</button></li>
-      </ul>
+      <div class="menu-nav">
+        <p class="menu-grupo">Atención</p>
+        <ul>
+          <li><button type="button" data-pagina="inicio"><span class="ico" data-icono="inicio"></span>Inicio</button></li>
+          <li><button type="button" data-pagina="pacientes"><span class="ico" data-icono="pacientes"></span>Pacientes</button></li>
+          <li><button type="button" data-pagina="citas"><span class="ico" data-icono="citas"></span>Citas</button></li>
+        </ul>
+        <p class="menu-grupo" data-solo="hospital" hidden>Hospital</p>
+        <ul data-solo="hospital" hidden>
+          <li><button type="button" data-pagina="quirofanos"><span class="ico" data-icono="quirofanos"></span>Quirófanos</button></li>
+          <li><button type="button" data-pagina="habitaciones"><span class="ico" data-icono="cama"></span>Habitaciones</button></li>
+          <li><button type="button" data-pagina="enfermeria"><span class="ico" data-icono="enfermeria"></span>Enfermería</button></li>
+        </ul>
+        <p class="menu-grupo">Administración</p>
+        <ul>
+          <li><button type="button" data-pagina="personal"><span class="ico" data-icono="personal"></span><span id="menuPersonal">Personal médico</span></button></li>
+          <li><button type="button" data-pagina="motores"><span class="ico" data-icono="motores"></span>Estado de motores</button></li>
+        </ul>
+      </div>
 
       <div class="menu-usuario">
         <span class="avatar" id="avatarUsuario" aria-hidden="true"></span>

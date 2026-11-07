@@ -152,6 +152,54 @@ class HospitalService:
         _exigir_admin(user)
         return self._hospital(user).discharge(id_hospitalizacion, tipo)
 
+    # Departamentos y habitaciones
+    def departamentos(self, user):
+        return self._hospital(user).list_departments()
+
+    def cambiar_habitacion(self, user, id_hospitalizacion, codigo):
+        _exigir_admin(user)
+        return self._hospital(user).change_room(id_hospitalizacion, codigo)
+
+    # Medicación del internamiento
+    def medicamentos(self, user):
+        return self._hospital(user).list_medicines()
+
+    def indicar_medicacion(self, user, data):
+        _exigir_admin(user)
+        h = self._hospital(user)
+        if not (data.get("dosis") or "").strip():
+            raise ValueError("Indique la dosis (por ejemplo 500 mg)")
+        if not data.get("id_medicamento"):
+            raise ValueError("Elija el medicamento")
+        payload = {**data, "id_medico": _exigir_profesional_activo(h, data.get("id_medico"))}
+        return h.create_medication_order(payload)
+
+    def ordenes_medicacion(self, user, id_hospitalizacion):
+        return self._hospital(user).list_medication_orders(id_hospitalizacion)
+
+    def suspender_medicacion(self, user, id_orden, motivo):
+        _exigir_admin(user)
+        if not (motivo or "").strip():
+            raise ValueError("Indique el motivo de la suspensión")
+        return self._hospital(user).suspend_medication_order(id_orden, motivo.strip())
+
+    def dosis(self, user, id_hospitalizacion=None, fecha=None, turno=None):
+        if turno and turno not in TURNOS:
+            raise ValueError("Turno inválido")
+        return self._hospital(user).list_doses(id_hospitalizacion, fecha, turno)
+
+    def aplicar_dosis(self, user, id_dosis, id_enfermero, observaciones=None):
+        _exigir_admin(user)
+        if not id_enfermero:
+            raise ValueError("Indique qué enfermero aplicó la dosis")
+        return self._hospital(user).apply_dose(id_dosis, id_enfermero, observaciones)
+
+    def omitir_dosis(self, user, id_dosis, id_enfermero, motivo):
+        _exigir_admin(user)
+        if not (motivo or "").strip():
+            raise ValueError("Indique por qué no se aplicó la dosis")
+        return self._hospital(user).omit_dose(id_dosis, id_enfermero, motivo)
+
 
 class PatientService:
     def __init__(self, router: EngineRouter):
