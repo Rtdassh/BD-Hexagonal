@@ -28,10 +28,10 @@
         <h2>Iniciar sesión</h2>
         <p class="tenue">Use la cuenta de administrador de su institución.</p>
         <label>Usuario
-          <input name="username" id="loginUsuario" required autocomplete="username" placeholder="admin_hospital">
+          <input name="username" id="loginUsuario" required maxlength="50" autocomplete="username" placeholder="admin_hospital">
         </label>
         <label>Contraseña
-          <input name="password" id="loginClave" type="password" required autocomplete="current-password">
+          <input name="password" id="loginClave" type="password" required maxlength="100" autocomplete="current-password">
         </label>
         <p class="error" id="loginError" hidden></p>
         <button class="btn primario grande" type="submit">Entrar</button>
@@ -58,7 +58,7 @@
       </div>
 
       <form id="formBuscar" class="menu-buscar" role="search">
-        <input id="txtBuscar" type="search" placeholder="Buscar paciente" aria-label="Buscar paciente por nombre, DPI o número">
+        <input id="txtBuscar" type="search" maxlength="60" placeholder="Buscar paciente" aria-label="Buscar paciente por nombre, DPI o número">
         <button type="submit" aria-label="Buscar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg></button>
       </form>
 
@@ -108,6 +108,16 @@
         <button class="btn primario" id="modalAceptar" type="submit" value="ok"></button>
       </footer>
     </form>
+  </dialog>
+
+  <dialog id="cajon" class="cajon" aria-labelledby="cajonTitulo">
+    <header class="cajon-cab">
+      <span class="ini-grande" id="cajonIni" aria-hidden="true"></span>
+      <div><small id="cajonSub"></small><h2 id="cajonTitulo"></h2></div>
+      <button class="cerrar" type="button" data-cerrar-cajon aria-label="Cerrar">×</button>
+    </header>
+    <div class="cajon-cuerpo" id="cajonCuerpo"></div>
+    <footer class="cajon-pie" id="cajonPie"></footer>
   </dialog>
 
   <div id="aviso" class="aviso" role="status" hidden></div>

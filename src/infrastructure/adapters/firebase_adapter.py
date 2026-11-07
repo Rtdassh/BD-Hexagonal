@@ -193,11 +193,12 @@ class FirebaseAdapter(BaseClinicalAdapter):
         return [self._to_patient(p) for p in pacientes]
 
     def update_patient(self, patient_id: int, updates: Dict[str, Any]) -> Patient:
-        cambios = {k: v for k, v in updates.items() if k in CAMPOS_EDITABLES}
+        # En los documentos un dato vacío se guarda como "" (el esquema exige texto)
+        cambios = {k: ("" if v is None else v) for k, v in updates.items() if k in CAMPOS_EDITABLES}
         if "contacto_emergencia_nombre" in updates:
-            cambios["contacto_emergencia.nombre"] = updates["contacto_emergencia_nombre"]
+            cambios["contacto_emergencia.nombre"] = updates["contacto_emergencia_nombre"] or ""
         if "contacto_emergencia_telefono" in updates:
-            cambios["contacto_emergencia.telefono"] = updates["contacto_emergencia_telefono"]
+            cambios["contacto_emergencia.telefono"] = updates["contacto_emergencia_telefono"] or ""
         if not cambios:
             raise ValueError("No hay campos válidos para actualizar")
         ref = self._paciente_ref(patient_id)

@@ -14,6 +14,26 @@ service cloud.firestore {
     function esPersonal() { return autenticado() && rol() in ['secretaria', 'odontologo', 'administrador']; }
     function esClinico() { return autenticado() && rol() in ['odontologo', 'administrador']; }
 
+    // Formato de los datos (lo mismo que valida la API en src/domain/validaciones.py).
+    // Los opcionales vacíos se guardan como "".
+    function telefonoValido(t) { return t is string && (t == '' || t.matches('^[2-7][0-9]{3}-[0-9]{4}$')); }
+    function pacienteValido(d) {
+      return d.nombres is string && d.nombres.size() >= 2 && d.nombres.size() <= 50
+        && d.apellidos is string && d.apellidos.size() >= 2 && d.apellidos.size() <= 50
+        && d.dpi is string && d.dpi.matches('^[0-9]{13}$')
+        && d.sexo in ['M', 'F']
+        && d.fecha_nacimiento is string && d.fecha_nacimiento.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && (!('telefono' in d) || telefonoValido(d.telefono))
+        && (!('direccion' in d) || (d.direccion is string && d.direccion.size() <= 200))
+        && (!('correo_electronico' in d) || d.correo_electronico == ''
+            || (d.correo_electronico is string && d.correo_electronico.size() <= 80
+                && d.correo_electronico.matches('^[^@ ]+@[^@ ]+[.][^@ ]{2,}$')));
+    }
+    function profesionalValido(d) {
+      return d.nombre_completo is string && d.nombre_completo.size() >= 2 && d.nombre_completo.size() <= 100
+        && (!('telefono' in d) || telefonoValido(d.telefono));
+    }
+
     // PÚBLICA: catálogo de procedimientos y odontólogos
     match /procedimientos_catalogo/{id} {
       allow read: if true;
@@ -21,15 +41,16 @@ service cloud.firestore {
     }
     match /odontologos/{id} {
       allow read: if true;
-      allow write: if esClinico();
+      allow write: if esClinico() && profesionalValido(request.resource.data);
     }
 
     // CONFIDENCIAL: datos del paciente y agenda (la secretaria los gestiona)
     match /pacientes/{pacienteId} {
-      allow read, create: if esPersonal();
+      allow read: if esPersonal();
+      allow create: if esPersonal() && pacienteValido(request.resource.data);
       // La secretaria puede actualizar datos de contacto, pero no cambiar el estado del historial
-      allow update: if esClinico()
-        || (esPersonal() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['historial', 'estado']));
+      allow update: if pacienteValido(request.resource.data) && (esClinico()
+        || (esPersonal() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['historial', 'estado'])));
       allow delete: if false; // un historial nunca se borra, solo se archiva
 
       // RESTRINGIDA: consultas, diagnósticos, recetas y procedimientos por pieza

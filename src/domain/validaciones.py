@@ -1,0 +1,306 @@
+"""
+Reglas de formato de los datos (dominio).
+
+Son las mismas para los cuatro motores: los servicios las aplican antes de llamar
+al adaptador, así PostgreSQL, MySQL, MongoDB y Firestore reciben datos ya limpios.
+Las bases de datos repiten las más importantes como restricciones propias
+(CHECK, $jsonSchema, reglas de Firestore) por si alguien escribe sin pasar por la app.
+
+Cada función:
+  * normaliza (recorta espacios, mayúsculas en códigos, teléfono como ####-####)
+  * y lanza ValueError con un mensaje que el usuario entiende.
+"""
+
+import re
+from datetime import date, datetime, timedelta
+from typing import Any, Dict, Optional
+
+LETRAS = re.compile(r"^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ' .\-]+$")
+DPI = re.compile(r"^\d{13}$")
+TELEFONO = re.compile(r"^([2-7]\d{3})-?(\d{4})$")
+CORREO = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$")
+CIE10 = re.compile(r"^[A-Z]\d{2}(\.[0-9A-Z]{1,4})?$")
+PRESION = re.compile(r"^(\d{2,3})/(\d{2,3})$")
+COLEGIADO = re.compile(r"^[A-Z0-9\-]{3,20}$")
+LOTE = re.compile(r"^[A-Za-z0-9\-]{3,30}$")
+DOSIS = re.compile(r"^\d+([.,]\d+)?\s?[A-Za-zµÁÉÍÓÚáéíóúñ/%]+(\s[A-Za-zÁÉÍÓÚáéíóúñ/]+)*$")
+
+# Piezas dentales válidas (notación FDI): permanentes 11-48 y temporales 51-85
+PIEZAS_FDI = {c * 10 + n for c in (1, 2, 3, 4) for n in range(1, 9)} | {c * 10 + n for c in (5, 6, 7, 8) for n in range(1, 6)}
+
+
+def _txt(v: Any) -> str:
+    return re.sub(r"\s+", " ", str(v or "")).strip()
+
+
+def texto(data: Dict[str, Any], campo: str, etiqueta: str, maximo: int, minimo: int = 0,
+          req: bool = False, patron: Optional[re.Pattern] = None, msg_patron: str = "") -> Optional[str]:
+    """Valida un campo de texto y lo deja normalizado en data."""
+    if campo not in data:
+        if req:
+            raise ValueError(f"{etiqueta} es obligatorio")
+        return None
+    v = _txt(data[campo])
+    if not v:
+        if req:
+            raise ValueError(f"{etiqueta} es obligatorio")
+        data[campo] = None   # vacío se guarda como NULL, no como texto vacío
+        return None
+    if len(v) < minimo:
+        raise ValueError(f"{etiqueta} debe tener al menos {minimo} caracteres")
+    if len(v) > maximo:
+        raise ValueError(f"{etiqueta} admite como máximo {maximo} caracteres")
+    if patron and not patron.match(v):
+        raise ValueError(f"{etiqueta}: {msg_patron}")
+    data[campo] = v
+    return v
+
+
+def numero(data: Dict[str, Any], campo: str, etiqueta: str, minimo: float, maximo: float,
+           req: bool = False, entero: bool = False) -> Optional[float]:
+    v = data.get(campo)
+    if v in (None, ""):
+        if req:
+            raise ValueError(f"{etiqueta} es obligatorio")
+        if campo in data:
+            data.pop(campo)      # vacío = no informado (cada adaptador usa su valor por defecto)
+        return None
+    try:
+        n = float(str(v).replace(",", "."))
+    except ValueError:
+        raise ValueError(f"{etiqueta} debe ser un número")
+    if entero and n != int(n):
+        raise ValueError(f"{etiqueta} debe ser un número entero")
+    if not minimo <= n <= maximo:
+        raise ValueError(f"{etiqueta} debe estar entre {_fmt(minimo)} y {_fmt(maximo)}")
+    data[campo] = int(n) if entero else n
+    return n
+
+
+def _fmt(n: float) -> str:
+    return str(int(n)) if n == int(n) else str(n)
+
+
+def nombre(data, campo, etiqueta, maximo=50, req=False):
+    return texto(data, campo, etiqueta, maximo, 2, req, LETRAS, "use solo letras, espacios, punto, apóstrofo o guion")
+
+
+def dpi(data, campo, etiqueta="DPI", req=False):
+    v = texto(data, campo, etiqueta, 20, 0, req)
+    if v is None:
+        return None
+    v = v.replace(" ", "").replace("-", "")
+    if not DPI.match(v):
+        raise ValueError(f"{etiqueta} debe tener exactamente 13 dígitos")
+    depto, muni = int(v[9:11]), int(v[11:13])
+    if not 1 <= depto <= 22:
+        raise ValueError(f"{etiqueta}: los dígitos 10 y 11 son el departamento (01 a 22)")
+    if not 1 <= muni <= 35:
+        raise ValueError(f"{etiqueta}: los dos últimos dígitos son el municipio (01 en adelante)")
+    data[campo] = v
+    return v
+
+
+def telefono(data, campo, etiqueta="Teléfono", req=False):
+    v = texto(data, campo, etiqueta, 9, 0, req)
+    if v is None:
+        return None
+    m = TELEFONO.match(v.replace(" ", ""))
+    if not m:
+        raise ValueError(f"{etiqueta}: 8 dígitos de Guatemala, empieza con 2 a 7 (ej. 5841-7501)")
+    data[campo] = f"{m.group(1)}-{m.group(2)}"
+    return data[campo]
+
+
+def correo(data, campo="correo_electronico"):
+    v = texto(data, campo, "Correo", 80, 6, False, CORREO, "escriba un correo válido (ej. nombre@dominio.com)")
+    if v:
+        data[campo] = v.lower()
+    return v
+
+
+def fecha(data, campo, etiqueta, req=False, pasada=False, futura=False, max_anios=None) -> Optional[date]:
+    v = data.get(campo)
+    if v in (None, ""):
+        if req:
+            raise ValueError(f"{etiqueta} es obligatoria")
+        return None
+    try:
+        f = date.fromisoformat(str(v)[:10])
+    except ValueError:
+        raise ValueError(f"{etiqueta} no es una fecha válida")
+    hoy = date.today()
+    if pasada and f > hoy:
+        raise ValueError(f"{etiqueta} no puede ser una fecha futura")
+    if futura and f < hoy:
+        raise ValueError(f"{etiqueta} no puede ser una fecha pasada")
+    if max_anios and f < hoy.replace(year=hoy.year - max_anios):
+        raise ValueError(f"{etiqueta} no puede ser de hace más de {max_anios} años")
+    return f
+
+
+def fecha_hora(data, campo, etiqueta, req=True, tolerancia_min=0, max_dias=None) -> Optional[datetime]:
+    """Fecha y hora que no puede quedar en el pasado (con tolerancia en minutos)."""
+    v = data.get(campo)
+    if v in (None, ""):
+        if req:
+            raise ValueError(f"{etiqueta} es obligatoria")
+        return None
+    try:
+        f = datetime.fromisoformat(str(v).replace("T", " ")[:16])
+    except ValueError:
+        raise ValueError(f"{etiqueta} no es una fecha y hora válida")
+    ahora = datetime.now()
+    if f < ahora - timedelta(minutes=tolerancia_min):
+        raise ValueError(f"{etiqueta} no puede quedar en el pasado")
+    if max_dias and f > ahora + timedelta(days=max_dias):
+        raise ValueError(f"{etiqueta} no puede ser a más de {max_dias} días")
+    return f
+
+
+# ---------------------------------------------------------------------------
+# Reglas por formulario
+# ---------------------------------------------------------------------------
+def validar_paciente(data: Dict[str, Any], institucion: str, nuevo: bool = True) -> Dict[str, Any]:
+    ped = institucion == "pediatrico"
+    oblig = lambda c: nuevo or c in data   # al editar, lo obligatorio que se envía no puede quedar vacío
+    nombre(data, "nombres", "Nombres", 50, req=oblig("nombres"))
+    nombre(data, "apellidos", "Apellidos", 50, req=oblig("apellidos"))
+    if nuevo or "dpi" in data:
+        dpi(data, "dpi", "CUI" if ped else "DPI", req=nuevo)
+    nac = fecha(data, "fecha_nacimiento", "Fecha de nacimiento", req=oblig("fecha_nacimiento"), pasada=True, max_anios=120)
+    if ped and nac and nac < date.today().replace(year=date.today().year - 18):
+        raise ValueError("El Centro Pediátrico atiende a menores de 18 años")
+    if "sexo" in data and data["sexo"] not in ("M", "F"):
+        raise ValueError("Sexo inválido: use M o F")
+    if data.get("tipo_sangre") and data["tipo_sangre"] not in ("O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-"):
+        raise ValueError("Tipo de sangre inválido")
+    texto(data, "direccion", "Dirección", 200, 5)
+    telefono(data, "telefono")
+    correo(data)
+    nombre(data, "contacto_emergencia_nombre", "Nombre del contacto de emergencia", 100)
+    telefono(data, "contacto_emergencia_telefono", "Teléfono de emergencia")
+    if data.get("contacto_emergencia_nombre") and not data.get("contacto_emergencia_telefono"):
+        raise ValueError("Indique el teléfono del contacto de emergencia")
+    if ped:
+        nombre(data, "nombre_tutor", "Nombre del tutor", 100, req=oblig("nombre_tutor"))
+        nombre(data, "parentesco_tutor", "Parentesco", 30, req=oblig("parentesco_tutor"))
+        dpi(data, "dpi_tutor", "DPI del tutor", req=oblig("dpi_tutor"))
+        telefono(data, "telefono_tutor", "Teléfono del tutor", req=oblig("telefono_tutor"))
+        numero(data, "semanas_gestacion", "Semanas de gestación", 20, 45, entero=True)
+        numero(data, "peso_nacer_kg", "Peso al nacer", 0.3, 7)
+        numero(data, "talla_nacer_cm", "Talla al nacer", 20, 65)
+    return data
+
+
+def validar_cita(data: Dict[str, Any]) -> Dict[str, Any]:
+    fecha_hora(data, "fecha_hora_programada", "La fecha de la cita", tolerancia_min=5, max_dias=365)
+    texto(data, "motivo_consulta", "Motivo", 200, 3, req=True)
+    return data
+
+
+def validar_consulta(data: Dict[str, Any], institucion: str) -> Dict[str, Any]:
+    texto(data, "motivo", "Motivo", 200, 3, req=True)
+    pa = texto(data, "presion_arterial", "Presión arterial", 7, 0, False, PRESION, "use el formato 120/80")
+    if pa:
+        s, d = (int(x) for x in PRESION.match(pa).groups())
+        if not (60 <= s <= 260 and 30 <= d <= 160 and s > d):
+            raise ValueError("Presión arterial fuera de rango: sistólica 60–260, diastólica 30–160 y mayor la sistólica")
+    numero(data, "temperatura", "Temperatura", 30, 45)
+    numero(data, "pulso", "Pulso", 20, 250, entero=True)
+    if institucion == "pediatrico":
+        numero(data, "peso_kg", "Peso", 0.3, 150, req=True)
+        numero(data, "talla_cm", "Talla", 20, 200, req=True)
+        numero(data, "perimetro_cefalico_cm", "Perímetro cefálico", 20, 70)
+        numero(data, "percentil_crecimiento", "Percentil", 0, 100)
+        texto(data, "nombre_vacuna", "Vacuna", 100, 2)
+        if data.get("nombre_vacuna"):
+            texto(data, "dosis_vacuna", "Dosis de la vacuna", 30, 1, req=True)
+            texto(data, "lote_vacuna", "Lote", 30, 3, True, LOTE, "use letras, números o guion")
+            fecha(data, "proxima_fecha_refuerzo", "Próximo refuerzo", futura=True)
+    cie = data.get("codigo_cie10")
+    if cie:
+        data["codigo_cie10"] = str(cie).strip().upper()
+    texto(data, "codigo_cie10", "Código CIE-10", 8, 0, False, CIE10, "use letra + 2 números y decimal opcional (ej. K80.0)")
+    texto(data, "descripcion_diagnostico", "Descripción del diagnóstico", 300, 3)
+    texto(data, "descripcion_tratamiento", "Tratamiento", 300, 3)
+    texto(data, "indicaciones_tratamiento", "Indicaciones", 500)
+    texto(data, "notas_clinicas", "Notas clínicas", 2000)
+    texto(data, "motivo_hospitalizacion", "Motivo de ingreso", 200, 3)
+
+    for i, r in enumerate(data.get("recetas") or [], 1):
+        e = f"Medicamento {i}"
+        texto(r, "medicamento", f"{e}: nombre", 100, 2, req=True)
+        texto(r, "presentacion", f"{e}: presentación", 50)
+        texto(r, "dosis", f"{e}: dosis", 50)
+        texto(r, "frecuencia", f"{e}: frecuencia", 50)
+        numero(r, "duracion_dias", f"{e}: días", 1, 90, entero=True)
+        numero(r, "dosis_mg_kg", f"{e}: dosis mg/kg", 0.01, 100)
+        numero(r, "concentracion_mg_ml", f"{e}: concentración", 0.1, 1000)
+
+    for i, p in enumerate(data.get("procedimientos") or [], 1):
+        e = f"Procedimiento {i}"
+        pieza = p.get("pieza_dental")
+        if pieza not in (None, ""):
+            try:
+                pieza = int(pieza)
+            except ValueError:
+                raise ValueError(f"{e}: la pieza debe ser un número FDI (11–48 o 51–85)")
+            if pieza not in PIEZAS_FDI:
+                raise ValueError(f"{e}: la pieza {pieza} no existe en la notación FDI (11–48 o 51–85)")
+            p["pieza_dental"] = pieza
+        numero(p, "costo", f"{e}: costo", 0, 50000)
+        texto(p, "observaciones", f"{e}: observaciones", 200)
+
+    for i, p in enumerate(data.get("parametros") or [], 1):
+        e = f"Parámetro {i}"
+        texto(p, "nombre_parametro", f"{e}: nombre", 60, 2, req=True)
+        texto(p, "valor_resultado", f"{e}: resultado", 40)
+        texto(p, "unidad_medida", f"{e}: unidad", 20)
+        mn = numero(p, "rango_referencia_min", f"{e}: mínimo", -1e6, 1e6)
+        mx = numero(p, "rango_referencia_max", f"{e}: máximo", -1e6, 1e6)
+        if mn is not None and mx is not None and mn > mx:
+            raise ValueError(f"{e}: el mínimo de referencia no puede ser mayor que el máximo")
+    texto(data, "tipo_muestra", "Muestra", 60)
+    texto(data, "conclusiones_diagnosticas", "Conclusiones", 1000)
+    texto(data, "observaciones_tecnicas", "Observaciones técnicas", 300)
+    return data
+
+
+def validar_profesional(data: Dict[str, Any], nuevo: bool = True) -> Dict[str, Any]:
+    nombre(data, "nombre_completo", "Nombre completo", 100, req=nuevo or "nombre_completo" in data)
+    if data.get("numero_colegiado"):
+        data["numero_colegiado"] = str(data["numero_colegiado"]).strip().upper()
+    texto(data, "numero_colegiado", "Número de colegiado", 20, 3, nuevo, COLEGIADO, "use letras, números o guion (ej. COL-12450)")
+    nombre(data, "especialidad", "Especialidad", 80)
+    telefono(data, "telefono")
+    correo(data)
+    return data
+
+
+def validar_cirugia(data: Dict[str, Any]) -> Dict[str, Any]:
+    texto(data, "procedimiento", "Procedimiento", 200, 3, req=True)
+    tolerancia = 30 if data.get("tipo") == "urgencia" else 0
+    fecha_hora(data, "fecha_hora_programada", "La fecha de la cirugía", tolerancia_min=tolerancia, max_dias=365)
+    numero(data, "duracion_estimada_min", "Duración", 15, 720, req=True, entero=True)
+    texto(data, "notas_operatorias", "Indicaciones prequirúrgicas", 1000)
+    return data
+
+
+def validar_orden_medicacion(data: Dict[str, Any]) -> Dict[str, Any]:
+    texto(data, "dosis", "Dosis", 50, 2, True, DOSIS, "cantidad y unidad (ej. 500 mg, 1 g, 2 tabletas)")
+    numero(data, "frecuencia_horas", "Frecuencia", 1, 72, req=True, entero=True)
+    numero(data, "duracion_dias", "Duración", 1, 30, entero=True)
+    if data.get("fecha_inicio"):
+        fecha_hora(data, "fecha_inicio", "La primera dosis", tolerancia_min=60, max_dias=30)
+    texto(data, "indicaciones", "Indicaciones", 200)
+    return data
+
+
+def motivo(valor: Any, etiqueta: str = "El motivo", maximo: int = 200) -> str:
+    v = _txt(valor)
+    if len(v) < 5:
+        raise ValueError(f"{etiqueta} debe tener al menos 5 caracteres")
+    if len(v) > maximo:
+        raise ValueError(f"{etiqueta} admite como máximo {maximo} caracteres")
+    return v

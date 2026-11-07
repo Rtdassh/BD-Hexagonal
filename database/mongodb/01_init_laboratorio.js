@@ -38,20 +38,22 @@ dbInstance.createCollection('pacientes', {
       required: ['id_paciente', 'nombres', 'apellidos', 'fecha_nacimiento', 'sexo', 'dpi', 'estado'],
       properties: {
         id_paciente: { bsonType: 'int', description: 'Identificador único secuencial' },
-        nombres: { bsonType: 'string' },
-        apellidos: { bsonType: 'string' },
-        fecha_nacimiento: { bsonType: 'string' },
+        // Formatos: los mismos que valida la aplicación (src/domain/validaciones.py).
+        // Los opcionales vacíos se guardan como "" y por eso el patrón admite cadena vacía.
+        nombres: { bsonType: 'string', minLength: 2, maxLength: 50 },
+        apellidos: { bsonType: 'string', minLength: 2, maxLength: 50 },
+        fecha_nacimiento: { bsonType: 'string', pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' },
         sexo: { enum: ['M', 'F'] },
-        dpi: { bsonType: 'string', description: 'Documento personal de identificación único' },
-        direccion: { bsonType: 'string' },
-        telefono: { bsonType: 'string' },
-        correo_electronico: { bsonType: 'string' },
-        tipo_sangre: { bsonType: 'string' },
+        dpi: { bsonType: 'string', pattern: '^[0-9]{13}$', description: 'DPI: exactamente 13 dígitos' },
+        direccion: { bsonType: 'string', maxLength: 200 },
+        telefono: { bsonType: 'string', pattern: '^([2-7][0-9]{3}-[0-9]{4})?$', description: '####-#### o vacío' },
+        correo_electronico: { bsonType: 'string', maxLength: 80, pattern: '^([^@\\s]+@[^@\\s]+\\.[^@\\s]{2,})?$' },
+        tipo_sangre: { enum: ['', 'O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'] },
         contacto_emergencia: {
           bsonType: 'object',
           properties: {
-            nombre: { bsonType: 'string' },
-            telefono: { bsonType: 'string' }
+            nombre: { bsonType: 'string', maxLength: 100 },
+            telefono: { bsonType: 'string', pattern: '^([2-7][0-9]{3}-[0-9]{4})?$' }
           }
         },
         fecha_registro: { bsonType: 'string' },

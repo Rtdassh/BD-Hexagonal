@@ -52,7 +52,7 @@ class FlujoComun:
         p = a.create_patient({"nombres": "Prueba", "apellidos": "Integración", "fecha_nacimiento": "2020-05-05",
                               "sexo": "F", "dpi": self.dpi, **self.paciente_extra})
         with self.assertRaises(ValueError):  # DPI único
-            a.create_patient({"nombres": "Otra", "apellidos": "X", "fecha_nacimiento": "2020-05-05",
+            a.create_patient({"nombres": "Otra", "apellidos": "Xu", "fecha_nacimiento": "2020-05-05",
                               "sexo": "F", "dpi": self.dpi, **self.paciente_extra})
 
         cita = a.create_appointment({"id_paciente": p.id_paciente, "fecha_hora_programada": "2030-01-01 08:00",
@@ -94,7 +94,7 @@ class TestPostgreSQL(FlujoComun, unittest.TestCase):
 
 class TestMySQL(FlujoComun, unittest.TestCase):
     motor = "mysql"
-    paciente_extra = {"nombre_tutor": "Tutor", "parentesco_tutor": "Madre", "dpi_tutor": "1", "telefono_tutor": "1"}
+    paciente_extra = {"nombre_tutor": "Tutor", "parentesco_tutor": "Madre", "dpi_tutor": "1234567890101", "telefono_tutor": "5555-1111"}
     consulta_extra = {"peso_kg": 12, "talla_cm": 85,
                       "recetas": [{"medicamento": "Amoxicilina", "dosis_mg_kg": 25, "concentracion_mg_ml": 50,
                                    "frecuencia": "c/8h", "duracion_dias": 7}]}

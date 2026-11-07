@@ -42,6 +42,31 @@ CAMPOS_EDITABLES = {
 }
 
 
+# Mensajes para las restricciones CHECK de la base de datos (database/postgresql/*.sql)
+MENSAJES_CHECK = {
+    "chk_paciente_dpi": "El DPI debe tener exactamente 13 dígitos",
+    "chk_paciente_nombres": "Nombres y apellidos deben tener entre 2 y 50 caracteres",
+    "chk_paciente_nacimiento": "La fecha de nacimiento no puede ser futura",
+    "chk_paciente_telefono": "El teléfono debe tener el formato ####-#### y empezar con 2 a 7",
+    "chk_paciente_tel_emergencia": "El teléfono de emergencia debe tener el formato ####-####",
+    "chk_paciente_correo": "El correo no tiene un formato válido",
+    "chk_paciente_sangre": "Tipo de sangre inválido",
+    "chk_medico_colegiado": "El número de colegiado solo admite letras mayúsculas, números y guion (3 a 20)",
+    "chk_enfermero_colegiado": "El número de colegiado solo admite letras mayúsculas, números y guion (3 a 20)",
+    "chk_medico_telefono": "El teléfono debe tener el formato ####-####",
+    "chk_enfermero_telefono": "El teléfono debe tener el formato ####-####",
+    "chk_cita_motivo": "El motivo de la cita debe tener al menos 3 caracteres",
+    "chk_consulta_temperatura": "La temperatura debe estar entre 30 y 45 °C",
+    "chk_consulta_pulso": "El pulso debe estar entre 20 y 250 lpm",
+    "chk_consulta_presion": "La presión arterial debe tener el formato 120/80",
+    "chk_diagnostico_cie10": "El código CIE-10 no tiene un formato válido (ej. K80.0)",
+    "chk_receta_duracion": "La duración de la receta debe estar entre 1 y 90 días",
+    "chk_cirugia_duracion": "La duración de la cirugía debe estar entre 15 y 720 minutos",
+    "chk_orden_frecuencia": "La frecuencia debe estar entre 1 y 72 horas",
+    "chk_habitacion_camas": "Una habitación tiene de 1 a 6 camas",
+}
+
+
 class PostgreSQLAdapter(BaseClinicalAdapter, HospitalOperationsPort):
     is_live = True
 
@@ -71,6 +96,11 @@ class PostgreSQLAdapter(BaseClinicalAdapter, HospitalOperationsPort):
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 yield cur
             conn.commit()
+        except psycopg2.errors.CheckViolation as e:
+            conn.rollback()
+            # Restricción CHECK con nombre -> mensaje claro; sin nombre = mensaje de un trigger
+            nombre = e.diag.constraint_name
+            raise ValueError(MENSAJES_CHECK.get(nombre) or (f"Dato no válido ({nombre})" if nombre else e.diag.message_primary))
         except Exception:
             conn.rollback()
             raise

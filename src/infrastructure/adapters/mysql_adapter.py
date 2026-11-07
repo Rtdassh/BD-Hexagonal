@@ -7,6 +7,7 @@ somatometría. Vacunas y recetas son tablas hijas. Todo se graba dentro de una
 transacción InnoDB (START TRANSACTION / COMMIT / ROLLBACK).
 """
 
+import re
 import time
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional
@@ -44,6 +45,28 @@ CAMPOS_EDITABLES = {
 TIPO_CONSULTA = {"ordinaria": "control_sano", "emergencia": "urgencia"}
 
 
+# Mensajes para las restricciones CHECK (database/mysql/01_init_pediatrico.sql)
+MENSAJES_CHECK = {
+    "chk_ped_cui": "El CUI debe tener exactamente 13 dígitos",
+    "chk_ped_dpi_tutor": "El DPI del tutor debe tener exactamente 13 dígitos",
+    "chk_ped_tel_tutor": "El teléfono del tutor debe tener el formato ####-#### y empezar con 2 a 7",
+    "chk_ped_nombres": "Nombres y apellidos deben tener al menos 2 caracteres",
+    "chk_ped_gestacion": "Las semanas de gestación deben estar entre 20 y 45",
+    "chk_ped_peso_nacer": "El peso al nacer debe estar entre 0.3 y 7 kg",
+    "chk_ped_talla_nacer": "La talla al nacer debe estar entre 20 y 65 cm",
+    "chk_pediatra_colegiado": "El número de colegiado solo admite letras mayúsculas, números y guion (3 a 20)",
+    "chk_pediatra_telefono": "El teléfono debe tener el formato ####-####",
+    "chk_ped_temperatura": "La temperatura debe estar entre 30 y 45 °C",
+    "chk_ped_frecuencia": "La frecuencia cardiaca debe estar entre 20 y 250 lpm",
+    "chk_ped_peso": "El peso debe estar entre 0.3 y 150 kg",
+    "chk_ped_talla": "La talla debe estar entre 20 y 200 cm",
+    "chk_ped_perimetro": "El perímetro cefálico debe estar entre 20 y 70 cm",
+    "chk_ped_percentil": "El percentil debe estar entre 0 y 100",
+    "chk_ped_cie10": "El código CIE-10 no tiene un formato válido (ej. Z00.1)",
+    "chk_ped_receta_duracion": "La duración de la receta debe estar entre 1 y 90 días",
+}
+
+
 class MySQLAdapter(BaseClinicalAdapter):
     is_live = True
 
@@ -72,6 +95,15 @@ class MySQLAdapter(BaseClinicalAdapter):
             cur = conn.cursor(dictionary=True)
             yield cur
             conn.commit()
+        except mysql.connector.Error as e:
+            conn.rollback()
+            # 3819 = CHECK violado; 1644 = SIGNAL de un trigger
+            if e.errno == 3819:
+                nombre = (re.search(r"'([^']+)'", e.msg or "") or [None, None])[1]
+                raise ValueError(MENSAJES_CHECK.get(nombre, f"Dato no válido ({nombre})"))
+            if e.errno == 1644:
+                raise ValueError(e.msg)
+            raise
         except Exception:
             conn.rollback()
             raise

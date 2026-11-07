@@ -131,6 +131,7 @@ function edad(nacimiento) {
 const iniciales = (nombre) => String(nombre || "").replace(/^(Dr|Dra|Lic|Licda|Ing)\.?\s+/i, "")
   .split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
 const saludo = () => { const h = new Date().getHours(); return h < 12 ? "Buenos días" : h < 19 ? "Buenas tardes" : "Buenas noches"; };
+const mayus = (s) => { const t = String(s ?? "").replaceAll("_", " "); return esc(t.charAt(0).toUpperCase() + t.slice(1)); };
 const texto = (s) => esc(String(s ?? "").replaceAll("_", " "));
 
 // --------------------------------------------------------------------- Login
@@ -313,7 +314,7 @@ function pintarPacientes() {
     <div class="barra-filtros">
       ${pestanas([["activos", `Activos (${todos.length - nBaja})`], ["baja", `De baja (${nBaja})`], ["todos", `Todos (${todos.length})`]], estado.filtro, "data-filtro")}
       <label class="buscar-pagina"><span class="oculto">Buscar paciente</span>
-        <input type="search" id="buscarPagina" value="${esc(q)}" placeholder="Buscar por nombre, DPI o n.º de historial"></label>
+        <input type="search" id="buscarPagina" maxlength="60" value="${esc(q)}" placeholder="Buscar por nombre, DPI o n.º de historial"></label>
     </div>
     <div class="panel">
       ${lista.length ? `<table class="tabla-datos">
@@ -375,11 +376,11 @@ function pintarPersonal() {
       Solo los activos aparecen al asignar. No se borran porque su trabajo queda en los historiales; se desactivan.</p>
     ${pestanas([["activo", `Activos (${nAct})`], ["inactivo", `Inactivos (${todos.length - nAct})`], ["todos", `Todos (${todos.length})`]], estado.filtroPersonal, "data-filtro-personal")}
     <div class="panel">${lista.length ? `<table class="tabla-datos">
-      <thead><tr><th>Nombre</th><th>Colegiado</th><th>${f.campoEsp}</th><th>Teléfono</th><th>Correo</th><th>Estado</th><th class="acc">Acciones</th></tr></thead>
+      <thead><tr><th>Nombre</th><th>Colegiado</th><th>${f.campoEsp}</th><th>Contacto</th><th>Estado</th><th class="acc">Acciones</th></tr></thead>
       <tbody>${lista.map((p) => `<tr>
-        <td><span class="enlace-paciente sin-enlace"><span class="ini" aria-hidden="true">${esc(iniciales(p.nombre_completo))}</span>${esc(p.nombre_completo)}</span></td>
+        <td><span class="nombre-celda"><span class="ini" aria-hidden="true">${esc(iniciales(p.nombre_completo))}</span>${esc(p.nombre_completo)}</span></td>
         <td class="nowrap">${esc(p.numero_colegiado)}</td><td>${esc(p.especialidad || "—")}</td>
-        <td class="nowrap">${esc(p.telefono || "—")}</td><td>${esc(p.correo_electronico || "—")}</td>
+        <td><span class="contacto-celda"><span>${esc(p.telefono || "Sin teléfono")}</span><small>${esc(p.correo_electronico || "Sin correo")}</small></span></td>
         <td><span class="estado ${p.estado === "activo" ? "activo" : "baja"}">${p.estado === "activo" ? "Activo" : "Inactivo"}</span></td>
         <td class="acc">
           <button type="button" class="btn sutil chico" data-editar-prof="${p.id_profesional}">Editar</button>
@@ -492,19 +493,54 @@ async function pintarInicio() {
   ]);
   if (estado.pagina !== "inicio") return;
 
-  let extra = "";
+  const m = est?.motores?.find((x) => x.clave === estado.inst);
   if (estado.inst === "hospital") {
-    const cxHoy = await api(`/api/hospital/surgeries?fecha=${hoyISO()}`).catch(() => []);
+    const t = turnoActual();
+    const [cxHoy, deps, dosis, hosp, turnos] = await Promise.all([
+      api(`/api/hospital/surgeries?fecha=${hoyISO()}`).catch(() => []),
+      cargarDepartamentos(),
+      api(`/api/hospital/doses?fecha=${t.fecha}&turno=${t.turno}`).catch(() => []),
+      api("/api/hospital/hospitalizations").catch(() => []),
+      api(`/api/hospital/shifts?fecha=${t.fecha}`).catch(() => []),
+    ]);
     if (estado.pagina !== "inicio") return;
     const enCurso = cxHoy.filter((c) => c.estado === "en_curso").length;
-    extra = cifra("quirofanos", enCurso, "en cirugía ahora", "quirofanos", enCurso ? "cifra-alerta" : "")
-      + cifra("citas", cxHoy.filter((c) => c.estado !== "cancelada").length, "cirugías hoy", "quirofanos");
+    const camas = deps.reduce((s, d) => s + d.camas, 0) - deps.reduce((s, d) => s + d.ocupadas, 0);
+    const pendientes = dosis.filter((d) => d.estado === "pendiente");
+    const c = m?.conteos || {};
+    $("#inicioCifras").innerHTML =
+        cifra("pacientes", c.pacientes ?? estado.pacientes.length, "pacientes", "pacientes")
+      + cifra("cama", c.hospitalizados ?? hosp.length, "hospitalizados", "habitaciones")
+      + cifra("cama", camas, camas === 1 ? "cama libre" : "camas libres", "habitaciones", camas ? "" : "cifra-alerta")
+      + cifra("quirofanos", enCurso, "en cirugía ahora", "quirofanos", enCurso ? "cifra-alerta" : "")
+      + cifra("citas", cxHoy.filter((x) => x.estado !== "cancelada").length, "cirugías hoy", "quirofanos")
+      + cifra("vacuna", pendientes.length, "dosis por aplicar", "enfermeria", pendientes.some(atrasada) ? "cifra-alerta" : "");
+    guardarDosis(dosis);
+    const sinEnf = hosp.filter((h) => !turnos.some((x) => x.turno === t.turno && x.id_hospitalizacion === h.id_hospitalizacion));
+    const [, nombreT, horasT] = TURNOS.find((x) => x[0] === t.turno);
+    $("#inicioCifras").insertAdjacentHTML("afterend", `<section class="panel turno-panel">
+      <header class="panel-cab"><h2>Turno de ${nombreT.toLowerCase()} <span class="tenue">${horasT}</span></h2>
+        <button type="button" class="btn sutil chico" data-ir="enfermeria">Ir a Enfermería</button></header>
+      <div class="turno-cols">
+        <div><h3>Medicamentos por aplicar</h3><ul class="lista-turno">${pendientes.slice(0, 6).map((d) => `<li>
+            <span class="hora ${atrasada(d) ? "atrasada-txt" : ""}">${horaDe(d.fecha_hora_programada)}</span>
+            <span class="txt"><b>${esc(d.medicamento)} ${esc(d.dosis)}</b>
+              <small><button type="button" class="enlace-paciente" data-id="${d.id_paciente}" data-pestana-ir="especial">${esc(d.paciente)}</button> · ${esc(d.numero_habitacion)} · ${d.encargado ? esc(d.encargado) : "sin enfermero"}</small></span>
+            ${tocaYa(d) ? `<button type="button" class="btn primario chico" data-aplicar-dosis="${d.id_administracion}">Aplicar</button>` : ""}
+          </li>`).join("") || '<li class="vacia">No quedan dosis en este turno.</li>'}
+          ${pendientes.length > 6 ? `<li class="vacia">y ${pendientes.length - 6} más en Enfermería.</li>` : ""}</ul></div>
+        <div><h3>Pacientes sin enfermero en este turno</h3><ul class="lista-turno">${sinEnf.map((h) => `<li>
+            <span class="txt"><button type="button" class="enlace-paciente" data-id="${h.id_paciente}" data-pestana-ir="especial">${esc(h.paciente)}</button>
+              <small>${esc(h.numero_habitacion)}${h.departamento ? ` · ${esc(h.departamento)}` : ""}</small></span>
+            <button type="button" class="btn sutil chico" data-asignar="${h.id_hospitalizacion}">Asignar</button></li>`).join("")
+            || '<li class="vacia">Todos los pacientes ingresados tienen enfermero.</li>'}</ul></div>
+      </div></section>`);
+  } else {
+    const conteos = Object.keys(m?.conteos || {}).length ? m.conteos : { pacientes: estado.pacientes.length };
+    $("#inicioCifras").innerHTML = Object.entries(conteos).map(([k, v]) =>
+        cifra(ICONO_CIFRA[k] || "consultas", v, ETIQUETAS[k] || k, k === "pacientes" ? "pacientes" : null)).join("")
+      + cifra("personal", personalActivo().length, `${nombrePersonal(true).toLowerCase()} activos`, "personal");
   }
-  const m = est?.motores?.find((x) => x.clave === estado.inst);
-  $("#inicioCifras").innerHTML = Object.entries(m?.conteos || {}).map(([k, v]) =>
-      cifra(ICONO_CIFRA[k] || "consultas", v, ETIQUETAS[k] || k, k === "pacientes" ? "pacientes" : null)).join("")
-    + extra
-    + cifra("personal", personalActivo().length, `${nombrePersonal(true).toLowerCase()} activos`, "personal");
   $("#inicioMotor").insertAdjacentHTML("beforeend",
     `<span class="estado ${m?.real ? "activo" : "alerta"}">${m?.real ? "Conectado" : "Simulado"}</span>`);
 
@@ -577,8 +613,9 @@ async function pintarMotores() {
           return `<tr${m.clave === estado.inst ? ' class="fila-propia"' : ""}>
             <td><span class="punto" style="background:${i.color}"></span><b>${esc(i.nombre || m.institucion)}</b></td>
             <td>${esc(m.motor)}</td>
-            <td>${m.real ? `${esc(m.version || "")}<br><span class="tenue">${esc(m.base_datos || "")}</span>` : `<span class="tenue">Simulado en memoria${m.detalle_conexion ? `: ${esc(m.detalle_conexion)}` : ""}</span>`}</td>
-            <td>${Object.entries(m.conteos || {}).map(([k, v]) => `${esc(v)} ${esc(ETIQUETAS[k] || k)}`).join("<br>")}</td>
+            <td>${m.real ? `${esc(m.version || "")}<br><span class="tenue">${esc(m.base_datos || "")}</span>`
+              : `<span>Datos de prueba en memoria</span>${m.detalle_conexion ? `<details class="motor-detalle"><summary>Por qué no se conectó</summary><p>${esc(m.detalle_conexion)}</p></details>` : ""}`}</td>
+            <td><ul class="conteos">${Object.entries(m.conteos || {}).map(([k, v]) => `<li><b>${esc(v)}</b> ${esc(ETIQUETAS[k] || k)}</li>`).join("") || '<li class="tenue">—</li>'}</ul></td>
             <td class="tenue">${esc(m.consistencia || m.detalle || "")}</td>
             <td class="nowrap"><span class="estado ${m.estado === "online" ? "activo" : (m.real ? "baja" : "alerta")}">${m.estado === "online" ? "Conectado" : (m.real ? "Error" : "Simulado")}</span>
               ${m.latencia_ms != null ? `<br><small class="tenue">${m.latencia_ms} ms</small>` : ""}</td>
@@ -725,7 +762,7 @@ async function accionCirugia(id, accion) {
   const fin = accion === "finish";
   abrirModal(fin ? "Finalizar cirugía" : "Cancelar cirugía",
     fin ? `<label>Notas operatorias<textarea name="notas" placeholder="Hallazgos, complicaciones, indicaciones postoperatorias"></textarea></label>`
-        : `<label><span class="requerido">Motivo de la cancelación</span><input name="motivo" required maxlength="200"></label>`,
+        : `<label><span class="requerido">Motivo de la cancelación</span><input name="motivo" required minlength="5" maxlength="200"></label>`,
     fin ? "Finalizar cirugía" : "Cancelar cirugía", async (fd) => {
       await api(`/api/hospital/surgeries/${id}/${accion}`, { method: "POST", body: datosForm(fd) });
       avisar(fin ? "Cirugía finalizada" : "Cirugía cancelada");
@@ -862,7 +899,7 @@ async function formOrdenMedicacion(idHosp) {
 }
 
 function formSuspenderOrden(id) {
-  abrirModal("Suspender medicamento", `<label><span class="requerido">Motivo</span><input name="motivo" required maxlength="200" placeholder="Cambio de antibiótico"></label>
+  abrirModal("Suspender medicamento", `<label><span class="requerido">Motivo</span><input name="motivo" required minlength="5" maxlength="200" placeholder="Cambio de antibiótico"></label>
     <p class="ayuda">Las dosis pendientes se cancelan. Las ya aplicadas quedan en el registro.</p>`,
   "Suspender", async (fd) => {
     await api(`/api/hospital/medication/${id}/suspend`, { method: "POST", body: datosForm(fd) });
@@ -884,7 +921,7 @@ function formRegistrarDosis(dosis, aplicar = true) {
       <label class="doble"><span class="${aplicar ? "requerido" : ""}">${aplicar ? "Aplicada por" : "Enfermero que reporta"}</span>
         <select name="id_enfermero" ${aplicar ? "required" : ""}><option value="">Seleccione…</option>${opcionesEnfermeros(encargado)}</select></label>
       ${aplicar ? `<label class="completo">Observaciones<input name="observaciones" maxlength="200" placeholder="Sin reacciones adversas"></label>`
-        : `<label class="completo"><span class="requerido">¿Por qué no se aplicó?</span><input name="motivo" required maxlength="200" placeholder="Paciente en ayuno para cirugía"></label>`}
+        : `<label class="completo"><span class="requerido">¿Por qué no se aplicó?</span><input name="motivo" required minlength="5" maxlength="200" placeholder="Paciente en ayuno para cirugía"></label>`}
     </div>
     <p class="ayuda">${encargado ? `Encargado del turno: <b>${esc(dosis.encargado)}</b>.` : "Nadie tiene asignado a este paciente en ese turno."}
       ${aplicar ? " Se guarda la hora actual como hora de aplicación." : ""}</p>`;
@@ -1038,7 +1075,7 @@ function pintarHospitalPaciente() {
         <tbody>${internamientos.map((h) => `<tr>
           <td><b>${esc(h.numero_habitacion)}</b>${habitacionDe(h.numero_habitacion) ? `<br><small class="tenue">${esc(habitacionDe(h.numero_habitacion).departamento)}</small>` : ""}</td><td class="nowrap">${fecha(h.fecha_ingreso, true)}</td>
           <td class="nowrap">${h.fecha_egreso ? fecha(h.fecha_egreso, true) : "—"}</td><td>${esc(h.motivo_ingreso)}</td>
-          <td><span class="estado ${h.estado === "ingresado" ? "alerta" : "activo"}">${texto(h.estado)}</span></td>
+          <td><span class="estado ${h.estado === "ingresado" ? "alerta" : "activo"}">${mayus(h.estado)}</span></td>
           <td class="acc">${h.estado === "ingresado" && activo ? `<button type="button" class="btn sutil chico" data-cambiar-hab="${h.id_hospitalizacion}" data-hab-actual="${esc(h.numero_habitacion)}">Cambiar habitación</button><button type="button" class="btn sutil chico" data-alta="${h.id_hospitalizacion}">Registrar egreso</button>` : ""}</td>
         </tr>`).join("")}</tbody></table>`
         : `<p class="relleno tenue">No ha estado internado. Para ingresarlo, registre una consulta y marque "Ingresar al paciente".</p>`}</div>
@@ -1105,6 +1142,112 @@ function seccionKardex(ingreso, hp, activo) {
 
 estado.cacheDosis = {};
 function guardarDosis(lista) { lista.forEach((d) => { estado.cacheDosis[d.id_administracion] = d; }); }
+
+
+// ---------------------------------------------------- Panel lateral: vista rápida
+function abrirCajon({ ini, sub, titulo, cuerpo, pie }) {
+  $("#cajonIni").textContent = ini;
+  $("#cajonSub").textContent = sub;
+  $("#cajonTitulo").textContent = titulo;
+  $("#cajonCuerpo").innerHTML = cuerpo;
+  $("#cajonPie").innerHTML = pie;
+  if (!$("#cajon").open) $("#cajon").showModal();
+}
+const cerrarCajon = () => { if ($("#cajon").open) $("#cajon").close(); };
+$("#cajon").addEventListener("click", async (ev) => {
+  if (ev.target === $("#cajon") || ev.target.closest("[data-cerrar-cajon]")) { cerrarCajon(); return; }
+  const b = ev.target.closest("[data-cajon]");
+  if (!b) return;
+  const id = Number(b.dataset.paciente);
+  cerrarCajon();
+  if (b.dataset.cajon === "historial") { abrirPaciente(id, b.dataset.pestana || "historial"); return; }
+  await abrirPaciente(id, b.dataset.cajon === "consulta" ? "historial" : "citas");
+  if (b.dataset.cajon === "consulta") formConsulta(); else formCita();
+});
+
+async function vistaRapida(id, pestana = null) {
+  const p0 = estado.pacientes.find((x) => x.id_paciente === id);
+  const nombre0 = p0 ? `${p0.nombres} ${p0.apellidos}` : "Paciente";
+  abrirCajon({ ini: iniciales(nombre0), sub: "Cargando…", titulo: nombre0, cuerpo: '<p class="tenue">Cargando…</p>', pie: "" });
+  try {
+    const [h, esp] = await Promise.all([
+      api(`/api/patients/${id}/history`),
+      api(`/api/patients/${id}/specialized`).catch(() => null),
+    ]);
+    const p = h.paciente;
+    const nombre = `${p.nombres} ${p.apellidos}`;
+    const archivado = h.estado !== "activo";
+    const ultima = [...(h.consultas || [])].sort((a, b) => String(b.fecha_hora_atencion || "").localeCompare(String(a.fecha_hora_atencion || "")))[0];
+    const ahora = ahoraTs();
+    const proxCita = (h.citas || []).filter((c) => c.estado_cita === "programada" && ts(c.fecha_hora_programada) >= ahora)
+      .sort((a, b) => a.fecha_hora_programada.localeCompare(b.fecha_hora_programada))[0];
+
+    let hosp = "";
+    const ingreso = (esp?.hospitalizaciones || []).find((x) => x.estado === "ingresado");
+    if (estado.inst === "hospital" && ingreso) {
+      const t = turnoActual();
+      if (!estado.departamentos.length) await cargarDepartamentos();
+      const [dosis, turnos, cx] = await Promise.all([
+        api(`/api/hospital/doses?id_hospitalizacion=${ingreso.id_hospitalizacion}`).catch(() => []),
+        api(`/api/hospital/shifts?id_paciente=${id}`).catch(() => []),
+        api(`/api/hospital/surgeries?id_paciente=${id}&pendientes=1`).catch(() => []),
+      ]);
+      guardarDosis(dosis);
+      const hab = habitacionDe(ingreso.numero_habitacion);
+      const enf = turnos.filter((x) => x.fecha === t.fecha && x.turno === t.turno);
+      const prox = dosis.filter((d) => d.estado === "pendiente").sort((a, b) => ts(a.fecha_hora_programada).localeCompare(ts(b.fecha_hora_programada)))[0];
+      const atras = dosis.filter(atrasada).length;
+      const enCurso = cx.find((c) => c.estado === "en_curso");
+      const progr = cx.find((c) => c.estado === "programada");
+      hosp = `<section class="cajon-bloque">
+        <div class="tarjeta-estado ${enCurso ? "alerta-cx" : ""}">
+          ${enCurso ? `<span class="estado critico">En cirugía</span><b>${esc(enCurso.procedimiento)}</b><small>${esc(enCurso.codigo_quirofano)} · desde las ${horaDe(enCurso.fecha_hora_inicio)}</small>`
+            : `<small class="tenue">Internado desde ${fecha(ingreso.fecha_ingreso, true)}</small>
+               <b>Habitación ${esc(ingreso.numero_habitacion)}${hab ? ` · ${esc(hab.departamento)}` : ""}</b>
+               <small>${esc(ingreso.motivo_ingreso || "")}</small>`}
+        </div>
+        <div style="margin-top:10px">
+          <p class="linea-dato"><span>Enfermero en este turno</span><span>${enf.length ? enf.map((x) => esc(x.enfermero_nombre)).join(", ") : '<span class="sin-asignar">Sin asignar</span>'}</span></p>
+          <p class="linea-dato"><span>Próximo medicamento</span><span>${prox ? `${esc(prox.medicamento)} ${esc(prox.dosis)}<br><small class="${atrasada(prox) ? "atrasada-txt" : "tenue"}">${fecha(prox.fecha_hora_programada, true)}</small>` : "Ninguno"}</span></p>
+          ${atras ? `<p class="linea-dato"><span>Dosis atrasadas</span><span class="atrasada-txt">${atras}</span></p>` : ""}
+          ${progr ? `<p class="linea-dato"><span>Cirugía programada</span><span>${esc(progr.procedimiento)}<br><small class="tenue">${fecha(progr.fecha_hora_programada, true)} · ${esc(progr.codigo_quirofano)}</small></span></p>` : ""}
+        </div>
+      </section>`;
+    }
+
+    const diag = ultima?.diagnosticos?.[0];
+    abrirCajon({
+      ini: iniciales(nombre),
+      sub: `Historial n.º ${String(p.id_paciente).padStart(6, "0")}`,
+      titulo: nombre,
+      cuerpo: `
+        <div><span class="estado ${archivado ? "baja" : p.estado === "hospitalizado" ? "alerta" : p.estado === "critico" ? "critico" : "activo"}">${mayus(archivado ? h.estado : p.estado)}</span></div>
+        <dl class="datos-cortos">
+          <div><dt>Edad</dt><dd>${edad(p.fecha_nacimiento)}</dd></div>
+          <div><dt>Sexo</dt><dd>${p.sexo === "F" ? "Femenino" : p.sexo === "M" ? "Masculino" : esc(p.sexo)}</dd></div>
+          <div><dt>${estado.inst === "pediatrico" ? "CUI" : "DPI"}</dt><dd>${esc(p.dpi || "—")}</dd></div>
+          <div><dt>Sangre</dt><dd>${esc(p.tipo_sangre || "—")}</dd></div>
+        </dl>
+        ${hosp}
+        <section class="cajon-bloque"><h3>Última atención</h3>
+          ${ultima ? `<p><b>${fecha(ultima.fecha_hora_atencion, true)}</b> · ${esc(ultima.motivo)}</p>
+            ${diag ? `<p class="tenue">${esc(diag.codigo_cie10)} ${esc(diag.descripcion)}</p>` : ""}` : '<p class="tenue">Todavía no tiene consultas.</p>'}
+        </section>
+        <section class="cajon-bloque"><h3>Próxima cita</h3>
+          ${proxCita ? `<p><b>${fecha(proxCita.fecha_hora_programada, true)}</b> · ${esc(proxCita.motivo_consulta)}</p><p class="tenue">${esc(proxCita.profesional_nombre || "")}</p>` : '<p class="tenue">Sin citas programadas.</p>'}
+        </section>
+        <section class="cajon-bloque"><h3>Contacto</h3>
+          <p class="linea-dato"><span>Teléfono</span><span>${esc(p.telefono || "—")}</span></p>
+          <p class="linea-dato"><span>Emergencia</span><span>${esc(p.contacto_emergencia_nombre || "—")}${p.contacto_emergencia_telefono ? `<br><small class="tenue">${esc(p.contacto_emergencia_telefono)}</small>` : ""}</span></p>
+        </section>`,
+      pie: `<button type="button" class="btn primario" data-cajon="historial" data-paciente="${id}" data-pestana="${pestana || (ingreso ? "especial" : "historial")}">Abrir historial completo</button>
+        ${archivado ? "" : `<button type="button" class="btn sutil" data-cajon="consulta" data-paciente="${id}">Registrar consulta</button>
+        <button type="button" class="btn sutil" data-cajon="cita" data-paciente="${id}">Agendar cita</button>`}`,
+    });
+  } catch (e) {
+    $("#cajonCuerpo").innerHTML = `<p class="error">${esc(e.message)}</p>`;
+  }
+}
 
 // ----------------------------------------------------------------- Expediente
 async function abrirPaciente(id, pestana = null) {
@@ -1318,6 +1461,8 @@ $("#contenido").addEventListener("click", async (ev) => {
     formConsulta(idCita);
     return;
   }
+  const rapida = t.closest(".enlace-paciente[data-id], .fila-reciente[data-id]");
+  if (rapida && estado.pagina !== "paciente") { vistaRapida(Number(rapida.dataset.id), rapida.dataset.pestanaIr || null); return; }
   const abrir = t.closest("[data-id]");
   if (abrir) { abrirPaciente(Number(abrir.dataset.id), abrir.dataset.pestanaIr || null); return; }
   const b = t.closest("[data-accion]");
@@ -1471,11 +1616,201 @@ function pintarEspecializado() {
 }
 
 // ------------------------------------------------------------------- Modal
+
+// ======================================================= Reglas de cada campo
+// Una sola tabla para todos los formularios de las cuatro instituciones. Se aplica sola
+// a cada campo por su nombre (name) o, en las filas de recetas/parámetros, por data-k.
+// El servidor repite las mismas reglas (src/domain/validaciones.py) y las bases de datos
+// las más importantes, así que esto es comodidad para el usuario, no la única defensa.
+const RE = {
+  letras: /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ' .\-]+$/u,
+  telefono: /^[2-7]\d{3}-?\d{4}$/,
+  correo: /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/,
+  cie10: /^[A-Z]\d{2}(\.[0-9A-Z]{1,4})?$/,
+  presion: /^(\d{2,3})\/(\d{2,3})$/,
+  colegiado: /^[A-Z0-9-]{3,20}$/,
+  lote: /^[A-Za-z0-9-]{3,30}$/,
+  dosis: /^\d+([.,]\d+)?\s?[A-Za-zµÁÉÍÓÚáéíóúñ/%]+(\s[A-Za-zÁÉÍÓÚáéíóúñ/]+)*$/u,
+};
+const MSG_LETRAS = "use solo letras, espacios, punto, apóstrofo o guion";
+const PIEZAS_FDI = new Set([1, 2, 3, 4].flatMap((c) => [1, 2, 3, 4, 5, 6, 7, 8].map((n) => c * 10 + n))
+  .concat([5, 6, 7, 8].flatMap((c) => [1, 2, 3, 4, 5].map((n) => c * 10 + n))));
+
+function revisarDPI(v) {
+  if (!/^\d{13}$/.test(v)) return `debe tener exactamente 13 dígitos (lleva ${v.replace(/\D/g, "").length})`;
+  const depto = Number(v.slice(9, 11)), muni = Number(v.slice(11, 13));
+  if (depto < 1 || depto > 22) return "los dígitos 10 y 11 son el departamento (01 a 22)";
+  if (muni < 1 || muni > 35) return "los dos últimos dígitos son el municipio (01 en adelante)";
+  return null;
+}
+const nombreR = (max) => ({ attrs: { maxlength: max, minlength: 2, autocomplete: "off" }, re: RE.letras, msg: MSG_LETRAS, filtro: "letras" });
+const telR = { attrs: { maxlength: 9, inputmode: "tel", placeholder: "5841-7501" }, re: RE.telefono, filtro: "telefono",
+  msg: "8 dígitos de Guatemala que empiezan con 2 a 7 (ej. 5841-7501)" };
+const dpiR = { attrs: { maxlength: 13, inputmode: "numeric", placeholder: "13 dígitos" }, filtro: "digitos", check: revisarDPI };
+const txt = (max, min = 0) => ({ attrs: { maxlength: max, ...(min ? { minlength: min } : {}) } });
+const num = (min, max, step = "any") => ({ attrs: { min, max, step, inputmode: "decimal" } });
+const isoLocal = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+const haceAnios = (n) => { const d = new Date(); d.setFullYear(d.getFullYear() - n); return hoyISO(d); };
+
+const REGLAS = {
+  nombres: nombreR(50), apellidos: nombreR(50), nombre_tutor: nombreR(100), contacto_emergencia_nombre: nombreR(100),
+  nombre_completo: nombreR(100), parentesco_tutor: nombreR(30), especialidad: nombreR(80),
+  dpi: dpiR, dpi_tutor: dpiR,
+  telefono: telR, contacto_emergencia_telefono: telR, telefono_tutor: telR,
+  correo_electronico: { attrs: { maxlength: 80, type: "email", placeholder: "nombre@dominio.com" }, re: RE.correo, msg: "escriba un correo válido (ej. nombre@dominio.com)" },
+  direccion: txt(200, 5),
+  fecha_nacimiento: { dinamico: () => ({ max: hoyISO(), min: haceAnios(estado.inst === "pediatrico" ? 18 : 120) }),
+    msgRango: () => (estado.inst === "pediatrico" ? "debe ser de un menor de 18 años y no futura" : "no puede ser futura ni de hace más de 120 años") },
+  semanas_gestacion: num(20, 45, 1), peso_nacer_kg: num(0.3, 7, 0.01), talla_nacer_cm: num(20, 65, 0.1),
+  motivo: txt(200, 3), motivo_consulta: txt(200, 3), motivo_hospitalizacion: txt(200, 3), motivo_baja: txt(150, 5),
+  presion_arterial: { attrs: { maxlength: 7, inputmode: "numeric" }, check: (v) => {
+    const m = v.match(RE.presion);
+    if (!m) return "use el formato 120/80";
+    const [s, d] = [Number(m[1]), Number(m[2])];
+    return s >= 60 && s <= 260 && d >= 30 && d <= 160 && s > d ? null : "fuera de rango (sistólica 60–260, diastólica 30–160, mayor la sistólica)";
+  } },
+  temperatura: num(30, 45, 0.1), pulso: num(20, 250, 1), peso_kg: num(0.3, 150, 0.01), talla_cm: num(20, 200, 0.1),
+  perimetro_cefalico_cm: num(20, 70, 0.1), percentil_crecimiento: num(0, 100, 0.1),
+  codigo_cie10: { attrs: { maxlength: 8 }, filtro: "mayus", re: RE.cie10, msg: "letra + 2 números y decimal opcional (ej. K80.0)" },
+  descripcion_diagnostico: txt(300, 3), descripcion_tratamiento: txt(300, 3), indicaciones_tratamiento: txt(500), notas_clinicas: txt(2000),
+  nombre_vacuna: txt(100, 2), dosis_vacuna: txt(30), lote_vacuna: { attrs: { maxlength: 30 }, re: RE.lote, msg: "use letras, números o guion (3 a 30)" },
+  proxima_fecha_refuerzo: { dinamico: () => ({ min: hoyISO() }), msgRango: () => "no puede ser una fecha pasada" },
+  tipo_muestra: txt(60), conclusiones_diagnosticas: txt(1000), observaciones_tecnicas: txt(300),
+  numero_colegiado: { attrs: { maxlength: 20, minlength: 3, placeholder: "COL-12450" }, filtro: "mayus", re: RE.colegiado, msg: "use letras, números o guion (3 a 20)" },
+  procedimiento: txt(200, 3), duracion_estimada_min: num(15, 720, 15), notas_operatorias: txt(1000), notas: txt(1000),
+  fecha_hora_programada: { dinamico: () => ({ min: isoLocal(new Date(Date.now() - 5 * 60000)), max: isoLocal(new Date(Date.now() + 365 * 86400000)) }),
+    msgRango: () => "debe ser desde ahora y dentro del próximo año" },
+  fecha: { dinamico: () => ({ min: turnoActual().fecha }), msgRango: () => "no puede ser una fecha pasada" },
+  fecha_inicio: { dinamico: () => ({ min: isoLocal(new Date(Date.now() - 60 * 60000)), max: isoLocal(new Date(Date.now() + 30 * 86400000)) }),
+    msgRango: () => "debe ser desde hace una hora y dentro de los próximos 30 días" },
+  dosis: { attrs: { maxlength: 50 }, re: RE.dosis, msg: "cantidad y unidad (ej. 500 mg, 1 g, 2 tabletas)" },
+  duracion_dias: num(1, 30, 1), indicaciones: txt(200), observaciones: txt(200), motivo_omision: txt(200, 5),
+  username: txt(50), password: txt(100),
+};
+const REGLAS_FILA = {
+  medicamento: txt(100, 2), presentacion: txt(50), dosis: txt(50), frecuencia: txt(50), duracion_dias: num(1, 90, 1),
+  dosis_mg_kg: num(0.01, 100, 0.01), concentracion_mg_ml: num(0.1, 1000, 0.1),
+  pieza_dental: { attrs: { maxlength: 2, inputmode: "numeric" }, filtro: "digitos",
+    check: (v) => (PIEZAS_FDI.has(Number(v)) ? null : "no existe en la notación FDI (11–48 permanentes, 51–85 temporales)") },
+  costo: num(0, 50000, 0.01), observaciones: txt(200),
+  nombre_parametro: txt(60, 2), valor_resultado: txt(40), unidad_medida: txt(20),
+  rango_referencia_min: num(-1000000, 1000000), rango_referencia_max: num(-1000000, 1000000), valor_referencia_cualitativo: txt(60),
+};
+const reglaDe = (el) => (el.dataset.k ? REGLAS_FILA[el.dataset.k] : REGLAS[el.name]);
+
+function aplicarReglas(raiz) {
+  raiz.querySelectorAll("input, textarea").forEach((el) => {
+    const r = reglaDe(el);
+    if (!r) return;
+    Object.entries({ ...(r.attrs || {}), ...(r.dinamico ? r.dinamico() : {}) }).forEach(([k, v]) => {
+      if (k === "type") { if (el.type === "text") el.type = v; return; }
+      if (k === "placeholder" && el.placeholder) return;
+      if (!el.hasAttribute(k)) el.setAttribute(k, v);
+    });
+    if (el.tagName === "TEXTAREA" && el.maxLength > 0 && !el.nextElementSibling?.classList.contains("contador")) {
+      el.insertAdjacentHTML("afterend", `<small class="contador" aria-hidden="true">0 / ${el.maxLength}</small>`);
+    }
+  });
+}
+
+// Mientras se escribe: solo deja pasar los caracteres que el campo admite
+function filtrarEscritura(el) {
+  const r = reglaDe(el);
+  if (!r?.filtro) return;
+  const antes = el.value;
+  let v = antes;
+  if (r.filtro === "digitos") v = v.replace(/\D/g, "");
+  if (r.filtro === "letras") v = v.replace(/[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ' .\-]/gu, "");
+  if (r.filtro === "mayus") v = v.toUpperCase().replace(/\s/g, "");
+  if (r.filtro === "telefono") {
+    const d = v.replace(/\D/g, "").slice(0, 8);
+    v = d.length > 4 ? `${d.slice(0, 4)}-${d.slice(4)}` : d;
+  }
+  if (v !== antes) el.value = v;
+}
+
+const etiquetaDe = (el) => {
+  const lab = el.closest("label");
+  const t = lab?.querySelector(".requerido")?.textContent || lab?.firstChild?.textContent || el.name || "Campo";
+  return t.trim();
+};
+
+// Devuelve el problema del campo, o null si está bien
+function problemaDe(el) {
+  if (el.disabled || el.closest("[hidden]") || ["checkbox", "radio", "hidden", "button"].includes(el.type)) return null;
+  const v = el.value.trim();
+  if (!v) return el.required ? "es obligatorio" : null;
+  if (el.minLength > 0 && v.length < el.minLength) return `debe tener al menos ${el.minLength} caracteres`;
+  if (el.maxLength > 0 && v.length > el.maxLength) return `admite como máximo ${el.maxLength} caracteres`;
+  const r = reglaDe(el);
+  if (el.type === "number") {
+    const n = Number(v);
+    if (Number.isNaN(n)) return "debe ser un número";
+    if (el.min !== "" && n < Number(el.min)) return `debe estar entre ${el.min} y ${el.max || "∞"}`;
+    if (el.max !== "" && n > Number(el.max)) return `debe estar entre ${el.min || "−∞"} y ${el.max}`;
+    if (el.step === "1" && !Number.isInteger(n)) return "debe ser un número entero";
+  }
+  if (["date", "datetime-local"].includes(el.type) && ((el.min && v < el.min) || (el.max && v > el.max))) {
+    return r?.msgRango ? r.msgRango() : "está fuera del rango permitido";
+  }
+  if (r?.re && !r.re.test(v)) return r.msg;
+  if (r?.check) return r.check(v, el);
+  if (el.type === "email" && !RE.correo.test(v)) return "escriba un correo válido";
+  return null;
+}
+
+function marcarCampo(el, msg) {
+  const lab = el.closest("label") || el.parentElement;
+  lab.querySelector(":scope > .msg-campo")?.remove();
+  el.toggleAttribute("aria-invalid", Boolean(msg));
+  if (msg) lab.insertAdjacentHTML("beforeend", `<small class="msg-campo">${esc(msg.charAt(0).toUpperCase() + msg.slice(1))}</small>`);
+}
+
+// Revisa todo el formulario; marca cada campo con problema y devuelve el primero
+function revisarFormulario(form) {
+  let primero = null;
+  form.querySelectorAll("input, select, textarea").forEach((el) => {
+    const msg = problemaDe(el);
+    marcarCampo(el, msg);
+    if (msg && !primero) primero = { el, msg: `${etiquetaDe(el)}: ${msg}` };
+  });
+  // Reglas entre campos
+  form.querySelectorAll('[data-fila="parametro"]').forEach((f) => {
+    const mn = f.querySelector('[data-k="rango_referencia_min"]'), mx = f.querySelector('[data-k="rango_referencia_max"]');
+    if (mn?.value && mx?.value && Number(mn.value) > Number(mx.value)) {
+      marcarCampo(mx, "debe ser mayor o igual que el mínimo");
+      if (!primero) primero = { el: mx, msg: "Parámetro: el máximo de referencia debe ser mayor o igual que el mínimo" };
+    }
+  });
+  const cen = form.querySelector('[name="contacto_emergencia_nombre"]'), cet = form.querySelector('[name="contacto_emergencia_telefono"]');
+  if (cen?.value.trim() && cet && !cet.value.trim()) {
+    marcarCampo(cet, "indique el teléfono del contacto");
+    if (!primero) primero = { el: cet, msg: "Contacto de emergencia: falta el teléfono" };
+  }
+  return primero;
+}
+
+new MutationObserver((cambios) => cambios.forEach((c) => c.addedNodes.forEach((n) => { if (n.nodeType === 1) aplicarReglas(n.parentElement || n); })))
+  .observe($("#modalCuerpo"), { childList: true, subtree: true });
+$("#modalCuerpo").addEventListener("input", (ev) => {
+  const el = ev.target;
+  filtrarEscritura(el);
+  if (el.hasAttribute("aria-invalid") && !problemaDe(el)) marcarCampo(el, null);
+  const cont = el.nextElementSibling;
+  if (cont?.classList.contains("contador")) cont.textContent = `${el.value.length} / ${el.maxLength}`;
+});
+$("#modalCuerpo").addEventListener("focusout", (ev) => {
+  const el = ev.target;
+  if (!el.matches("input, textarea") || !el.value.trim()) return;
+  marcarCampo(el, problemaDe(el));
+});
+
 let alAceptar = null;
 
 function abrirModal(titulo, html, textoBoton, accion) {
   $("#modalTitulo").textContent = titulo;
   $("#modalCuerpo").innerHTML = html;
+  aplicarReglas($("#modalCuerpo"));
   $("#modalAceptar").textContent = textoBoton;
   $("#modalAceptar").hidden = !textoBoton;
   $(".modal-pie [data-cerrar]").textContent = textoBoton ? "Cancelar" : "Cerrar";
@@ -1492,10 +1827,10 @@ $("#modalForm").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   if (!alAceptar) return;
   const form = ev.target;
-  const faltante = [...form.querySelectorAll("[required]")].find((i) => !i.value.trim());
-  if (faltante) {
-    mostrarErrorModal(`Complete el campo "${faltante.closest("label")?.firstChild?.textContent.trim() || faltante.name}".`);
-    faltante.focus();
+  const problema = revisarFormulario(form);
+  if (problema) {
+    mostrarErrorModal(`${problema.msg.charAt(0).toUpperCase()}${problema.msg.slice(1)}.`);
+    problema.el.focus();
     return;
   }
   const boton = $("#modalAceptar");
@@ -1535,7 +1870,7 @@ function formPaciente(p) {
       ${campo("apellidos", "Apellidos", { req: true, valor: v.apellidos })}
       ${campo("fecha_nacimiento", "Fecha de nacimiento", { tipo: "date", req: true, valor: v.fecha_nacimiento })}
       <label><span class="requerido">Sexo</span><select name="sexo" required>${opciones([["F", "Femenino"], ["M", "Masculino"]], v.sexo)}</select></label>
-      ${editar ? "" : campo("dpi", ped ? "CUI del niño" : "DPI", { req: true, extra: 'inputmode="numeric" maxlength="20"' })}
+      ${editar ? "" : campo("dpi", ped ? "CUI del niño" : "DPI", { req: true })}
       ${!ped && inst !== "odontologia" ? `<label>Tipo de sangre<select name="tipo_sangre">${opciones([["", "No indicado"], ...["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-"].map((t) => [t, t])], v.tipo_sangre || "")}</select></label>` : ""}
       ${campo("direccion", "Dirección", { valor: v.direccion, clase: "doble" })}
       ${!ped ? campo("telefono", "Teléfono", { valor: v.telefono }) : ""}

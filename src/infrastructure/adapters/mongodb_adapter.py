@@ -22,7 +22,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pymongo import MongoClient, ReturnDocument
-from pymongo.errors import DuplicateKeyError
+from pymongo.errors import DuplicateKeyError, WriteError
 
 from .base_adapter import BaseClinicalAdapter
 from ..config import Config
@@ -49,6 +49,14 @@ CAMPOS_EDITABLES = {
 def _ahora() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M")
 
+
+
+def _error_esquema(e: WriteError) -> Exception:
+    """El validador $jsonSchema de la colección rechazó el documento (código 121)."""
+    if getattr(e, "code", None) == 121:
+        return ValueError("MongoDB rechazó los datos: no cumplen el formato de la colección "
+                          "(DPI de 13 dígitos, teléfono ####-####, correo válido)")
+    return e
 
 class MongoDBAdapter(BaseClinicalAdapter):
     is_live = True
@@ -153,6 +161,8 @@ class MongoDBAdapter(BaseClinicalAdapter):
                 }, session=s)
         except DuplicateKeyError:
             raise ValueError(f"Ya existe un paciente con DPI {data['dpi']}")
+        except WriteError as e:
+            raise _error_esquema(e)
         return self.get_patient(pid)
 
     def get_patient(self, patient_id: int) -> Optional[Patient]:
@@ -177,14 +187,18 @@ class MongoDBAdapter(BaseClinicalAdapter):
         return [self._to_patient(d) for d in cursor]
 
     def update_patient(self, patient_id: int, updates: Dict[str, Any]) -> Patient:
-        cambios = {k: v for k, v in updates.items() if k in CAMPOS_EDITABLES}
+        # En los documentos un dato vacío se guarda como "" (el esquema exige texto)
+        cambios = {k: ("" if v is None else v) for k, v in updates.items() if k in CAMPOS_EDITABLES}
         if "contacto_emergencia_nombre" in updates:
-            cambios["contacto_emergencia.nombre"] = updates["contacto_emergencia_nombre"]
+            cambios["contacto_emergencia.nombre"] = updates["contacto_emergencia_nombre"] or ""
         if "contacto_emergencia_telefono" in updates:
-            cambios["contacto_emergencia.telefono"] = updates["contacto_emergencia_telefono"]
+            cambios["contacto_emergencia.telefono"] = updates["contacto_emergencia_telefono"] or ""
         if not cambios:
             raise ValueError("No hay campos válidos para actualizar")
-        res = self.db.pacientes.update_one({"id_paciente": int(patient_id)}, {"$set": cambios})
+        try:
+            res = self.db.pacientes.update_one({"id_paciente": int(patient_id)}, {"$set": cambios})
+        except WriteError as e:
+            raise _error_esquema(e)
         if res.matched_count == 0:
             raise ValueError(f"Paciente {patient_id} no encontrado")
         self.db.historiales_clinicos.update_one(

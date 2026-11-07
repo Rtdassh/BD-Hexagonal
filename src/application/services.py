@@ -17,6 +17,7 @@ from ..domain.entities import (
     User,
     UserRole,
 )
+from ..domain import validaciones as V
 from ..domain.ports import AuthPort, HospitalOperationsPort
 from .router import EngineRouter
 
@@ -57,12 +58,12 @@ class ProfessionalService:
 
     def registrar(self, user: User, data: Dict[str, Any]) -> Professional:
         _exigir_admin(user)
-        if not (data.get("nombre_completo") or "").strip() or not (data.get("numero_colegiado") or "").strip():
-            raise ValueError("Nombre completo y número de colegiado son obligatorios")
+        data = V.validar_profesional(dict(data), nuevo=True)
         return self.router.get_adapter_for_user(user).create_professional(data)
 
     def actualizar(self, user: User, professional_id: int, data: Dict[str, Any]) -> Professional:
         _exigir_admin(user)
+        data = V.validar_profesional(dict(data), nuevo=False)
         return self.router.get_adapter_for_user(user).update_professional(professional_id, data)
 
 
@@ -99,9 +100,10 @@ class HospitalService:
     def programar_cirugia(self, user, data):
         _exigir_admin(user)
         h = self._hospital(user)
-        payload = {**data, "id_medico": _exigir_profesional_activo(h, data.get("id_medico"))}
-        if (payload.get("tipo") or "electiva") not in ("electiva", "urgencia"):
+        if (data.get("tipo") or "electiva") not in ("electiva", "urgencia"):
             raise ValueError("Tipo de cirugía inválido")
+        payload = V.validar_cirugia(dict(data))
+        payload["id_medico"] = _exigir_profesional_activo(h, data.get("id_medico"))
         return h.schedule_surgery(payload)
 
     def iniciar_cirugia(self, user, id_cirugia):
@@ -110,13 +112,13 @@ class HospitalService:
 
     def finalizar_cirugia(self, user, id_cirugia, notas=None):
         _exigir_admin(user)
-        return self._hospital(user).finish_surgery(id_cirugia, notas)
+        if notas and len(notas.strip()) > 1000:
+            raise ValueError("Las notas operatorias admiten como máximo 1000 caracteres")
+        return self._hospital(user).finish_surgery(id_cirugia, (notas or "").strip() or None)
 
     def cancelar_cirugia(self, user, id_cirugia, motivo):
         _exigir_admin(user)
-        if not (motivo or "").strip():
-            raise ValueError("Indique el motivo de la cancelación")
-        return self._hospital(user).cancel_surgery(id_cirugia, motivo.strip())
+        return self._hospital(user).cancel_surgery(id_cirugia, V.motivo(motivo, "El motivo de la cancelación"))
 
     # Enfermería
     def enfermeros(self, user):
@@ -124,13 +126,11 @@ class HospitalService:
 
     def registrar_enfermero(self, user, data):
         _exigir_admin(user)
-        if not (data.get("nombre_completo") or "").strip() or not (data.get("numero_colegiado") or "").strip():
-            raise ValueError("Nombre completo y número de colegiado son obligatorios")
-        return self._hospital(user).create_nurse(data)
+        return self._hospital(user).create_nurse(V.validar_profesional(dict(data), nuevo=True))
 
     def actualizar_enfermero(self, user, id_enfermero, data):
         _exigir_admin(user)
-        return self._hospital(user).update_nurse(id_enfermero, data)
+        return self._hospital(user).update_nurse(id_enfermero, V.validar_profesional(dict(data), nuevo=False))
 
     def turnos(self, user, fecha=None, id_paciente=None):
         return self._hospital(user).list_shift_assignments(fecha, id_paciente)
@@ -139,6 +139,8 @@ class HospitalService:
         _exigir_admin(user)
         if data.get("turno") not in TURNOS:
             raise ValueError("Turno inválido: mañana, tarde o noche")
+        data = dict(data)
+        V.texto(data, "observaciones", "Indicaciones para el turno", 200)
         return self._hospital(user).assign_shift(data)
 
     def anular_turno(self, user, id_asignacion):
@@ -167,11 +169,10 @@ class HospitalService:
     def indicar_medicacion(self, user, data):
         _exigir_admin(user)
         h = self._hospital(user)
-        if not (data.get("dosis") or "").strip():
-            raise ValueError("Indique la dosis (por ejemplo 500 mg)")
         if not data.get("id_medicamento"):
             raise ValueError("Elija el medicamento")
-        payload = {**data, "id_medico": _exigir_profesional_activo(h, data.get("id_medico"))}
+        payload = V.validar_orden_medicacion(dict(data))
+        payload["id_medico"] = _exigir_profesional_activo(h, data.get("id_medico"))
         return h.create_medication_order(payload)
 
     def ordenes_medicacion(self, user, id_hospitalizacion):
@@ -179,9 +180,7 @@ class HospitalService:
 
     def suspender_medicacion(self, user, id_orden, motivo):
         _exigir_admin(user)
-        if not (motivo or "").strip():
-            raise ValueError("Indique el motivo de la suspensión")
-        return self._hospital(user).suspend_medication_order(id_orden, motivo.strip())
+        return self._hospital(user).suspend_medication_order(id_orden, V.motivo(motivo, "El motivo de la suspensión"))
 
     def dosis(self, user, id_hospitalizacion=None, fecha=None, turno=None):
         if turno and turno not in TURNOS:
@@ -192,13 +191,13 @@ class HospitalService:
         _exigir_admin(user)
         if not id_enfermero:
             raise ValueError("Indique qué enfermero aplicó la dosis")
+        if observaciones and len(observaciones.strip()) > 200:
+            raise ValueError("Las observaciones admiten como máximo 200 caracteres")
         return self._hospital(user).apply_dose(id_dosis, id_enfermero, observaciones)
 
     def omitir_dosis(self, user, id_dosis, id_enfermero, motivo):
         _exigir_admin(user)
-        if not (motivo or "").strip():
-            raise ValueError("Indique por qué no se aplicó la dosis")
-        return self._hospital(user).omit_dose(id_dosis, id_enfermero, motivo)
+        return self._hospital(user).omit_dose(id_dosis, id_enfermero, V.motivo(motivo, "El motivo"))
 
 
 class PatientService:
@@ -206,6 +205,7 @@ class PatientService:
         self.router = router
 
     def register_new_patient(self, user: User, data: Dict[str, Any], override_inst: Optional[str] = None) -> Patient:
+        data = V.validar_paciente(dict(data), user.institucion.value, nuevo=True)
         return self.router.get_adapter_for_user(user, override_inst).create_patient(data)
 
     def search_patients(self, user: User, query: str, override_inst: Optional[str] = None) -> List[Patient]:
@@ -216,6 +216,8 @@ class PatientService:
 
     def update_patient_info(self, user: User, patient_id: int, updates: Dict[str, Any],
                             override_inst: Optional[str] = None) -> Patient:
+        updates = {k: v for k, v in dict(updates).items() if k not in ("dpi", "id_paciente")}   # el DPI no se cambia
+        updates = V.validar_paciente(updates, user.institucion.value, nuevo=False)
         return self.router.get_adapter_for_user(user, override_inst).update_patient(patient_id, updates)
 
     def archive_patient_record(self, user: User, patient_id: int, motivo_baja: str, categoria: str = "administrativa",
@@ -224,10 +226,9 @@ class PatientService:
         categoria = (categoria or "administrativa").lower()
         if categoria not in CATEGORIAS_BAJA:
             raise ValueError(f"Categoría de baja inválida. Use: {', '.join(sorted(CATEGORIAS_BAJA))}")
-        if not (motivo_baja or "").strip():
-            raise ValueError("Indique el motivo de la baja")
+        motivo_baja = V.motivo(motivo_baja, "El motivo de la baja", 150)
         return self.router.get_adapter_for_user(user, override_inst).deactivate_patient(
-            patient_id, motivo_baja.strip(), categoria
+            patient_id, motivo_baja, categoria
         )
 
 
@@ -259,11 +260,12 @@ class ConsultationService:
                                           override_inst: Optional[str] = None) -> Consultation:
         """Registrar consulta + agregar diagnóstico + recetar medicamento (una sola operación atómica)."""
         _exigir_clinico(user, "registrar consultas, diagnósticos ni recetas")
-        if not (data.get("motivo") or "").strip():
-            raise ValueError("El motivo de la consulta es obligatorio")
-
         adapter = self.router.get_adapter_for_user(user, override_inst)
         payload = dict(data)
+        payload["recetas"] = [dict(r) for r in (payload.get("recetas") or []) if (r or {}).get("medicamento")]
+        payload["procedimientos"] = [dict(r) for r in (payload.get("procedimientos") or []) if r]
+        payload["parametros"] = [dict(r) for r in (payload.get("parametros") or []) if (r or {}).get("nombre_parametro")]
+        V.validar_consulta(payload, user.institucion.value)
         payload["id_profesional"] = _exigir_profesional_activo(adapter, data.get("id_profesional"))
         recetas = [r for r in (payload.get("recetas") or []) if (r or {}).get("medicamento")]
         payload["recetas"] = recetas
@@ -284,7 +286,8 @@ class ConsultationService:
     def schedule_appointment(self, user: User, data: Dict[str, Any],
                              override_inst: Optional[str] = None) -> Appointment:
         adapter = self.router.get_adapter_for_user(user, override_inst)
-        payload = {**data, "id_profesional": _exigir_profesional_activo(adapter, data.get("id_profesional"))}
+        payload = V.validar_cita(dict(data))
+        payload["id_profesional"] = _exigir_profesional_activo(adapter, data.get("id_profesional"))
         return adapter.create_appointment(payload)
 
     def list_appointments(self, user: User, patient_id: Optional[int] = None,

@@ -775,3 +775,142 @@ fieldset.paso { background: #FCFDFE; }
 .dosis-resumen { display: grid; gap: 2px; padding: 10px 12px; margin-bottom: 14px; background: var(--papel); border-left: 3px solid var(--inst); border-radius: 4px; }
 .tabla-dosis td.acc { white-space: nowrap; }
 @media (max-width: 700px) { .depto-cab { flex-direction: column; align-items: start; } }
+
+/* =====================================================================
+   v5 · Tema por institución
+   Todo sale del color de la institución (--inst): el menú es una versión
+   muy oscura del mismo tono, los botones usan el tono puro y el fondo lleva
+   apenas un rastro. Así cada institución se reconoce sin mezclar colores.
+   Los colores de estado (verde, ámbar, rojo) no cambian: significan lo mismo
+   en las cuatro instituciones.
+   ===================================================================== */
+:root {
+  --inst: #2B5C8A;
+  --acento: var(--inst);
+  --acento-osc: color-mix(in srgb, var(--inst) 78%, black);
+  --acento-claro: color-mix(in srgb, var(--inst) 10%, white);
+  --menu: color-mix(in srgb, var(--inst) 24%, #0E151D);
+  --menu-2: color-mix(in srgb, var(--inst) 30%, #18222D);
+  --menu-txt: color-mix(in srgb, var(--inst) 18%, #C7D0DA);
+  --fondo: color-mix(in srgb, var(--inst) 4%, #F3F5F7);
+  --linea-suave: color-mix(in srgb, var(--inst) 6%, #E3E8EC);
+  --sombra: 0 1px 2px rgba(16, 24, 32, 0.05), 0 1px 3px rgba(16, 24, 32, 0.04);
+  --sombra-alta: 0 12px 32px rgba(16, 24, 32, 0.16);
+}
+body { background: var(--fondo); }
+
+/* Menú */
+.menu { background: linear-gradient(180deg, var(--menu) 0%, color-mix(in srgb, var(--menu) 82%, black) 100%); }
+.menu-inst { background: rgba(255, 255, 255, 0.06); border-left-color: color-mix(in srgb, var(--inst) 55%, white); }
+.cruz::before, .cruz::after { background: color-mix(in srgb, var(--inst) 45%, #6FE0C4); }
+.menu-buscar input { background: rgba(255, 255, 255, 0.08); }
+.menu-buscar button { background: rgba(255, 255, 255, 0.14); }
+.menu-buscar input:focus { outline-color: color-mix(in srgb, var(--inst) 50%, white); }
+.menu-nav button:hover { background: rgba(255, 255, 255, 0.06); }
+.menu-nav button.activo { background: rgba(255, 255, 255, 0.11); box-shadow: inset 3px 0 0 color-mix(in srgb, var(--inst) 45%, white); }
+.menu-grupo { color: color-mix(in srgb, var(--menu-txt) 70%, transparent); }
+.menu .avatar { background: color-mix(in srgb, var(--inst) 70%, white); color: var(--menu); }
+
+/* Botones y foco */
+.btn.primario { background: var(--acento); border-color: var(--acento); }
+.btn.primario:hover { background: var(--acento-osc); border-color: var(--acento-osc); }
+.btn.secundario { border-color: var(--acento); color: var(--acento-osc); }
+.btn.secundario:hover { background: var(--acento-claro); }
+.btn.sutil:hover { border-color: color-mix(in srgb, var(--inst) 40%, #C9D2DA); }
+input:focus, select:focus, textarea:focus { border-color: var(--acento); outline: 3px solid color-mix(in srgb, var(--inst) 18%, transparent); }
+:focus-visible { outline: 3px solid color-mix(in srgb, var(--inst) 45%, transparent); outline-offset: 2px; }
+.pestanas button[aria-selected="true"] { border-bottom-color: var(--acento); color: var(--tinta); }
+.pestanas button:hover { color: var(--acento-osc); }
+.migas button, .enlace-paciente:hover { color: var(--acento-osc); }
+.aviso-ico, .ahora, .barra-carga span { background: var(--acento); }
+.sala { border-top-color: var(--acento); }
+
+/* Superficies */
+.panel, .cifra-caja, .hab, .sala, .pulsera { border-color: var(--linea-suave); box-shadow: var(--sombra); }
+.tabla-datos th { background: color-mix(in srgb, var(--inst) 4%, #F8FAFB); border-bottom-color: var(--linea-suave); }
+.tabla-datos tbody tr:hover { background: color-mix(in srgb, var(--inst) 4%, white); }
+.cabecera { border-bottom-color: var(--linea-suave); }
+
+/* Bienvenida */
+.bienvenida { background: linear-gradient(115deg, var(--menu) 0%, color-mix(in srgb, var(--inst) 70%, var(--menu)) 100%); }
+.cifras { grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); }
+.cifra-caja { padding: 14px 16px; gap: 12px; }
+.cifra-caja .cifra { font-size: 1.625rem; }
+
+/* Inicio de sesión: sin institución todavía, tono neutro azul pizarra */
+.login-marca { background: radial-gradient(1100px 600px at -10% 110%, rgba(64, 132, 190, 0.25), transparent 60%),
+                           linear-gradient(160deg, #17222E 0%, #0F1820 100%); }
+
+/* ---- Turno en curso (inicio del hospital) ---- */
+.turno-panel { margin-bottom: 18px; }
+.turno-panel .panel-cab h2 { display: flex; align-items: center; gap: 10px; }
+.turno-cols { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+.turno-cols > div { padding: 6px 6px 10px; }
+.turno-cols > div + div { border-left: 1px solid var(--linea-suave); }
+.turno-cols h3 { font-size: 0.875rem; color: var(--tenue); padding: 8px 12px 4px; }
+.lista-turno { list-style: none; margin: 0; padding: 0; }
+.lista-turno li { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border-radius: 8px; }
+.lista-turno li:hover { background: color-mix(in srgb, var(--inst) 4%, white); }
+.lista-turno .hora { width: 52px; flex: none; font-weight: 700; }
+.lista-turno .txt { flex: 1; min-width: 0; display: grid; }
+.lista-turno .txt small { color: var(--tenue); }
+.lista-turno .vacia { color: var(--tenue); padding: 12px; }
+.atrasada-txt { color: var(--rojo); font-weight: 700; }
+@media (max-width: 900px) { .turno-cols { grid-template-columns: 1fr; } .turno-cols > div + div { border-left: 0; border-top: 1px solid var(--linea-suave); } }
+
+/* ---- Panel lateral (vista rápida) ---- */
+.cajon {
+  margin: 0 0 0 auto; height: 100vh; max-height: 100vh; width: min(460px, 100vw); padding: 0; border: 0;
+  background: var(--blanco); color: var(--tinta); box-shadow: var(--sombra-alta);
+  display: none; flex-direction: column;
+}
+.cajon[open] { display: flex; animation: cajon-entra .18s ease-out; }
+.cajon::backdrop { background: rgba(14, 21, 29, 0.38); }
+@keyframes cajon-entra { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .cajon[open] { animation: none; } }
+.cajon-cab { display: flex; gap: 14px; align-items: center; padding: 20px 22px 16px; border-bottom: 1px solid var(--linea-suave); }
+.cajon-cab .ini-grande { width: 48px; height: 48px; border-radius: 50%; flex: none; display: grid; place-items: center; font-weight: 700;
+  background: var(--acento-claro); color: var(--acento-osc); }
+.cajon-cab > div { flex: 1; min-width: 0; }
+.cajon-cab small { color: var(--tenue); }
+.cajon-cab h2 { font-size: 1.25rem; }
+.cajon-cuerpo { flex: 1; overflow-y: auto; padding: 18px 22px; display: grid; gap: 18px; align-content: start; }
+.cajon-pie { display: flex; gap: 8px; flex-wrap: wrap; padding: 14px 22px; border-top: 1px solid var(--linea-suave); background: color-mix(in srgb, var(--inst) 3%, white); }
+.cajon-pie .btn.primario { flex: 1; }
+.datos-cortos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin: 0; }
+.datos-cortos dt { font-size: 0.8125rem; color: var(--tenue); }
+.datos-cortos dd { margin: 0; font-weight: 700; }
+.cajon-bloque h3 { font-size: 0.875rem; color: var(--tenue); margin-bottom: 6px; }
+.tarjeta-estado { border-radius: 10px; padding: 12px 14px; display: grid; gap: 4px; background: var(--acento-claro);
+  border: 1px solid color-mix(in srgb, var(--inst) 18%, white); }
+.tarjeta-estado b { font-size: 1.0625rem; }
+.tarjeta-estado.alerta-cx { background: var(--rojo-claro); border-color: #F5C6C1; }
+.linea-dato { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid var(--linea-suave); font-size: 0.9375rem; }
+.linea-dato:first-of-type { border-top: 0; }
+.linea-dato span:first-child { color: var(--tenue); }
+.linea-dato span:last-child { text-align: right; font-weight: 700; }
+
+/* ---- Personal y motores ---- */
+.nombre-celda { display: flex; align-items: center; gap: 10px; min-width: 210px; font-weight: 700; }
+.contacto-celda { display: grid; font-size: 0.9375rem; }
+.contacto-celda small { color: var(--tenue); }
+.motor-detalle summary { cursor: pointer; color: var(--acento-osc); font-size: 0.875rem; font-weight: 700; }
+.motor-detalle p { font-size: 0.8125rem; color: var(--tenue); margin-top: 4px; word-break: break-word; max-width: 46ch; }
+.conteos { list-style: none; margin: 0; padding: 0; white-space: nowrap; }
+.conteos b { font-weight: 700; }
+.nombre-celda .ini { width: 32px; height: 32px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 0.75rem;
+  background: var(--acento-claro); color: var(--acento-osc); }
+.segmento button[aria-pressed="true"] { background: var(--acento); border-color: var(--acento); color: #fff; }
+.fila-propia, .fila-propia:hover { background: var(--acento-claro) !important; }
+.cajon-pie { display: grid; grid-template-columns: 1fr 1fr; }
+.cajon-pie .btn.primario { grid-column: 1 / -1; }
+.cifra-ico { width: 38px; height: 38px; border-radius: 10px; }
+.cifra-ico svg { width: 20px; height: 20px; }
+.cifra-etq { font-size: 0.8125rem; line-height: 1.25; }
+.cifras { grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); }
+
+/* ---- Validación de campos ---- */
+.msg-campo { display: block; color: var(--rojo); font-size: 0.8125rem; font-weight: 700; margin-top: 4px; line-height: 1.3; }
+input[aria-invalid], select[aria-invalid], textarea[aria-invalid] { border-color: var(--rojo) !important; background: #FFFAFA; }
+input[aria-invalid]:focus, textarea[aria-invalid]:focus { outline-color: rgba(180, 35, 24, 0.18) !important; }
+.contador { display: block; text-align: right; color: var(--tenue); font-size: 0.75rem; margin-top: 2px; }

@@ -106,6 +106,32 @@ Solo el administrador del hospital ve tres secciones extra en el menú:
 
 ---
 
+### Validación de datos (en tres niveles)
+
+| Campo | Regla |
+|-------|-------|
+| DPI / CUI | 13 dígitos; los dígitos 10-11 son el departamento (01–22) y 12-13 el municipio |
+| Teléfonos | 8 dígitos que empiezan con 2 a 7; se guardan como `####-####` |
+| Nombres y apellidos | 2 a 50 letras (se admiten tildes, ñ, espacio, punto, apóstrofo y guion) |
+| Correo | formato `nombre@dominio.com`, máximo 80 caracteres |
+| Fecha de nacimiento | no futura, máximo 120 años; en el Pediátrico, menor de 18 años |
+| Signos vitales | presión `120/80` (sistólica 60–260, diastólica 30–160), temperatura 30–45 °C, pulso 20–250 |
+| Pediatría | peso 0.3–150 kg, talla 20–200 cm, perímetro cefálico 20–70 cm, semanas de gestación 20–45 |
+| CIE-10 | letra + 2 números y decimal opcional (`K80.0`) |
+| Colegiado | letras mayúsculas, números y guion (3 a 20) |
+| Odontología | pieza dental en notación FDI (11–48 permanentes, 51–85 temporales) |
+| Citas y cirugías | desde ahora y dentro del próximo año; cirugía de 15 a 720 minutos |
+| Medicación | dosis con cantidad y unidad (`500 mg`), 1–72 horas, 1–30 días |
+| Motivos (baja, cancelación, suspensión) | 5 a 200 caracteres |
+
+1. **Formulario** (`app.js`, tabla `REGLAS`): limita lo que se puede escribir (solo dígitos en el DPI,
+   guion automático en el teléfono, mayúsculas en CIE-10) y marca en rojo cada campo con su motivo.
+2. **API** (`src/domain/validaciones.py`): las mismas reglas para los cuatro motores, antes de llamar al adaptador.
+3. **Base de datos**: PostgreSQL y MySQL con restricciones `CHECK` (y un trigger de MySQL para la edad),
+   MongoDB con `$jsonSchema` (`pattern`, `minLength`, `maxLength`) y Firestore con funciones de validación en las reglas.
+
+---
+
 ## 3. Cómo se crea y se conecta cada base
 
 Docker ejecuta automáticamente los scripts de `database/` **solo la primera vez** (cuando el volumen está vacío).

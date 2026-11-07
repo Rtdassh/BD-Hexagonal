@@ -209,3 +209,56 @@ VALUES (1, 1, 'Triple Viral (SPR - Sarampión, Paperas, Rubéola)', '2da Dosis (
 INSERT INTO receta (id_consulta, medicamento, presentacion, dosis_mg_kg, dosis_calculada_ml, frecuencia, duracion_dias, indicaciones)
 VALUES (1, 'Multivitamínico Pediátrico con Zinc', 'Jarabe 120ml', 5.00, 2.50, 'Cada 24 horas por la mañana', 30, 'Administrar con el desayuno durante 1 mes para suplementación preventiva');
 
+
+-- ============================================================================
+-- RESTRICCIONES DE FORMATO
+-- La aplicación valida lo mismo (src/domain/validaciones.py); MySQL lo vuelve a
+-- exigir con CHECK (MySQL 8 los respeta) y con un trigger para la edad, porque
+-- un CHECK de MySQL no puede usar la fecha actual.
+-- Van al final para que también verifiquen los datos de ejemplo.
+-- ============================================================================
+ALTER TABLE paciente_pediatrico
+    ADD CONSTRAINT chk_ped_cui CHECK (cui_nacimiento REGEXP '^[0-9]{13}$'),
+    ADD CONSTRAINT chk_ped_dpi_tutor CHECK (dpi_tutor REGEXP '^[0-9]{13}$'),
+    ADD CONSTRAINT chk_ped_tel_tutor CHECK (telefono_tutor REGEXP '^[2-7][0-9]{3}-[0-9]{4}$'),
+    ADD CONSTRAINT chk_ped_nombres CHECK (CHAR_LENGTH(TRIM(nombres)) >= 2 AND CHAR_LENGTH(TRIM(apellidos)) >= 2),
+    ADD CONSTRAINT chk_ped_gestacion CHECK (semanas_gestacion IS NULL OR semanas_gestacion BETWEEN 20 AND 45),
+    ADD CONSTRAINT chk_ped_peso_nacer CHECK (peso_nacer_kg IS NULL OR peso_nacer_kg BETWEEN 0.3 AND 7),
+    ADD CONSTRAINT chk_ped_talla_nacer CHECK (talla_nacer_cm IS NULL OR talla_nacer_cm BETWEEN 20 AND 65);
+
+ALTER TABLE pediatra
+    ADD CONSTRAINT chk_pediatra_colegiado CHECK (numero_colegiado REGEXP '^[A-Z0-9-]{3,20}$'),
+    ADD CONSTRAINT chk_pediatra_telefono CHECK (telefono IS NULL OR telefono REGEXP '^[2-7][0-9]{3}-[0-9]{4}$');
+
+ALTER TABLE consulta
+    ADD CONSTRAINT chk_ped_temperatura CHECK (temperatura IS NULL OR temperatura BETWEEN 30 AND 45),
+    ADD CONSTRAINT chk_ped_frecuencia CHECK (frecuencia_cardiaca IS NULL OR frecuencia_cardiaca BETWEEN 20 AND 250),
+    ADD CONSTRAINT chk_ped_peso CHECK (peso_kg BETWEEN 0.3 AND 150),
+    ADD CONSTRAINT chk_ped_talla CHECK (talla_cm BETWEEN 20 AND 200),
+    ADD CONSTRAINT chk_ped_perimetro CHECK (perimetro_cefalico_cm IS NULL OR perimetro_cefalico_cm BETWEEN 20 AND 70),
+    ADD CONSTRAINT chk_ped_percentil CHECK (percentil_crecimiento IS NULL OR percentil_crecimiento BETWEEN 0 AND 100),
+    ADD CONSTRAINT chk_ped_cie10 CHECK (diagnostico_cie10 IS NULL OR diagnostico_cie10 REGEXP '^[A-Z][0-9]{2}([.][0-9A-Z]{1,4})?$');
+
+ALTER TABLE receta
+    ADD CONSTRAINT chk_ped_receta_duracion CHECK (duracion_dias BETWEEN 1 AND 90);
+
+-- Edad: el centro atiende a menores de 18 años y la fecha no puede ser futura
+DROP TRIGGER IF EXISTS trg_ped_edad_ins;
+DROP TRIGGER IF EXISTS trg_ped_edad_upd;
+DELIMITER $$
+CREATE TRIGGER trg_ped_edad_ins BEFORE INSERT ON paciente_pediatrico FOR EACH ROW
+BEGIN
+    IF NEW.fecha_nacimiento > CURDATE() THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'La fecha de nacimiento no puede ser futura';
+    END IF;
+    IF NEW.fecha_nacimiento <= DATE_SUB(CURDATE(), INTERVAL 18 YEAR) THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'El Centro Pediátrico atiende a menores de 18 años';
+    END IF;
+END$$
+CREATE TRIGGER trg_ped_edad_upd BEFORE UPDATE ON paciente_pediatrico FOR EACH ROW
+BEGIN
+    IF NEW.fecha_nacimiento <> OLD.fecha_nacimiento AND NEW.fecha_nacimiento > CURDATE() THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'La fecha de nacimiento no puede ser futura';
+    END IF;
+END$$
+DELIMITER ;

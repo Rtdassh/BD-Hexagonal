@@ -96,7 +96,9 @@ CREATE TABLE hospital.Enfermero (
     telefono VARCHAR(15),
     correo_electronico VARCHAR(100),
     estado VARCHAR(20) NOT NULL DEFAULT 'activo',
-    CONSTRAINT chk_enfermero_estado CHECK (estado IN ('activo', 'inactivo'))
+    CONSTRAINT chk_enfermero_estado CHECK (estado IN ('activo', 'inactivo')),
+    CONSTRAINT chk_enfermero_colegiado CHECK (numero_colegiado ~ '^[A-Z0-9-]{3,20}$'),
+    CONSTRAINT chk_enfermero_telefono CHECK (telefono IS NULL OR telefono ~ '^[2-7][0-9]{3}-[0-9]{4}$')
 );
 
 -- Turnos: mañana 07:00-15:00, tarde 15:00-23:00, noche 23:00-07:00 (del día siguiente)

@@ -273,3 +273,37 @@ VALUES (1, 1, '1 tableta', 'Cada 8 horas', 7, 'Oral');
 INSERT INTO hospital.Hospitalizacion (id_paciente, id_consulta, fecha_ingreso, numero_habitacion, motivo_ingreso, estado)
 VALUES (1, 1, '2026-03-01 09:30:00', 'CG-304', 'Monitoreo pre y post operatorio de colecistectomía', 'ingresado');
 
+
+-- ============================================================================
+-- RESTRICCIONES DE FORMATO
+-- La aplicación ya valida estos formatos (src/domain/validaciones.py), pero la
+-- base de datos los vuelve a exigir: ningún cliente puede guardar un DPI de 14
+-- dígitos o una temperatura de 80 °C aunque se salte la aplicación.
+-- Se agregan al final para que también verifiquen los datos de ejemplo.
+-- ============================================================================
+ALTER TABLE hospital.Paciente
+    ADD CONSTRAINT chk_paciente_dpi CHECK (dpi ~ '^[0-9]{13}$'),
+    ADD CONSTRAINT chk_paciente_nombres CHECK (length(trim(nombres)) BETWEEN 2 AND 50 AND length(trim(apellidos)) BETWEEN 2 AND 50),
+    ADD CONSTRAINT chk_paciente_nacimiento CHECK (fecha_nacimiento BETWEEN DATE '1900-01-01' AND CURRENT_DATE),
+    ADD CONSTRAINT chk_paciente_telefono CHECK (telefono IS NULL OR telefono ~ '^[2-7][0-9]{3}-[0-9]{4}$'),
+    ADD CONSTRAINT chk_paciente_tel_emergencia CHECK (contacto_emergencia_telefono IS NULL OR contacto_emergencia_telefono ~ '^[2-7][0-9]{3}-[0-9]{4}$'),
+    ADD CONSTRAINT chk_paciente_correo CHECK (correo_electronico IS NULL OR correo_electronico ~* '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]{2,}$'),
+    ADD CONSTRAINT chk_paciente_sangre CHECK (tipo_sangre IS NULL OR tipo_sangre IN ('O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-'));
+
+ALTER TABLE hospital.Medico
+    ADD CONSTRAINT chk_medico_colegiado CHECK (numero_colegiado ~ '^[A-Z0-9-]{3,20}$'),
+    ADD CONSTRAINT chk_medico_telefono CHECK (telefono IS NULL OR telefono ~ '^[2-7][0-9]{3}-[0-9]{4}$');
+
+ALTER TABLE hospital.Cita
+    ADD CONSTRAINT chk_cita_motivo CHECK (length(trim(motivo_consulta)) >= 3);
+
+ALTER TABLE hospital.Consulta
+    ADD CONSTRAINT chk_consulta_temperatura CHECK (temperatura IS NULL OR temperatura BETWEEN 30 AND 45),
+    ADD CONSTRAINT chk_consulta_pulso CHECK (pulso IS NULL OR pulso BETWEEN 20 AND 250),
+    ADD CONSTRAINT chk_consulta_presion CHECK (presion_arterial IS NULL OR presion_arterial ~ '^[0-9]{2,3}/[0-9]{2,3}$');
+
+ALTER TABLE hospital.Diagnostico
+    ADD CONSTRAINT chk_diagnostico_cie10 CHECK (codigo_cie10 ~ '^[A-Z][0-9]{2}(\.[0-9A-Z]{1,4})?$');
+
+ALTER TABLE hospital.Receta
+    ADD CONSTRAINT chk_receta_duracion CHECK (duracion_dias BETWEEN 1 AND 90);
