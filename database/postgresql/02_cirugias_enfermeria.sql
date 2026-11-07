@@ -194,7 +194,9 @@ CREATE TABLE hospital.Departamento (
     id_departamento SERIAL PRIMARY KEY,
     nombre VARCHAR(80) NOT NULL UNIQUE,
     piso SMALLINT NOT NULL,
-    extension VARCHAR(10)
+    extension VARCHAR(10),
+    CONSTRAINT chk_departamento_piso CHECK (piso BETWEEN 0 AND 20),
+    CONSTRAINT chk_departamento_extension CHECK (extension IS NULL OR extension ~ '^[0-9]{2,5}$')
 );
 
 CREATE TABLE hospital.Habitacion (
@@ -207,7 +209,8 @@ CREATE TABLE hospital.Habitacion (
         REFERENCES hospital.Departamento(id_departamento) ON UPDATE CASCADE ON DELETE RESTRICT,
     CONSTRAINT chk_habitacion_camas CHECK (camas BETWEEN 1 AND 6),
     CONSTRAINT chk_habitacion_tipo CHECK (tipo IN ('individual', 'compartida', 'aislamiento', 'intensivo')),
-    CONSTRAINT chk_habitacion_estado CHECK (estado IN ('disponible', 'mantenimiento'))
+    CONSTRAINT chk_habitacion_estado CHECK (estado IN ('disponible', 'mantenimiento')),
+    CONSTRAINT chk_habitacion_codigo CHECK (codigo ~ '^[A-Z]{2,4}-[0-9]{2,3}$')
 );
 
 INSERT INTO hospital.Departamento (nombre, piso, extension) VALUES
@@ -256,6 +259,29 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Trigger: al editar una habitación no se pueden quitar camas ocupadas ni cerrarla con pacientes dentro
+CREATE OR REPLACE FUNCTION hospital.validar_cambio_habitacion() RETURNS TRIGGER AS $$
+DECLARE
+    v_ocupadas INT;
+BEGIN
+    SELECT COUNT(*) INTO v_ocupadas FROM hospital.Hospitalizacion
+     WHERE numero_habitacion = OLD.codigo AND estado = 'ingresado';
+    IF NEW.camas < v_ocupadas THEN
+        RAISE EXCEPTION 'La habitación % tiene % pacientes; no puede quedar con % camas', OLD.codigo, v_ocupadas, NEW.camas
+            USING ERRCODE = 'check_violation';
+    END IF;
+    IF NEW.estado = 'mantenimiento' AND v_ocupadas > 0 THEN
+        RAISE EXCEPTION 'La habitación % tiene pacientes; trasládelos antes de ponerla en mantenimiento', OLD.codigo
+            USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_cambio_habitacion
+    BEFORE UPDATE OF camas, estado ON hospital.Habitacion
+    FOR EACH ROW EXECUTE FUNCTION hospital.validar_cambio_habitacion();
 
 CREATE TRIGGER trg_capacidad_habitacion
     BEFORE INSERT OR UPDATE OF numero_habitacion, estado ON hospital.Hospitalizacion

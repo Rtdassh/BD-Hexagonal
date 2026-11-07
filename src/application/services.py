@@ -162,6 +162,18 @@ class HospitalService:
         _exigir_admin(user)
         return self._hospital(user).change_room(id_hospitalizacion, codigo)
 
+    def crear_departamento(self, user, data):
+        _exigir_admin(user)
+        return self._hospital(user).create_department(V.validar_departamento(dict(data)))
+
+    def crear_habitacion(self, user, data):
+        _exigir_admin(user)
+        return self._hospital(user).create_room(V.validar_habitacion(dict(data), nueva=True))
+
+    def editar_habitacion(self, user, codigo, data):
+        _exigir_admin(user)
+        return self._hospital(user).update_room(codigo, V.validar_habitacion(dict(data), nueva=False))
+
     # Medicación del internamiento
     def medicamentos(self, user):
         return self._hospital(user).list_medicines()

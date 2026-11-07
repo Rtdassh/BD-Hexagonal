@@ -213,5 +213,21 @@ class TestHospitalCirugiasEnfermeria(unittest.TestCase):
                                        "dosis": "1 g", "frecuencia_horas": 8})
 
 
+    def test_departamentos_y_camas(self):
+        a = self.a
+        sufijo = str(int(time.time() * 1000))[-3:]
+        dep = a.create_department({"nombre": f"Pediatría Piso {sufijo}", "piso": 5, "extension": "510"})
+        hab = a.create_room({"codigo": f"PE-{sufijo}", "id_departamento": dep["id_departamento"], "camas": 2, "tipo": "compartida"})
+        self.assertEqual(hab["camas"], 2)
+        with self.assertRaises(ValueError):   # código repetido
+            a.create_room({"codigo": f"PE-{sufijo}", "id_departamento": dep["id_departamento"], "camas": 1})
+        self.assertEqual(a.update_room(hab["codigo"], {"camas": 4})["camas"], 4)
+        with self.assertRaises(ValueError):   # CG-304 tiene un paciente: no puede quedar sin camas ni en mantenimiento
+            a.update_room("CG-304", {"estado": "mantenimiento"})
+        with self.assertRaises(ValueError):   # máximo 6 camas
+            a.update_room(hab["codigo"], {"camas": 9})
+        self.assertEqual(a.update_room(hab["codigo"], {"estado": "mantenimiento"})["estado"], "mantenimiento")
+
+
 if __name__ == "__main__":
     unittest.main()

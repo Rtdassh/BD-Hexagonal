@@ -64,6 +64,9 @@ MENSAJES_CHECK = {
     "chk_cirugia_duracion": "La duración de la cirugía debe estar entre 15 y 720 minutos",
     "chk_orden_frecuencia": "La frecuencia debe estar entre 1 y 72 horas",
     "chk_habitacion_camas": "Una habitación tiene de 1 a 6 camas",
+    "chk_habitacion_codigo": "El código de la habitación es de 2 a 4 letras, guion y 2 o 3 números (ej. MI-104)",
+    "chk_departamento_piso": "El piso debe estar entre 0 y 20",
+    "chk_departamento_extension": "La extensión es de 2 a 5 dígitos",
 }
 
 
@@ -619,6 +622,10 @@ class PostgreSQLAdapter(BaseClinicalAdapter, HospitalOperationsPort):
         except psycopg2.errors.UniqueViolation as e:
             if e.diag.constraint_name == "uq_turno_activo":
                 raise ValueError("Ese enfermero ya está asignado a este paciente en ese turno")
+            if e.diag.constraint_name == "habitacion_pkey":
+                raise ValueError("Ya existe una habitación con ese código")
+            if e.diag.constraint_name == "departamento_nombre_key":
+                raise ValueError("Ya existe un departamento con ese nombre")
             raise ValueError("Registro duplicado")
         except psycopg2.errors.ForeignKeyViolation as e:
             if e.diag.constraint_name == "fk_hospitalizacion_habitacion":
@@ -933,6 +940,36 @@ class PostgreSQLAdapter(BaseClinicalAdapter, HospitalOperationsPort):
             cur.execute("UPDATE Hospitalizacion SET numero_habitacion = %s WHERE id_hospitalizacion = %s",
                         (codigo, hospitalization_id))
         return {"id_hospitalizacion": hospitalization_id, "anterior": h["numero_habitacion"], "numero_habitacion": codigo}
+
+    def create_department(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        self.requerido(data, "nombre", "piso")
+        with self._tx_hosp() as cur:
+            cur.execute("""INSERT INTO Departamento (nombre, piso, extension) VALUES (%s, %s, %s)
+                           RETURNING *""", (data["nombre"], int(data["piso"]), data.get("extension") or None))
+            return cur.fetchone()
+
+    def create_room(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        self.requerido(data, "codigo", "id_departamento", "camas")
+        with self._tx_hosp() as cur:
+            cur.execute("SELECT 1 FROM Departamento WHERE id_departamento = %s", (int(data["id_departamento"]),))
+            if not cur.fetchone():
+                raise ValueError("El departamento no existe")
+            cur.execute("""INSERT INTO Habitacion (codigo, id_departamento, camas, tipo) VALUES (%s, %s, %s, %s)
+                           RETURNING *""",
+                        (data["codigo"], int(data["id_departamento"]), int(data["camas"]), data.get("tipo") or "compartida"))
+            return cur.fetchone()
+
+    def update_room(self, codigo: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        campos = {k: data[k] for k in ("camas", "tipo", "estado") if data.get(k) not in (None, "")}
+        if not campos:
+            raise ValueError("No hay cambios")
+        sets = ", ".join(f"{k} = %s" for k in campos)
+        with self._tx_hosp() as cur:
+            cur.execute(f"UPDATE Habitacion SET {sets} WHERE codigo = %s RETURNING *", (*campos.values(), codigo))
+            r = cur.fetchone()
+            if not r:
+                raise ValueError("Esa habitación no existe")
+            return r
 
     # ---- Medicación del internamiento (kárdex) ------------------------------
     def list_medicines(self) -> List[Dict[str, Any]]:

@@ -213,6 +213,20 @@ class HospitalOperationsPort(ABC):
     def change_room(self, hospitalization_id: int, codigo_habitacion: str) -> Dict[str, Any]:
         pass
 
+    @abstractmethod
+    def create_department(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        pass
+
+    @abstractmethod
+    def create_room(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Nueva habitación con sus camas dentro de un departamento."""
+        pass
+
+    @abstractmethod
+    def update_room(self, codigo: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Cambia camas, tipo o estado (disponible / mantenimiento)."""
+        pass
+
     # ---- Medicación del internamiento (kárdex) ----
     @abstractmethod
     def list_medicines(self) -> List[Dict[str, Any]]:

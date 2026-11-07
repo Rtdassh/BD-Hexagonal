@@ -914,3 +914,23 @@ input:focus, select:focus, textarea:focus { border-color: var(--acento); outline
 input[aria-invalid], select[aria-invalid], textarea[aria-invalid] { border-color: var(--rojo) !important; background: #FFFAFA; }
 input[aria-invalid]:focus, textarea[aria-invalid]:focus { outline-color: rgba(180, 35, 24, 0.18) !important; }
 .contador { display: block; text-align: right; color: var(--tenue); font-size: 0.75rem; margin-top: 2px; }
+
+/* ---- Edición de habitaciones ---- */
+.depto-acciones { display: flex; align-items: center; gap: 14px; }
+.hab-meta { display: flex; align-items: center; gap: 8px; }
+.btn-icono { font: inherit; font-size: 0.8125rem; font-weight: 700; color: var(--acento-osc); background: none; border: 0; padding: 2px 6px; border-radius: 6px; cursor: pointer; }
+.btn-icono:hover { background: var(--acento-claro); }
+@media (max-width: 700px) { .depto-acciones { flex-wrap: wrap; } }
+
+/* ---- Buscador de citas ---- */
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.barra-busqueda { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 4px;
+  background: var(--blanco); border: 1px solid var(--linea-suave); border-radius: 12px; padding: 12px 14px; box-shadow: var(--sombra); }
+.barra-busqueda label { display: grid; gap: 4px; font-size: 0.8125rem; font-weight: 700; color: var(--tinta-2); }
+.barra-busqueda select, .barra-busqueda input[type="date"] { min-width: 150px; }
+.busca-texto { flex: 1 1 280px; position: relative; }
+.busca-texto .ico { position: absolute; left: 12px; bottom: 11px; color: var(--tenue); width: 18px; height: 18px; }
+.busca-texto .ico svg { width: 18px; height: 18px; }
+.busca-texto input { width: 100%; padding-left: 38px; }
+.barra-busqueda #busCitasLimpiar { margin-bottom: 4px; }
+.hab-cab b { white-space: nowrap; } .hab-cab { gap: 8px; } .hab-meta small { text-align: right; }

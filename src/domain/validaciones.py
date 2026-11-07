@@ -304,3 +304,26 @@ def motivo(valor: Any, etiqueta: str = "El motivo", maximo: int = 200) -> str:
     if len(v) > maximo:
         raise ValueError(f"{etiqueta} admite como máximo {maximo} caracteres")
     return v
+
+
+HABITACION = re.compile(r"^[A-Z]{2,4}-\d{2,3}$")
+TIPOS_HABITACION = ("individual", "compartida", "aislamiento", "intensivo")
+
+
+def validar_departamento(data: Dict[str, Any]) -> Dict[str, Any]:
+    texto(data, "nombre", "Nombre del departamento", 80, 3, True, LETRAS, "use solo letras y espacios")
+    numero(data, "piso", "Piso", 0, 20, req=True, entero=True)
+    texto(data, "extension", "Extensión", 5, 2, False, re.compile(r"^\d{2,5}$"), "de 2 a 5 dígitos")
+    return data
+
+
+def validar_habitacion(data: Dict[str, Any], nueva: bool = True) -> Dict[str, Any]:
+    if nueva:
+        data["codigo"] = _txt(data.get("codigo")).upper()
+        texto(data, "codigo", "Código", 8, 5, True, HABITACION, "2 a 4 letras, guion y 2 o 3 números (ej. MI-104)")
+    numero(data, "camas", "Camas", 1, 6, req=nueva, entero=True)
+    if data.get("tipo") and data["tipo"] not in TIPOS_HABITACION:
+        raise ValueError("Tipo de habitación inválido")
+    if data.get("estado") and data["estado"] not in ("disponible", "mantenimiento"):
+        raise ValueError("Estado inválido: disponible o mantenimiento")
+    return data

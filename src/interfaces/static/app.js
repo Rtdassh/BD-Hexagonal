@@ -194,6 +194,7 @@ const ICONO = {
   frasco: '<path d="M9 3h6"/><path d="M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4a2 2 0 0 0 1.8-3l-5-9V3"/><path d="M7.5 15h9"/>',
   resultados: '<path d="M4 20V4"/><path d="M4 20h16"/><path d="M8 16l3-4 3 2 5-6"/>',
   motores: '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
+  buscar: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
   salir: '<path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/>',
 };
 const svg = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONO[n]}</svg>`;
@@ -580,21 +581,91 @@ function tablaCitas(citas, conPaciente = true) {
 }
 
 estado.filtroCitas = "proximas";
+estado.busCitas = { q: "", prof: "", desde: "", hasta: "" };
+const normalizar = (t) => String(t ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
 async function pintarCitasPagina() {
   cabecera({ titulo: "Citas", acciones: btnAccion("cita-nueva", "+ Agendar cita") });
   $("#vista").innerHTML = `<p class="tenue">Cargando…</p>`;
-  const citas = await api("/api/appointments").catch((e) => { avisar(e.message, true); return []; });
+  const [citas, pacientes] = await Promise.all([
+    api("/api/appointments").catch((e) => { avisar(e.message, true); return []; }),
+    todosLosPacientes(),
+  ]);
   if (estado.pagina !== "citas") return;
-  const ahora = new Date().toISOString().slice(0, 16).replace("T", " ");
-  const proximas = citas.filter((c) => c.fecha_hora_programada >= ahora).sort((a, b) => a.fecha_hora_programada.localeCompare(b.fecha_hora_programada));
-  const vencidas = citas.filter((c) => c.fecha_hora_programada < ahora);
-  const lista = estado.filtroCitas === "proximas" ? proximas : vencidas;
+  const porId = new Map(pacientes.map((p) => [p.id_paciente, p]));
+  // Texto en el que se busca: paciente, DPI, n.º de historial, motivo y profesional
+  estado.citasTodas = citas.map((c) => {
+    const p = porId.get(c.id_paciente);
+    const nombre = p ? `${p.nombres} ${p.apellidos}` : nombreDe(c.id_paciente);
+    return { ...c, _nombre: nombre, _dpi: p?.dpi || "",
+      _buscar: normalizar(`${nombre} ${p?.dpi || ""} ${String(c.id_paciente).padStart(6, "0")} ${c.motivo_consulta} ${c.profesional_nombre}`) };
+  });
+  const b = estado.busCitas;
+  const profesionales = [...new Set(citas.map((c) => c.profesional_nombre).filter(Boolean))].sort();
   $("#vista").innerHTML = `
-    ${pestanas([["proximas", `Próximas (${proximas.length})`], ["vencidas", `Pendientes de fechas pasadas (${vencidas.length})`]], estado.filtroCitas, "data-filtro-citas")}
-    <div class="panel">${lista.length ? tablaCitas(lista)
-      : `<div class="vacio-tabla"><span class="vacio-ico">${svg("citas")}</span><p>${estado.filtroCitas === "proximas" ? "No hay citas próximas." : "No hay citas pendientes atrasadas."}</p>
-         ${btnAccion("cita-nueva", "+ Agendar cita")}</div>`}</div>`;
+    <div class="barra-busqueda" role="search">
+      <label class="busca-texto"><span class="sr">Buscar cita</span>
+        <span class="ico" aria-hidden="true">${svg("buscar")}</span>
+        <input type="search" id="busCitasQ" maxlength="60" value="${esc(b.q)}" placeholder="Paciente, DPI, n.º de historial o motivo" autocomplete="off"></label>
+      <label>Profesional<select id="busCitasProf"><option value="">Todos</option>${opciones(profesionales.map((n) => [n, n]), b.prof)}</select></label>
+      <label>Desde<input type="date" id="busCitasDesde" value="${b.desde}"></label>
+      <label>Hasta<input type="date" id="busCitasHasta" value="${b.hasta}"></label>
+      <button type="button" class="btn sutil chico" id="busCitasLimpiar" ${b.q || b.prof || b.desde || b.hasta ? "" : "hidden"}>Limpiar</button>
+    </div>
+    <div id="pestanasCitas"></div>
+    <div class="panel" id="tablaCitasPagina"></div>`;
+  pintarListaCitas();
 }
+
+function pintarListaCitas() {
+  const b = estado.busCitas;
+  const ahora = ahoraTs();
+  const q = normalizar(b.q.trim());
+  const filtradas = (estado.citasTodas || []).filter((c) => {
+    const f = ts(c.fecha_hora_programada).slice(0, 10);
+    return (!q || q.split(/\s+/).every((p) => c._buscar.includes(p)))
+      && (!b.prof || c.profesional_nombre === b.prof)
+      && (!b.desde || f >= b.desde) && (!b.hasta || f <= b.hasta);
+  });
+  const grupos = {
+    proximas: filtradas.filter((c) => c.estado_cita === "programada" && ts(c.fecha_hora_programada) >= ahora)
+      .sort((x, y) => ts(x.fecha_hora_programada).localeCompare(ts(y.fecha_hora_programada))),
+    atrasadas: filtradas.filter((c) => c.estado_cita === "programada" && ts(c.fecha_hora_programada) < ahora)
+      .sort((x, y) => ts(x.fecha_hora_programada).localeCompare(ts(y.fecha_hora_programada))),
+    historial: filtradas.filter((c) => c.estado_cita !== "programada")
+      .sort((x, y) => ts(y.fecha_hora_programada).localeCompare(ts(x.fecha_hora_programada))),
+  };
+  grupos.todas = [...filtradas].sort((x, y) => ts(y.fecha_hora_programada).localeCompare(ts(x.fecha_hora_programada)));
+  $("#pestanasCitas").innerHTML = pestanas([["proximas", `Próximas (${grupos.proximas.length})`], ["atrasadas", `Sin atender de días pasados (${grupos.atrasadas.length})`],
+    ["historial", `Atendidas y canceladas (${grupos.historial.length})`], ["todas", `Todas (${grupos.todas.length})`]], estado.filtroCitas, "data-filtro-citas");
+  const lista = grupos[estado.filtroCitas] || grupos.proximas;
+  const buscando = b.q || b.prof || b.desde || b.hasta;
+  $("#busCitasLimpiar").hidden = !buscando;
+  const vacio = buscando ? "Ninguna cita coincide con la búsqueda."
+    : { proximas: "No hay citas próximas.", atrasadas: "No hay citas sin atender de días pasados.", historial: "Todavía no hay citas atendidas ni canceladas.", todas: "No hay citas registradas." }[estado.filtroCitas];
+  $("#tablaCitasPagina").innerHTML = lista.length ? tablaCitas(lista)
+    : `<div class="vacio-tabla"><span class="vacio-ico">${svg(buscando ? "buscar" : "citas")}</span><p>${vacio}</p>
+       ${buscando ? '<button type="button" class="btn sutil chico" data-limpiar-citas>Limpiar búsqueda</button>' : btnAccion("cita-nueva", "+ Agendar cita")}</div>`;
+}
+
+let tBusCitas;
+$("#contenido").addEventListener("input", (ev) => {
+  const id = ev.target.id;
+  if (!["busCitasQ", "busCitasProf", "busCitasDesde", "busCitasHasta"].includes(id)) return;
+  const k = { busCitasQ: "q", busCitasProf: "prof", busCitasDesde: "desde", busCitasHasta: "hasta" }[id];
+  estado.busCitas[k] = ev.target.value;
+  clearTimeout(tBusCitas);
+  tBusCitas = setTimeout(pintarListaCitas, id === "busCitasQ" ? 150 : 0);
+});
+function limpiarBusquedaCitas() {
+  estado.busCitas = { q: "", prof: "", desde: "", hasta: "" };
+  ["busCitasQ", "busCitasProf", "busCitasDesde", "busCitasHasta"].forEach((id) => { $(`#${id}`).value = ""; });
+  pintarListaCitas();
+  $("#busCitasQ").focus();
+}
+$("#contenido").addEventListener("click", (ev) => {
+  if (ev.target.closest("#busCitasLimpiar, [data-limpiar-citas]")) limpiarBusquedaCitas();
+});
 
 // ---------------------------------------------------------- Estado de motores
 async function pintarMotores() {
@@ -809,7 +880,7 @@ function selectHabitacion(nombre, excepto = null, req = false) {
 }
 
 async function pintarHabitaciones() {
-  cabecera({ titulo: "Habitaciones" });
+  cabecera({ titulo: "Habitaciones", acciones: btnAccion("nuevo-depto", "+ Departamento", "sutil") + btnAccion("nueva-hab", "+ Agregar habitación") });
   $("#vista").innerHTML = `<p class="tenue">Cargando…</p>`;
   try {
     const deps = await cargarDepartamentos();
@@ -821,11 +892,16 @@ async function pintarHabitaciones() {
       ${deps.map((d) => `<section class="depto">
         <header class="depto-cab">
           <div><h2>${esc(d.nombre)}</h2><small class="tenue">Piso ${d.piso}${d.extension ? ` · extensión ${esc(d.extension)}` : ""}</small></div>
-          <div class="depto-ocupacion"><span class="barra-carga" aria-hidden="true"><span style="width:${d.camas ? (d.ocupadas / d.camas) * 100 : 0}%"></span></span>
-            <span>${d.ocupadas}/${d.camas} camas</span></div>
+          <div class="depto-acciones">
+            <div class="depto-ocupacion"><span class="barra-carga" aria-hidden="true"><span style="width:${d.camas ? (d.ocupadas / d.camas) * 100 : 0}%"></span></span>
+              <span>${d.ocupadas}/${d.camas} camas</span></div>
+            <button type="button" class="btn sutil chico" data-nueva-hab="${d.id_departamento}">+ Habitación</button>
+          </div>
         </header>
         <div class="habs">${d.habitaciones.map((h) => `<article class="hab ${h.estado !== "disponible" ? "mantenimiento" : libres(h) ? "" : "llena"}">
-          <div class="hab-cab"><b>${esc(h.codigo)}</b><small class="tenue">${esc(TIPO_HAB[h.tipo] || h.tipo)}</small></div>
+          <div class="hab-cab"><b>${esc(h.codigo)}</b>
+            <span class="hab-meta"><small class="tenue">${esc(TIPO_HAB[h.tipo] || h.tipo)}${h.estado !== "disponible" ? " · mantenimiento" : ""}</small>
+              <button type="button" class="btn-icono" data-editar-hab="${esc(h.codigo)}" aria-label="Editar ${esc(h.codigo)}" title="Editar camas y estado">Editar</button></span></div>
           <ul class="camas">${Array.from({ length: h.camas }, (_, i) => {
             const o = h.ocupantes[i];
             return o ? `<li class="cama ocupada"><span class="cama-n">Cama ${i + 1}</span>
@@ -834,12 +910,82 @@ async function pintarHabitaciones() {
                 <button type="button" class="btn sutil chico" data-cambiar-hab="${o.id_hospitalizacion}" data-hab-actual="${esc(h.codigo)}">Cambiar habitación</button></li>`
               : `<li class="cama"><span class="cama-n">Cama ${i + 1}</span><span class="tenue">${h.estado !== "disponible" ? "Fuera de servicio" : "Libre"}</span></li>`;
           }).join("")}</ul>
-        </article>`).join("")}</div>
+        </article>`).join("") || `<p class="tenue relleno">Sin habitaciones. <button type="button" class="btn sutil chico" data-nueva-hab="${d.id_departamento}">+ Agregar la primera</button></p>`}</div>
       </section>`).join("")}
       <p class="ayuda">Los pacientes se ingresan al registrar una consulta. La base de datos no permite ocupar más camas de las que tiene una habitación.</p>`;
   } catch (e) {
     $("#vista").innerHTML = `<p class="error">${esc(e.message)}</p>`;
   }
+}
+
+
+// Código sugerido para una habitación nueva: mismo prefijo del departamento y el número siguiente
+function codigoSugerido(idDep) {
+  const d = estado.departamentos.find((x) => x.id_departamento === Number(idDep));
+  const codigos = (d?.habitaciones || []).map((h) => h.codigo.match(/^([A-Z]{2,4})-(\d{2,3})$/)).filter(Boolean);
+  if (!codigos.length) return "";
+  const prefijo = codigos[0][1];
+  const max = Math.max(...codigos.filter((m) => m[1] === prefijo).map((m) => Number(m[2])));
+  return `${prefijo}-${String(max + 1).padStart(codigos[0][2].length, "0")}`;
+}
+
+async function formHabitacion(idDep = null) {
+  if (!estado.departamentos.length) await cargarDepartamentos();
+  if (!estado.departamentos.length) { avisar("Primero registre un departamento", true); return; }
+  const dep = idDep ? Number(idDep) : estado.departamentos[0].id_departamento;
+  const html = `<div class="rejilla">
+      <label class="doble"><span class="requerido">Departamento</span><select name="id_departamento" required>
+        ${opciones(estado.departamentos.map((d) => [String(d.id_departamento), `${d.nombre} · piso ${d.piso}`]), String(dep))}</select></label>
+      <label><span class="requerido">Código</span><input name="codigo" required value="${esc(codigoSugerido(dep))}" placeholder="MI-104"></label>
+      <label><span class="requerido">Camas</span><input name="camas" type="number" required value="2"></label>
+      <label class="doble">Tipo<select name="tipo">${opciones(Object.entries(TIPO_HAB), "compartida")}</select></label>
+    </div>
+    <p class="ayuda">De 1 a 6 camas por habitación. El código lleva 2 a 4 letras, guion y 2 o 3 números.</p>`;
+  abrirModal("Agregar habitación", html, "Agregar habitación", async (fd) => {
+    const h = await api("/api/hospital/beds", { method: "POST", body: datosForm(fd) });
+    avisar(`Habitación ${h.codigo} agregada con ${h.camas} cama${h.camas > 1 ? "s" : ""}`);
+    refrescarHospital();
+  });
+  const selDep = $('#modalCuerpo [name="id_departamento"]');
+  selDep.addEventListener("change", () => { $('#modalCuerpo [name="codigo"]').value = codigoSugerido(selDep.value); });
+}
+
+async function formEditarHabitacion(codigo) {
+  await cargarDepartamentos();
+  const h = habitacionDe(codigo);
+  if (!h) return;
+  const ocupadas = h.ocupantes.length;
+  const html = `<div class="dosis-resumen"><b>${esc(h.codigo)} · ${esc(h.departamento)}</b>
+      <span class="tenue">${ocupadas ? `${ocupadas} paciente${ocupadas > 1 ? "s" : ""} internado${ocupadas > 1 ? "s" : ""} ahora` : "Sin pacientes ahora"}</span></div>
+    <div class="rejilla">
+      <label><span class="requerido">Camas</span><input name="camas" type="number" required min="${Math.max(1, ocupadas)}" max="6" step="1" value="${h.camas}"></label>
+      <label>Tipo<select name="tipo">${opciones(Object.entries(TIPO_HAB), h.tipo)}</select></label>
+      <label class="doble">Estado<select name="estado">
+        <option value="disponible" ${h.estado === "disponible" ? "selected" : ""}>Disponible</option>
+        <option value="mantenimiento" ${h.estado === "mantenimiento" ? "selected" : ""} ${ocupadas ? "disabled" : ""}>En mantenimiento${ocupadas ? " (tiene pacientes)" : ""}</option>
+      </select></label>
+    </div>
+    <p class="ayuda">${ocupadas ? `No puede quedar con menos de ${ocupadas} cama${ocupadas > 1 ? "s" : ""}: la base de datos lo impide.` : "Una habitación en mantenimiento no recibe ingresos."}</p>`;
+  abrirModal(`Editar habitación ${h.codigo}`, html, "Guardar cambios", async (fd) => {
+    const r = await api(`/api/hospital/beds/${encodeURIComponent(codigo)}`, { method: "PUT", body: datosForm(fd) });
+    avisar(`${r.codigo}: ${r.camas} cama${r.camas > 1 ? "s" : ""}${r.estado === "mantenimiento" ? ", en mantenimiento" : ""}`);
+    refrescarHospital();
+  });
+}
+
+function formDepartamento() {
+  abrirModal("Nuevo departamento", `<div class="rejilla">
+      <label class="doble"><span class="requerido">Nombre</span><input name="nombre" required placeholder="Ginecología y Obstetricia"></label>
+      <label><span class="requerido">Piso</span><input name="piso" type="number" required value="1"></label>
+      <label>Extensión<input name="extension" placeholder="510"></label>
+    </div><p class="ayuda">Después agregue sus habitaciones y camas.</p>`,
+  "Crear departamento", async (fd) => {
+    const d = await api("/api/hospital/departments", { method: "POST", body: datosForm(fd) });
+    avisar(`Departamento ${d.nombre} creado`);
+    await cargarDepartamentos();
+    if (estado.pagina === "habitaciones") pintarHabitaciones();
+    formHabitacion(d.id_departamento);
+  });
 }
 
 async function formCambiarHabitacion(idHosp, actual) {
@@ -1410,7 +1556,7 @@ $("#contenido").addEventListener("click", async (ev) => {
   const filtro = t.closest("[data-filtro]");
   if (filtro) { estado.filtro = filtro.dataset.filtro; pintarPacientes(); return; }
   const filtroC = t.closest("[data-filtro-citas]");
-  if (filtroC) { estado.filtroCitas = filtroC.dataset.filtroCitas; pintarCitasPagina(); return; }
+  if (filtroC) { estado.filtroCitas = filtroC.dataset.filtroCitas; pintarListaCitas(); return; }
   const tipoP = t.closest("[data-tipo-personal]");
   if (tipoP) { estado.tipoPersonal = tipoP.dataset.tipoPersonal; estado.filtroPersonal = "activo"; pintarPersonal(); return; }
   const qxV = t.closest("[data-qx-vista]");
@@ -1434,6 +1580,10 @@ $("#contenido").addEventListener("click", async (ev) => {
   if (anu) { confirmarAnular(Number(anu.dataset.anular)); return; }
   const alta = t.closest("[data-alta]");
   if (alta) { formAlta(Number(alta.dataset.alta)); return; }
+  const nHab = t.closest("[data-nueva-hab]");
+  if (nHab) { formHabitacion(nHab.dataset.nuevaHab); return; }
+  const eHab = t.closest("[data-editar-hab]");
+  if (eHab) { formEditarHabitacion(eHab.dataset.editarHab); return; }
   const camb = t.closest("[data-cambiar-hab]");
   if (camb) { formCambiarHabitacion(Number(camb.dataset.cambiarHab), camb.dataset.habActual); return; }
   const indMed = t.closest("[data-indicar-med]");
@@ -1472,6 +1622,8 @@ $("#contenido").addEventListener("click", async (ev) => {
   if (accion === "nuevo-prof") formProfesional(null);
   if (accion === "cita-nueva") formCita(null);
   if (accion === "programar-cx") formCirugia(null);
+  if (accion === "nueva-hab") formHabitacion(null);
+  if (accion === "nuevo-depto") formDepartamento();
   if (accion === "programar-cx-paciente") formCirugia(estado.idSeleccionado);
   if (accion === "limpiar") { $("#txtBuscar").value = ""; await cargarPacientes(""); pintarPacientes(); }
   if (accion === "refrescar-motores") pintarMotores();
@@ -1686,6 +1838,9 @@ const REGLAS = {
   dosis: { attrs: { maxlength: 50 }, re: RE.dosis, msg: "cantidad y unidad (ej. 500 mg, 1 g, 2 tabletas)" },
   duracion_dias: num(1, 30, 1), indicaciones: txt(200), observaciones: txt(200), motivo_omision: txt(200, 5),
   username: txt(50), password: txt(100),
+  codigo: { attrs: { maxlength: 8 }, filtro: "mayus", re: /^[A-Z]{2,4}-\d{2,3}$/, msg: "2 a 4 letras, guion y 2 o 3 números (ej. MI-104)" },
+  camas: num(1, 6, 1), nombre: nombreR(80), piso: num(0, 20, 1),
+  extension: { attrs: { maxlength: 5, inputmode: "numeric" }, filtro: "digitos", re: /^\d{2,5}$/, msg: "de 2 a 5 dígitos" },
 };
 const REGLAS_FILA = {
   medicamento: txt(100, 2), presentacion: txt(50), dosis: txt(50), frecuencia: txt(50), duracion_dias: num(1, 90, 1),

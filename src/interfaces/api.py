@@ -300,6 +300,21 @@ def create_app(config: Config = None, router: EngineRouter = None):
     def hosp_departments():
         return _json(hospital_service.departamentos(request.current_user))
 
+    @app.route("/api/hospital/departments", methods=["POST"])
+    @require_auth
+    def hosp_create_department():
+        return _json(hospital_service.crear_departamento(request.current_user, body()), 201)
+
+    @app.route("/api/hospital/beds", methods=["POST"])
+    @require_auth
+    def hosp_create_room():
+        return _json(hospital_service.crear_habitacion(request.current_user, body()), 201)
+
+    @app.route("/api/hospital/beds/<codigo>", methods=["PUT"])
+    @require_auth
+    def hosp_update_room(codigo):
+        return _json(hospital_service.editar_habitacion(request.current_user, codigo.upper(), body()))
+
     # Medicación del internamiento ----------------------------------------
     @app.route("/api/hospital/medicines", methods=["GET"])
     @require_auth

@@ -97,6 +97,9 @@ Solo el administrador del hospital ve tres secciones extra en el menú:
 - **Habitaciones**: los 5 departamentos (Medicina Interna, Cardiología, Traumatología, Cirugía General y Cuidados
   Intensivos) con sus habitaciones y camas, libres u ocupadas. Al ingresar a un paciente desde la consulta se elige
   la habitación; luego se puede cambiar. Un trigger impide ocupar más camas de las que tiene la habitación.
+  Desde la misma página se crean departamentos y habitaciones, y se editan las camas (1 a 6), el tipo y el estado
+  (disponible o mantenimiento). Otro trigger impide dejar una habitación con menos camas que pacientes o ponerla
+  en mantenimiento si tiene pacientes.
 - **Medicación del internamiento**: en la ficha del paciente ingresado, *Indicar medicamento* (dosis, vía, cada
   cuántas horas y cuántos días). PostgreSQL genera cada dosis con `generate_series`; cada dosis muestra al enfermero
   encargado (el asignado al paciente en el turno en que cae) y se registra como aplicada (quién y a qué hora) o no
@@ -105,6 +108,12 @@ Solo el administrador del hospital ve tres secciones extra en el menú:
   **Internamiento y cirugías** permite registrar el egreso (alta o referido), asignar enfermeros y programar cirugías.
 
 ---
+
+### Buscador de citas (las cuatro instituciones)
+
+La página **Citas** tiene un buscador por paciente, DPI, n.º de historial o motivo (sin importar tildes ni
+mayúsculas), filtro por profesional y rango de fechas, y pestañas *Próximas*, *Sin atender de días pasados*,
+*Atendidas y canceladas* y *Todas*. Filtra la misma lista de citas que entrega cualquiera de los cuatro motores.
 
 ### Validación de datos (en tres niveles)
 
