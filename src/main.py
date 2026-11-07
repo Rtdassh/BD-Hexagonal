@@ -32,7 +32,7 @@ def main():
             print(f"             motivo: {estado['detalle_conexion'][:90]}")
     print("-" * 72)
     print(f"  Abrir en el navegador: http://localhost:{config.PORT}")
-    print("  Usuarios: dr_garcia, dra_lopez, lic_mendez, dr_molina, sec_claudia, admin_general (clave 123)")
+    print("  Usuarios: admin_hospital, admin_pediatria, admin_laboratorio, admin_odontologia (clave 123)")
     print("=" * 72)
 
     app.run(host="127.0.0.1", port=config.PORT, debug=config.DEBUG)

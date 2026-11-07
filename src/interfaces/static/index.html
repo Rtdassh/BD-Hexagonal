@@ -15,7 +15,7 @@
   <main id="vistaLogin" class="login" hidden>
     <section class="login-intro">
       <h1>Red de historiales clínicos</h1>
-      <p>Cuatro instituciones comparten esta plataforma, pero cada una guarda sus datos en su propio motor de base de datos. Al iniciar sesión, sus operaciones se dirigen automáticamente al motor de su institución.</p>
+      <p>Cuatro instituciones comparten esta plataforma, pero cada una guarda sus datos en su propio motor de base de datos. Cada institución tiene su administrador: al iniciar sesión, sus operaciones se dirigen automáticamente al motor de su institución.</p>
       <ul class="lista-inst" id="listaInstituciones"></ul>
     </section>
 
@@ -50,14 +50,6 @@
       <div class="menu-inst">
         <strong id="nombreInst"></strong>
         <span class="motor-chip" id="motorInst"></span>
-        <label class="admin-inst" id="adminInst" hidden>Ver institución
-          <select id="selInstitucion">
-            <option value="hospital">Hospital General</option>
-            <option value="pediatrico">Centro Pediátrico</option>
-            <option value="laboratorio">Laboratorio Clínico</option>
-            <option value="odontologia">Clínica Odontológica</option>
-          </select>
-        </label>
       </div>
 
       <form id="formBuscar" class="menu-buscar" role="search">
@@ -69,6 +61,9 @@
         <li><button type="button" data-pagina="inicio"><span class="ico" data-icono="inicio"></span>Inicio</button></li>
         <li><button type="button" data-pagina="pacientes"><span class="ico" data-icono="pacientes"></span>Pacientes</button></li>
         <li><button type="button" data-pagina="citas"><span class="ico" data-icono="citas"></span>Citas</button></li>
+        <li data-solo="hospital" hidden><button type="button" data-pagina="quirofanos"><span class="ico" data-icono="quirofanos"></span>Quirófanos</button></li>
+        <li data-solo="hospital" hidden><button type="button" data-pagina="enfermeria"><span class="ico" data-icono="enfermeria"></span>Enfermería</button></li>
+        <li><button type="button" data-pagina="personal"><span class="ico" data-icono="personal"></span><span id="menuPersonal">Personal médico</span></button></li>
         <li><button type="button" data-pagina="motores"><span class="ico" data-icono="motores"></span>Estado de los motores</button></li>
       </ul>
 

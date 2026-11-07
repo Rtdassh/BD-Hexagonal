@@ -20,7 +20,7 @@ from src.infrastructure.config import Config  # noqa: E402
 from src.infrastructure.adapters.firebase_adapter import crear_cliente_firestore  # noqa: E402
 
 COLECCIONES = ["pacientes", "citas", "odontologos", "secretarias", "procedimientos_catalogo",
-               "contadores", "dpi_index"]
+               "contadores", "dpi_index", "colegiado_index"]
 
 
 def borrar_coleccion(col):
@@ -54,6 +54,7 @@ def main():
         batch.set(db.collection("procedimientos_catalogo").document(str(p["id_procedimiento"])), p)
     for o in data["odontologos"]:
         batch.set(db.collection("odontologos").document(str(o["id_odontologo"])), o)
+        batch.set(db.collection("colegiado_index").document(o["numero_colegiado"]), {"id_odontologo": o["id_odontologo"]})
     for s in data["secretarias"]:
         batch.set(db.collection("secretarias").document(str(s["id_secretaria"])), s)
     for c in data["citas"]:

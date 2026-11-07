@@ -14,8 +14,10 @@ from ..application.services import (
     AuthService,
     ClinicalHistoryService,
     ConsultationService,
+    HospitalService,
     PatientService,
     PermisoDenegado,
+    ProfessionalService,
 )
 from ..domain.entities import User
 from ..infrastructure.adapters.auth_adapter import AuthAdapter
@@ -60,6 +62,8 @@ def create_app(config: Config = None, router: EngineRouter = None):
     patient_service = PatientService(engine_router)
     history_service = ClinicalHistoryService(engine_router)
     consultation_service = ConsultationService(engine_router)
+    professional_service = ProfessionalService(engine_router)
+    hospital_service = HospitalService(engine_router)
     app.engine_router = engine_router
 
     def _usuario_json(user: User):
@@ -194,6 +198,97 @@ def create_app(config: Config = None, router: EngineRouter = None):
     def register_consultation():
         data = request.get_json(silent=True) or {}
         return _json(consultation_service.register_consultation_transaction(request.current_user, data, inst()), 201)
+
+    # Personal médico (lo gestiona el administrador) ------------------------
+    @app.route("/api/professionals", methods=["GET"])
+    @require_auth
+    def list_professionals():
+        return _json(professional_service.listar(request.current_user))
+
+    @app.route("/api/professionals", methods=["POST"])
+    @require_auth
+    def create_professional():
+        return _json(professional_service.registrar(request.current_user, request.get_json(silent=True) or {}), 201)
+
+    @app.route("/api/professionals/<int:professional_id>", methods=["PUT"])
+    @require_auth
+    def update_professional(professional_id):
+        data = request.get_json(silent=True) or {}
+        return _json(professional_service.actualizar(request.current_user, professional_id, data))
+
+    # Hospital: quirófanos, cirugías, enfermería y altas -------------------
+    def body():
+        return request.get_json(silent=True) or {}
+
+    @app.route("/api/hospital/rooms", methods=["GET"])
+    @require_auth
+    def hosp_rooms():
+        return _json(hospital_service.quirofanos(request.current_user))
+
+    @app.route("/api/hospital/surgeries", methods=["GET"])
+    @require_auth
+    def hosp_surgeries():
+        a = request.args
+        return _json(hospital_service.cirugias(request.current_user, a.get("fecha") or None,
+                                               a.get("id_paciente", type=int), a.get("pendientes") == "1"))
+
+    @app.route("/api/hospital/surgeries", methods=["POST"])
+    @require_auth
+    def hosp_schedule():
+        return _json(hospital_service.programar_cirugia(request.current_user, body()), 201)
+
+    @app.route("/api/hospital/surgeries/<int:sid>/<accion>", methods=["POST"])
+    @require_auth
+    def hosp_surgery_action(sid, accion):
+        u = request.current_user
+        if accion == "start":
+            return _json(hospital_service.iniciar_cirugia(u, sid))
+        if accion == "finish":
+            return _json(hospital_service.finalizar_cirugia(u, sid, body().get("notas")))
+        if accion == "cancel":
+            return _json(hospital_service.cancelar_cirugia(u, sid, body().get("motivo", "")))
+        return jsonify({"error": "Acción desconocida"}), 404
+
+    @app.route("/api/hospital/nurses", methods=["GET"])
+    @require_auth
+    def hosp_nurses():
+        return _json(hospital_service.enfermeros(request.current_user))
+
+    @app.route("/api/hospital/nurses", methods=["POST"])
+    @require_auth
+    def hosp_nurse_create():
+        return _json(hospital_service.registrar_enfermero(request.current_user, body()), 201)
+
+    @app.route("/api/hospital/nurses/<int:nid>", methods=["PUT"])
+    @require_auth
+    def hosp_nurse_update(nid):
+        return _json(hospital_service.actualizar_enfermero(request.current_user, nid, body()))
+
+    @app.route("/api/hospital/shifts", methods=["GET"])
+    @require_auth
+    def hosp_shifts():
+        a = request.args
+        return _json(hospital_service.turnos(request.current_user, a.get("fecha") or None, a.get("id_paciente", type=int)))
+
+    @app.route("/api/hospital/shifts", methods=["POST"])
+    @require_auth
+    def hosp_shift_assign():
+        return _json(hospital_service.asignar_turno(request.current_user, body()), 201)
+
+    @app.route("/api/hospital/shifts/<int:aid>/annul", methods=["POST"])
+    @require_auth
+    def hosp_shift_annul(aid):
+        return _json(hospital_service.anular_turno(request.current_user, aid))
+
+    @app.route("/api/hospital/hospitalizations", methods=["GET"])
+    @require_auth
+    def hosp_hospitalizations():
+        return _json(hospital_service.hospitalizados(request.current_user, request.args.get("todos") == "1"))
+
+    @app.route("/api/hospital/hospitalizations/<int:hid>/discharge", methods=["POST"])
+    @require_auth
+    def hosp_discharge(hid):
+        return _json(hospital_service.dar_alta(request.current_user, hid, body().get("tipo", "alta")))
 
     # Estado de los motores ----------------------------------------------
     @app.route("/api/engine/status", methods=["GET"])

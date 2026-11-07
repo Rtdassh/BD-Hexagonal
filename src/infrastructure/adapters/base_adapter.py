@@ -7,7 +7,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
-from ...domain.entities import UnifiedClinicalRecord, UserRole
+from ...domain.entities import Professional, UnifiedClinicalRecord, UserRole
 from ...domain.ports import ClinicalRepositoryPort
 
 
@@ -79,6 +79,43 @@ class BaseClinicalAdapter(ClinicalRepositoryPort):
         faltantes = [c for c in campos if data.get(c) in (None, "")]
         if faltantes:
             raise ValueError(f"Campos obligatorios faltantes: {', '.join(faltantes)}")
+
+    # ------------------------------------------------------------------
+    # Personal médico: los adaptadores reales lo sobrescriben. Los simulados
+    # guardan una lista en memoria para que la demo siga funcionando.
+    # ------------------------------------------------------------------
+    def _personal_mem(self) -> List[Professional]:
+        if not hasattr(self, "_personal"):
+            self._personal = [Professional(1, "Profesional de demostración", "DEMO-001", "General")]
+        return self._personal
+
+    def list_professionals(self) -> List[Professional]:
+        return list(self._personal_mem())
+
+    def create_professional(self, data: Dict[str, Any]) -> Professional:
+        self.requerido(data, "nombre_completo", "numero_colegiado")
+        lista = self._personal_mem()
+        if any(p.numero_colegiado == data["numero_colegiado"] for p in lista):
+            raise ValueError(f"Ya existe un profesional con colegiado {data['numero_colegiado']}")
+        p = Professional(max((x.id_profesional for x in lista), default=0) + 1, data["nombre_completo"],
+                         data["numero_colegiado"], data.get("especialidad") or "", data.get("telefono") or "",
+                         data.get("correo_electronico") or "")
+        lista.append(p)
+        return p
+
+    def update_professional(self, professional_id: int, data: Dict[str, Any]) -> Professional:
+        for p in self._personal_mem():
+            if p.id_profesional == int(professional_id):
+                for k in ("nombre_completo", "especialidad", "telefono", "correo_electronico", "estado"):
+                    if data.get(k) not in (None, ""):
+                        setattr(p, k, data[k])
+                return p
+        raise ValueError(f"Profesional {professional_id} no encontrado")
+
+    @staticmethod
+    def validar_profesional(data: Dict[str, Any]) -> None:
+        if data.get("estado") and data["estado"] not in ("activo", "inactivo"):
+            raise ValueError("Estado inválido: use activo o inactivo")
 
     # ------------------------------------------------------------------
     # Seguridad: clasificación de la información

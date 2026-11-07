@@ -46,6 +46,10 @@ service cloud.firestore {
       allow read: if esPersonal();
       allow write: if esClinico();
     }
+    match /colegiado_index/{colegiado} {
+      allow read, create: if esPersonal();
+      allow update, delete: if false;
+    }
     match /dpi_index/{dpi} {
       allow read, create: if esPersonal();
       allow update, delete: if false;

@@ -7,13 +7,13 @@
 
 // ------------------------------------------------------------------ Constantes
 const INST = {
-  hospital:    { nombre: "Hospital General",         motor: "PostgreSQL",               color: "#2F5E9E",
+  hospital:    { nombre: "Hospital General",         motor: "PostgreSQL",               color: "#2F5E9E", personal: ["médico", "Médicos"],
                  tipos: [["ordinaria", "Ordinaria"], ["emergencia", "Emergencia"], ["seguimiento", "Seguimiento"]] },
-  pediatrico:  { nombre: "Centro Médico Pediátrico", motor: "MySQL",                    color: "#7A4FB0",
+  pediatrico:  { nombre: "Centro Médico Pediátrico", motor: "MySQL",                    color: "#7A4FB0", personal: ["pediatra", "Pediatras"],
                  tipos: [["control_sano", "Control de niño sano"], ["urgencia", "Urgencia"], ["seguimiento", "Seguimiento"], ["vacunacion", "Vacunación"]] },
-  laboratorio: { nombre: "Laboratorio Clínico",      motor: "MongoDB",                  color: "#0B7A80",
+  laboratorio: { nombre: "Laboratorio Clínico",      motor: "MongoDB",                  color: "#0B7A80", personal: ["laboratorista", "Laboratoristas"],
                  tipos: [["normal", "Prioridad normal"], ["urgente", "Urgente"], ["emergencia", "Emergencia"]] },
-  odontologia: { nombre: "Clínica Odontológica",     motor: "Firebase Cloud Firestore", color: "#A8436A",
+  odontologia: { nombre: "Clínica Odontológica",     motor: "Firebase Cloud Firestore", color: "#A8436A", personal: ["odontólogo", "Odontólogos"],
                  tipos: [["ordinaria", "Ordinaria"], ["emergencia", "Emergencia"], ["seguimiento", "Seguimiento"]] },
 };
 const ROLES = {
@@ -83,10 +83,7 @@ function leerSesion() {
 }
 
 async function api(ruta, opciones = {}) {
-  const sep = ruta.includes("?") ? "&" : "?";
-  const url = estado.usuario?.rol === "administrador" && ruta.startsWith("/api/") && !ruta.startsWith("/api/auth")
-    ? `${ruta}${sep}institucion=${estado.inst}` : ruta;
-  const res = await fetch(url, {
+  const res = await fetch(ruta, {
     method: opciones.method || "GET",
     headers: {
       "Content-Type": "application/json",
@@ -187,6 +184,9 @@ const ICONO = {
   inicio: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
   pacientes: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14.5c2.3.2 4 1.8 4.5 4.5"/>',
   citas: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/><path d="M8 14h3v3H8z"/>',
+  personal: '<circle cx="12" cy="7" r="3.5"/><path d="M5 21c.6-4 3.3-6.5 7-6.5s6.4 2.5 7 6.5"/><path d="M12 14.5v4M10 16.5h4"/>',
+  quirofanos: '<path d="M4 20h16"/><path d="M6 20v-6h12v6"/><path d="M9 14V9a3 3 0 0 1 6 0v5"/><path d="M12 3v2"/>',
+  enfermeria: '<path d="M20.5 8.5c0 5-8.5 11-8.5 11S3.5 13.5 3.5 8.5A4.3 4.3 0 0 1 12 6a4.3 4.3 0 0 1 8.5 2.5z"/><path d="M6 12h3l1.5-2.5 2 5 1.5-2.5H18"/>',
   motores: '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
   salir: '<path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/>',
 };
@@ -203,8 +203,6 @@ function entrar(u) {
   $("#nombreUsuario").textContent = u.nombre_completo;
   $("#rolUsuario").textContent = ROLES[u.rol] || u.rol;
   $("#avatarUsuario").textContent = iniciales(u.nombre_completo);
-  $("#adminInst").hidden = u.rol !== "administrador";
-  $("#selInstitucion").value = estado.inst;
   aplicarInstitucion();
 }
 
@@ -217,7 +215,6 @@ async function cerrarSesion(llamarApi = true) {
 }
 
 $("#btnSalir").addEventListener("click", () => cerrarSesion(true));
-$("#selInstitucion").addEventListener("change", (ev) => { estado.inst = ev.target.value; aplicarInstitucion(); });
 
 async function aplicarInstitucion() {
   const i = INST[estado.inst];
@@ -226,8 +223,10 @@ async function aplicarInstitucion() {
   $("#motorInst").textContent = i.motor;
   document.title = `${i.nombre} — Historiales clínicos`;
   $("#txtBuscar").value = "";
+  $("#menuPersonal").textContent = `Personal médico`;
+  document.querySelectorAll("[data-solo]").forEach((el) => { el.hidden = el.dataset.solo !== estado.inst; });
   try { estado.catalogos = await api("/api/catalogs"); } catch (_) { estado.catalogos = {}; }
-  await cargarPacientes("");
+  await Promise.all([cargarPacientes(""), cargarPersonal()]);
   ir("inicio");
 }
 
@@ -246,7 +245,8 @@ function ir(pagina) {
   });
   $("#contenido").scrollTo?.(0, 0);
   window.scrollTo(0, 0);
-  ({ inicio: pintarInicio, pacientes: pintarPacientes, citas: pintarCitasPagina, motores: pintarMotores, paciente: pintarExpediente })[pagina]();
+  ({ inicio: pintarInicio, pacientes: pintarPacientes, citas: pintarCitasPagina, personal: pintarPersonal,
+     quirofanos: pintarQuirofanos, enfermeria: pintarEnfermeria, motores: pintarMotores, paciente: pintarExpediente })[pagina]();
 }
 
 function cabecera({ migas = "", titulo, acciones = "" }) {
@@ -323,13 +323,119 @@ function pintarPacientes() {
     </div>`;
 }
 
+// ------------------------------------------------------------ Personal médico
+estado.personal = [];
+estado.enfermeros = [];
+estado.filtroPersonal = "activo";
+estado.tipoPersonal = "medicos";
+
+async function cargarPersonal() {
+  try { estado.personal = await api("/api/professionals"); } catch (e) { estado.personal = []; }
+  if (estado.inst === "hospital") {
+    try { estado.enfermeros = await api("/api/hospital/nurses"); } catch (e) { estado.enfermeros = []; }
+  } else {
+    estado.enfermeros = [];
+  }
+}
+const personalActivo = () => estado.personal.filter((p) => p.estado === "activo");
+const enfermerosActivos = () => estado.enfermeros.filter((p) => p.estado === "activo");
+const nombrePersonal = (plural = false) => INST[estado.inst].personal[plural ? 1 : 0];
+
+// Qué lista se está gestionando: médicos de la institución o enfermeros (solo hospital)
+function fuentePersonal() {
+  if (estado.inst === "hospital" && estado.tipoPersonal === "enfermeros") {
+    return { lista: estado.enfermeros, url: "/api/hospital/nurses", uno: "enfermero", varios: "Enfermeros",
+             campoEsp: "Área", texto: "se asignan a los pacientes hospitalizados por turno" };
+  }
+  const [uno, varios] = INST[estado.inst].personal;
+  return { lista: estado.personal, url: "/api/professionals", uno, varios, campoEsp: "Especialidad",
+           texto: "se asignan a cada cita y consulta" };
+}
+
+function pintarPersonal() {
+  const f = fuentePersonal();
+  cabecera({ titulo: "Personal médico", acciones: btnAccion("nuevo-prof", `+ Registrar ${f.uno}`) });
+  const todos = f.lista;
+  const lista = todos.filter((p) => estado.filtroPersonal === "todos" || p.estado === estado.filtroPersonal);
+  const nAct = todos.filter((p) => p.estado === "activo").length;
+  $("#vista").innerHTML = `
+    ${estado.inst === "hospital" ? `<div class="segmento" role="group" aria-label="Tipo de personal">
+      <button type="button" data-tipo-personal="medicos" aria-pressed="${estado.tipoPersonal === "medicos"}">Médicos (${estado.personal.length})</button>
+      <button type="button" data-tipo-personal="enfermeros" aria-pressed="${estado.tipoPersonal === "enfermeros"}">Enfermeros (${estado.enfermeros.length})</button>
+    </div>` : ""}
+    <p class="intro">Los ${f.varios.toLowerCase()} no inician sesión: aquí los registra y luego ${f.texto}.
+      Solo los activos aparecen al asignar. No se borran porque su trabajo queda en los historiales; se desactivan.</p>
+    ${pestanas([["activo", `Activos (${nAct})`], ["inactivo", `Inactivos (${todos.length - nAct})`], ["todos", `Todos (${todos.length})`]], estado.filtroPersonal, "data-filtro-personal")}
+    <div class="panel">${lista.length ? `<table class="tabla-datos">
+      <thead><tr><th>Nombre</th><th>Colegiado</th><th>${f.campoEsp}</th><th>Teléfono</th><th>Correo</th><th>Estado</th><th class="acc">Acciones</th></tr></thead>
+      <tbody>${lista.map((p) => `<tr>
+        <td><span class="enlace-paciente sin-enlace"><span class="ini" aria-hidden="true">${esc(iniciales(p.nombre_completo))}</span>${esc(p.nombre_completo)}</span></td>
+        <td class="nowrap">${esc(p.numero_colegiado)}</td><td>${esc(p.especialidad || "—")}</td>
+        <td class="nowrap">${esc(p.telefono || "—")}</td><td>${esc(p.correo_electronico || "—")}</td>
+        <td><span class="estado ${p.estado === "activo" ? "activo" : "baja"}">${p.estado === "activo" ? "Activo" : "Inactivo"}</span></td>
+        <td class="acc">
+          <button type="button" class="btn sutil chico" data-editar-prof="${p.id_profesional}">Editar</button>
+          <button type="button" class="btn ${p.estado === "activo" ? "peligro" : "primario"} chico" data-estado-prof="${p.id_profesional}">${p.estado === "activo" ? "Desactivar" : "Activar"}</button>
+        </td></tr>`).join("")}</tbody></table>`
+      : `<div class="vacio-tabla"><p>No hay ${f.varios.toLowerCase()} en esta lista.</p>${btnAccion("nuevo-prof", `+ Registrar ${f.uno}`)}</div>`}</div>`;
+}
+
+function formProfesional(p = null) {
+  const f = fuentePersonal();
+  const v = p || {};
+  const html = `<div class="rejilla">
+    ${campo("nombre_completo", "Nombre completo", { req: true, valor: v.nombre_completo, clase: "doble",
+      extra: `placeholder="${f.uno === "enfermero" ? "Enf. Ana Lucía Pérez" : "Dra. Ana Lucía Pérez"}"` })}
+    ${p ? `<label>Número de colegiado<input value="${esc(v.numero_colegiado)}" disabled></label>`
+        : campo("numero_colegiado", "Número de colegiado", { req: true })}
+    ${campo("especialidad", f.campoEsp, { valor: v.especialidad })}
+    ${campo("telefono", "Teléfono", { valor: v.telefono })}
+    ${campo("correo_electronico", "Correo", { tipo: "email", valor: v.correo_electronico })}
+  </div>`;
+  abrirModal(p ? `Editar ${f.uno}` : `Registrar ${f.uno}`, html, p ? "Guardar cambios" : `Registrar ${f.uno}`, async (fd) => {
+    const d = datosForm(fd);
+    if (p) await api(`${f.url}/${p.id_profesional}`, { method: "PUT", body: d });
+    else await api(f.url, { method: "POST", body: d });
+    avisar(p ? "Datos guardados" : `${d.nombre_completo} registrado`);
+    await cargarPersonal();
+    if (estado.pagina === "personal") pintarPersonal();
+  });
+}
+
+async function cambiarEstadoProfesional(id) {
+  const f = fuentePersonal();
+  const p = f.lista.find((x) => x.id_profesional === id);
+  const nuevo = p.estado === "activo" ? "inactivo" : "activo";
+  try {
+    await api(`${f.url}/${id}`, { method: "PUT", body: { estado: nuevo } });
+    avisar(`${p.nombre_completo} ${nuevo === "activo" ? "activado" : "desactivado"}`);
+    await cargarPersonal();
+    pintarPersonal();
+  } catch (e) { avisar(e.message, true); }
+}
+
+// Campo para elegir al profesional (citas y consultas)
+function campoProfesional(etiqueta, seleccionado = null) {
+  const activos = personalActivo();
+  if (!activos.length) {
+    return `<div class="completo aviso-sin-personal">No hay ${nombrePersonal(true).toLowerCase()} activos.
+      <button type="button" class="btn sutil chico" data-ir-personal>Registrar uno en Personal médico</button></div>`;
+  }
+  return `<label class="doble"><span class="requerido">${etiqueta}</span><select name="id_profesional" required>
+    ${activos.length > 1 && !seleccionado ? `<option value="">Seleccione…</option>` : ""}
+    ${activos.map((p) => `<option value="${p.id_profesional}" ${p.id_profesional === seleccionado ? "selected" : ""}>
+      ${esc(p.nombre_completo)}${p.especialidad ? ` — ${esc(p.especialidad)}` : ""}</option>`).join("")}
+  </select></label>`;
+}
+
 // --------------------------------------------------------------------- Inicio
 const ETIQUETAS = { ordenes: "órdenes", hospitalizados: "hospitalizados ahora", vacunas: "vacunas aplicadas" };
 
 async function pintarInicio() {
   const u = estado.usuario;
   const nombre = u.nombre_completo.split(" ").slice(0, 2).join(" ");
-  cabecera({ titulo: `${saludo()}, ${esc(nombre)}`, acciones: btnAccion("nuevo", "+ Registrar paciente") });
+  cabecera({ migas: `<span>Administración · ${esc(INST[estado.inst].nombre)}</span>`, titulo: saludo(),
+    acciones: btnAccion("nuevo", "+ Registrar paciente") });
   $("#vista").innerHTML = `
     <div class="cifras" id="inicioCifras"><div class="cifra-caja"><span class="tenue">Cargando…</span></div></div>
     <div class="inicio-cols">
@@ -352,9 +458,20 @@ async function pintarInicio() {
   ]);
   if (estado.pagina !== "inicio") return;
 
+  let extra = "";
+  if (estado.inst === "hospital") {
+    const cxHoy = await api(`/api/hospital/surgeries?fecha=${hoyISO()}`).catch(() => []);
+    if (estado.pagina !== "inicio") return;
+    const enCurso = cxHoy.filter((c) => c.estado === "en_curso").length;
+    extra = `<button type="button" class="cifra-caja cifra-boton ${enCurso ? "cifra-alerta" : ""}" data-ir="quirofanos"><span class="cifra">${enCurso}</span><span>en cirugía ahora</span></button>
+      <button type="button" class="cifra-caja cifra-boton" data-ir="quirofanos"><span class="cifra">${cxHoy.filter((c) => c.estado !== "cancelada").length}</span><span>cirugías hoy</span></button>`;
+  }
   const m = est?.motores?.find((x) => x.clave === estado.inst);
   $("#inicioCifras").innerHTML = Object.entries(m?.conteos || {}).map(([k, v]) =>
     `<div class="cifra-caja"><span class="cifra">${esc(v)}</span><span>${esc(ETIQUETAS[k] || k)}</span></div>`).join("")
+    + extra
+    + `<button type="button" class="cifra-caja cifra-boton" data-ir="personal"><span class="cifra">${personalActivo().length}</span>
+       <span>${esc(nombrePersonal(true).toLowerCase())} activos</span></button>`
     + `<div class="cifra-caja motor-caja"><span class="tenue">Base de datos</span><b>${esc(INST[estado.inst].motor)}</b>
        <span class="estado ${m?.real ? "activo" : "alerta"}">${m?.real ? "Conectado" : "Simulado"}</span></div>`;
 
@@ -428,6 +545,293 @@ async function pintarMotores() {
   }
 }
 
+// ===================================================== Hospital: quirófanos y enfermería
+const TURNOS = [["manana", "Mañana", "07:00–15:00"], ["tarde", "Tarde", "15:00–23:00"], ["noche", "Noche", "23:00–07:00"]];
+const ESTADO_CX = {
+  programada: ["Programada", "alerta"], en_curso: ["En curso", "critico"],
+  realizada: ["Realizada", "activo"], cancelada: ["Cancelada", "baja"],
+};
+const MAX_PACIENTES_TURNO = 6;
+const hoyISO = (d = new Date()) => d.toLocaleDateString("en-CA");
+function turnoActual() {
+  const d = new Date();
+  const h = d.getHours();
+  if (h >= 7 && h < 15) return { fecha: hoyISO(d), turno: "manana" };
+  if (h >= 15 && h < 23) return { fecha: hoyISO(d), turno: "tarde" };
+  const f = new Date(d);
+  if (h < 7) f.setDate(f.getDate() - 1);   // la noche empieza el día anterior
+  return { fecha: hoyISO(f), turno: "noche" };
+}
+const nombreTurno = (t) => (TURNOS.find((x) => x[0] === t) || [t, t])[1];
+const horaDe = (v) => (v ? String(v).replace("T", " ").slice(11, 16) : "—");
+const badgeCx = (e) => `<span class="estado ${ESTADO_CX[e][1]}">${ESTADO_CX[e][0]}</span>`;
+const duracionTxt = (m) => (m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""}` : `${m} min`);
+
+estado.quirofanos = [];
+estado.qxVista = "hoy";
+estado.qxFecha = hoyISO();
+estado.enfFecha = turnoActual().fecha;
+estado.enfTurno = turnoActual().turno;
+
+async function todosLosPacientes() {
+  try { return await api("/api/patients?q="); } catch (_) { return estado.pacientes; }
+}
+
+// ---------------------------------------------------------------- Quirófanos
+function tablaCirugias(lista, conPaciente = true) {
+  return `<table class="tabla-datos">
+    <thead><tr><th>Fecha y hora</th><th>Quirófano</th>${conPaciente ? "<th>Paciente</th>" : ""}<th>Procedimiento</th>
+      <th>Cirujano</th><th>Duración</th><th>Estado</th><th class="acc">Acciones</th></tr></thead>
+    <tbody>${lista.map((c) => `<tr class="${c.estado === "en_curso" ? "fila-cirugia" : ""}">
+      <td class="nowrap"><b>${fecha(c.fecha_hora_programada, true)}</b>
+        ${c.fecha_hora_inicio ? `<br><small class="tenue">Inició ${horaDe(c.fecha_hora_inicio)}${c.fecha_hora_fin ? `, terminó ${horaDe(c.fecha_hora_fin)}` : ""}</small>` : ""}</td>
+      <td><b>${esc(c.codigo_quirofano)}</b></td>
+      ${conPaciente ? `<td><button type="button" class="enlace-paciente" data-id="${c.id_paciente}" data-pestana-ir="especial">${esc(c.paciente_nombre)}</button></td>` : ""}
+      <td>${esc(c.procedimiento)}${c.tipo === "urgencia" ? ` <span class="estado critico">Urgencia</span>` : ""}
+        ${c.motivo_cancelacion ? `<br><small class="tenue">Cancelada: ${esc(c.motivo_cancelacion)}</small>` : ""}
+        ${c.estado === "realizada" && c.notas_operatorias ? `<br><small class="tenue">${esc(c.notas_operatorias)}</small>` : ""}</td>
+      <td>${esc(c.cirujano_nombre)}</td>
+      <td class="nowrap">${duracionTxt(c.duracion_estimada_min)}</td>
+      <td>${badgeCx(c.estado)}</td>
+      <td class="acc">${c.estado === "programada"
+        ? `<button type="button" class="btn primario chico" data-iniciar-cx="${c.id_cirugia}">Iniciar</button><button type="button" class="btn sutil chico" data-cancelar-cx="${c.id_cirugia}">Cancelar</button>`
+        : c.estado === "en_curso" ? `<button type="button" class="btn primario chico" data-finalizar-cx="${c.id_cirugia}">Finalizar</button>` : ""}</td>
+    </tr>`).join("")}</tbody></table>`;
+}
+
+async function pintarQuirofanos() {
+  cabecera({ titulo: "Quirófanos", acciones: btnAccion("programar-cx", "+ Programar cirugía") });
+  $("#vista").innerHTML = `<p class="tenue">Cargando…</p>`;
+  const hoy = hoyISO();
+  const filtro = estado.qxVista === "pendientes" ? "pendientes=1" : `fecha=${estado.qxVista === "hoy" ? hoy : estado.qxFecha}`;
+  try {
+    const [salas, lista, deHoy] = await Promise.all([
+      api("/api/hospital/rooms"), api(`/api/hospital/surgeries?${filtro}`), api(`/api/hospital/surgeries?fecha=${hoy}`),
+    ]);
+    if (estado.pagina !== "quirofanos") return;
+    estado.quirofanos = salas;
+    const ahora = new Date().toLocaleString("sv-SE").slice(0, 16);
+    const tablero = salas.map((q) => {
+      const enCurso = deHoy.find((c) => c.codigo_quirofano === q.codigo && c.estado === "en_curso");
+      const proxima = deHoy.filter((c) => c.codigo_quirofano === q.codigo && c.estado === "programada" && c.fecha_hora_programada >= ahora.slice(0, 10))
+        .sort((a, b) => a.fecha_hora_programada.localeCompare(b.fecha_hora_programada))[0];
+      return `<div class="sala ${enCurso ? "ocupada" : ""} ${q.estado !== "disponible" ? "mantenimiento" : ""}">
+        <div class="sala-cab"><b>${esc(q.codigo)}</b>
+          <span class="estado ${q.estado !== "disponible" ? "baja" : (enCurso ? "critico" : "activo")}">${q.estado !== "disponible" ? "Mantenimiento" : (enCurso ? "En uso" : "Libre")}</span></div>
+        <small class="tenue">${esc(q.descripcion)}</small>
+        ${enCurso ? `<p><b>${esc(enCurso.paciente_nombre)}</b><br>${esc(enCurso.procedimiento)}<br><small>Desde las ${horaDe(enCurso.fecha_hora_inicio)} · ${esc(enCurso.cirujano_nombre)}</small></p>`
+          : proxima ? `<p><small class="tenue">Próxima hoy</small><br><b>${horaDe(proxima.fecha_hora_programada)}</b> ${esc(proxima.procedimiento)}</p>`
+          : `<p class="tenue"><small>Sin más cirugías hoy</small></p>`}
+      </div>`;
+    }).join("");
+    $("#vista").innerHTML = `
+      <div class="salas">${tablero}</div>
+      <div class="barra-filtros">
+        ${pestanas([["hoy", `Hoy (${deHoy.length})`], ["pendientes", "Pendientes"], ["fecha", "Otra fecha"]], estado.qxVista, "data-qx-vista")}
+        ${estado.qxVista === "fecha" ? `<label class="fecha-filtro">Fecha<input type="date" id="qxFecha" value="${estado.qxFecha}"></label>` : ""}
+      </div>
+      <div class="panel">${lista.length ? tablaCirugias(lista)
+        : `<div class="vacio-tabla"><p>No hay cirugías ${estado.qxVista === "pendientes" ? "pendientes" : "en esa fecha"}.</p>${btnAccion("programar-cx", "+ Programar cirugía")}</div>`}</div>`;
+  } catch (e) {
+    $("#vista").innerHTML = `<p class="error">${esc(e.message)}</p>`;
+  }
+}
+
+async function formCirugia(idPaciente = null) {
+  if (!estado.quirofanos.length) { try { estado.quirofanos = await api("/api/hospital/rooms"); } catch (_) { /* */ } }
+  const pacientes = idPaciente ? [] : (await todosLosPacientes()).filter((p) => !ESTADOS_BAJA.includes(p.estado));
+  const manana = new Date(Date.now() + 86400000);
+  const fechaDef = `${hoyISO(manana)}T08:00`;
+  const html = `<div class="rejilla">
+    ${idPaciente ? `<p class="completo">Paciente: <b>${esc(estado.historial.paciente.nombres)} ${esc(estado.historial.paciente.apellidos)}</b></p>`
+      : `<label class="doble"><span class="requerido">Paciente</span><select name="id_paciente" required>
+          <option value="">Seleccione…</option>${pacientes.map((p) => `<option value="${p.id_paciente}">${esc(p.apellidos)}, ${esc(p.nombres)}${p.estado === "hospitalizado" ? " (hospitalizado)" : ""}</option>`).join("")}
+        </select></label>`}
+    <label class="completo"><span class="requerido">Procedimiento</span><input name="procedimiento" required maxlength="200" placeholder="Colecistectomía laparoscópica"></label>
+    ${campoProfesional("Cirujano")}
+    <label><span class="requerido">Quirófano</span><select name="codigo_quirofano" required>
+      ${estado.quirofanos.map((q) => `<option value="${esc(q.codigo)}" ${q.estado !== "disponible" ? "disabled" : ""}>${esc(q.codigo)} — ${esc(q.descripcion)}${q.estado !== "disponible" ? " (mantenimiento)" : ""}</option>`).join("")}
+    </select></label>
+    <label>Tipo<select name="tipo">${opciones([["electiva", "Electiva (programada)"], ["urgencia", "Urgencia"]])}</select></label>
+    ${campo("fecha_hora_programada", "Fecha y hora", { tipo: "datetime-local", req: true, valor: fechaDef })}
+    <label><span class="requerido">Duración estimada (min)</span><input name="duracion_estimada_min" type="number" min="15" max="720" step="15" value="60" required></label>
+    <label class="completo">Indicaciones prequirúrgicas<textarea name="notas_operatorias" placeholder="Ayuno, profilaxis, reserva de sangre…"></textarea></label>
+  </div>
+  <p class="ayuda">La base de datos rechaza la cirugía si el quirófano o el cirujano ya están ocupados en ese horario.</p>`;
+  abrirModal("Programar cirugía", html, "Programar cirugía", async (fd) => {
+    const d = datosForm(fd);
+    d.id_medico = d.id_profesional;
+    delete d.id_profesional;
+    if (idPaciente) d.id_paciente = idPaciente;
+    const c = await api("/api/hospital/surgeries", { method: "POST", body: d });
+    avisar(`Cirugía programada en ${c.codigo_quirofano} para el ${fecha(c.fecha_hora_programada, true)}`);
+    refrescarHospital();
+  });
+}
+
+async function accionCirugia(id, accion) {
+  if (accion === "start") {
+    try {
+      await api(`/api/hospital/surgeries/${id}/start`, { method: "POST" });
+      avisar("Cirugía iniciada");
+      refrescarHospital();
+    } catch (e) { avisar(e.message, true); }
+    return;
+  }
+  const fin = accion === "finish";
+  abrirModal(fin ? "Finalizar cirugía" : "Cancelar cirugía",
+    fin ? `<label>Notas operatorias<textarea name="notas" placeholder="Hallazgos, complicaciones, indicaciones postoperatorias"></textarea></label>`
+        : `<label><span class="requerido">Motivo de la cancelación</span><input name="motivo" required maxlength="200"></label>`,
+    fin ? "Finalizar cirugía" : "Cancelar cirugía", async (fd) => {
+      await api(`/api/hospital/surgeries/${id}/${accion}`, { method: "POST", body: datosForm(fd) });
+      avisar(fin ? "Cirugía finalizada" : "Cirugía cancelada");
+      refrescarHospital();
+    });
+}
+
+function refrescarHospital() {
+  if (estado.pagina === "paciente" && estado.idSeleccionado) abrirPaciente(estado.idSeleccionado, "especial");
+  else ir(estado.pagina);
+}
+
+// ---------------------------------------------------------------- Enfermería
+async function pintarEnfermeria() {
+  cabecera({ titulo: "Enfermería" });
+  $("#vista").innerHTML = `<p class="tenue">Cargando…</p>`;
+  try {
+    const [hosp, turnos] = await Promise.all([
+      api("/api/hospital/hospitalizations"), api(`/api/hospital/shifts?fecha=${estado.enfFecha}`),
+    ]);
+    if (estado.pagina !== "enfermeria") return;
+    estado.cacheTurnos = turnos;
+    const actual = turnoActual();
+    const enTurno = turnos.filter((t) => t.turno === estado.enfTurno);
+    const carga = enfermerosActivos().map((n) => ({ n, c: enTurno.filter((t) => t.id_enfermero === n.id_profesional).length }));
+    $("#vista").innerHTML = `
+      <div class="barra-filtros">
+        ${pestanas(TURNOS.map(([k, t, h]) => [k, `${t} <small>${h}</small>${actual.fecha === estado.enfFecha && actual.turno === k ? ' <span class="ahora">ahora</span>' : ""}`]), estado.enfTurno, "data-turno-enf")}
+        <label class="fecha-filtro">Fecha<input type="date" id="enfFecha" value="${estado.enfFecha}"></label>
+      </div>
+      <div class="enf-cols">
+        <div class="panel">${hosp.length ? `<table class="tabla-datos">
+          <thead><tr><th>Habitación</th><th>Paciente</th><th>Ingreso</th><th>Enfermeros en este turno</th><th class="acc"></th></tr></thead>
+          <tbody>${hosp.map((h) => {
+            const asignados = enTurno.filter((t) => t.id_hospitalizacion === h.id_hospitalizacion);
+            return `<tr>
+              <td><b>${esc(h.numero_habitacion)}</b></td>
+              <td><button type="button" class="enlace-paciente" data-id="${h.id_paciente}" data-pestana-ir="especial">${esc(h.paciente)}</button>
+                ${h.en_cirugia ? ' <span class="estado critico">En cirugía</span>' : ""}<br><small class="tenue">${esc(h.motivo_ingreso)}</small></td>
+              <td class="nowrap">${fecha(h.fecha_ingreso)}</td>
+              <td>${asignados.length ? asignados.map((t) => `<span class="chip">${esc(t.enfermero_nombre)}
+                  <button type="button" data-anular="${t.id_asignacion}" aria-label="Quitar a ${esc(t.enfermero_nombre)}">×</button></span>`).join("")
+                : '<span class="sin-asignar">Sin enfermero asignado</span>'}</td>
+              <td class="acc"><button type="button" class="btn primario chico" data-asignar="${h.id_hospitalizacion}">Asignar</button></td></tr>`;
+          }).join("")}</tbody></table>`
+          : `<div class="vacio-tabla"><p>No hay pacientes ingresados.</p>
+             <p class="tenue">Se ingresan al registrar una consulta marcando "Ingresar al paciente".</p></div>`}</div>
+        <section class="panel">
+          <header class="panel-cab"><h2>Carga del turno</h2></header>
+          <ul class="carga">${carga.map(({ n, c }) => `<li><span>${esc(n.nombre_completo)}</span>
+            <span class="barra-carga" aria-hidden="true"><span style="width:${(c / MAX_PACIENTES_TURNO) * 100}%"></span></span>
+            <b class="${c >= MAX_PACIENTES_TURNO ? "alerta-critica" : ""}">${c}/${MAX_PACIENTES_TURNO}</b></li>`).join("")
+            || `<li class="tenue">No hay enfermeros activos. <button type="button" class="btn sutil chico" data-ir-enfermeros>Registrar</button></li>`}</ul>
+        </section>
+      </div>`;
+  } catch (e) {
+    $("#vista").innerHTML = `<p class="error">${esc(e.message)}</p>`;
+  }
+}
+
+async function formAsignar(idHosp, fechaT = estado.enfFecha, turnoT = estado.enfTurno) {
+  let turnos = [];
+  try { turnos = await api(`/api/hospital/shifts?fecha=${fechaT}`); } catch (_) { /* */ }
+  const activos = enfermerosActivos();
+  const html = activos.length ? `<div class="rejilla">
+      <label class="doble"><span class="requerido">Enfermero</span><select name="id_enfermero" required>
+        <option value="">Seleccione…</option>
+        ${activos.map((n) => {
+          const c = turnos.filter((t) => t.id_enfermero === n.id_profesional && t.turno === turnoT).length;
+          return `<option value="${n.id_profesional}" ${c >= MAX_PACIENTES_TURNO ? "disabled" : ""}>${esc(n.nombre_completo)} — ${c}/${MAX_PACIENTES_TURNO} pacientes${n.especialidad ? ` · ${esc(n.especialidad)}` : ""}</option>`;
+        }).join("")}
+      </select></label>
+      ${campo("fecha", "Fecha", { tipo: "date", req: true, valor: fechaT })}
+      <label><span class="requerido">Turno</span><select name="turno">${opciones(TURNOS.map(([k, t, h]) => [k, `${t} (${h})`]), turnoT)}</select></label>
+      <label class="completo">Indicaciones para el turno<input name="observaciones" maxlength="200" placeholder="Signos vitales cada 4 horas"></label>
+    </div><p class="ayuda">Máximo ${MAX_PACIENTES_TURNO} pacientes por enfermero en cada turno; la base de datos lo verifica.</p>`
+    : `<div class="aviso-sin-personal">No hay enfermeros activos. <button type="button" class="btn sutil chico" data-ir-enfermeros>Registrar uno en Personal médico</button></div>`;
+  abrirModal("Asignar enfermero", html, activos.length ? "Asignar" : "", async (fd) => {
+    const d = datosForm(fd);
+    await api("/api/hospital/shifts", { method: "POST", body: { ...d, id_hospitalizacion: idHosp } });
+    avisar(`Enfermero asignado al turno de ${nombreTurno(d.turno).toLowerCase()}`);
+    refrescarHospital();
+  });
+}
+
+function confirmarAnular(id) {
+  abrirModal("Quitar asignación", "<p>El enfermero dejará de estar a cargo de este paciente en ese turno. El registro queda anulado, no se borra.</p>",
+    "Quitar asignación", async () => {
+      await api(`/api/hospital/shifts/${id}/annul`, { method: "POST" });
+      avisar("Asignación anulada");
+      refrescarHospital();
+    });
+}
+
+function formAlta(idHosp) {
+  abrirModal("Egreso del paciente", `<div class="rejilla">
+      <label class="doble"><span class="requerido">Tipo de egreso</span><select name="tipo">${opciones([["alta", "Alta médica"], ["referido", "Referido a otra institución"]])}</select></label>
+    </div>
+    <p>Se registra la fecha de egreso, se cancelan sus cirugías programadas de este internamiento y se anulan los turnos de enfermería de días siguientes.</p>`,
+    "Registrar egreso", async (fd) => {
+      const r = await api(`/api/hospital/hospitalizations/${idHosp}/discharge`, { method: "POST", body: datosForm(fd) });
+      avisar(`Egreso registrado${r.cirugias_canceladas ? ` · ${r.cirugias_canceladas} cirugía(s) cancelada(s)` : ""}`);
+      await cargarPacientes();
+      refrescarHospital();
+    });
+}
+
+// Pestaña del paciente: internamiento, enfermería y cirugías
+function pintarHospitalPaciente() {
+  const e = estado.especializado || {};
+  const hp = estado.hospPaciente || { cirugias: [], turnos: [] };
+  const activo = estado.historial.estado === "activo";
+  const internamientos = e.hospitalizaciones || [];
+  const ingresado = internamientos.find((h) => h.estado === "ingresado");
+  const desde = turnoActual().fecha;   // incluye el turno de noche que empezó ayer
+  const turnos = hp.turnos.filter((t) => t.fecha >= desde).sort((a, b) => (a.fecha + TURNOS.findIndex((x) => x[0] === a.turno))
+    .localeCompare(b.fecha + TURNOS.findIndex((x) => x[0] === b.turno)));
+  return `
+    <section class="bloque-hosp">
+      <header class="panel-cab sin-borde"><h2>Internamiento</h2></header>
+      <div class="panel">${internamientos.length ? `<table class="tabla-datos">
+        <thead><tr><th>Habitación</th><th>Ingreso</th><th>Egreso</th><th>Motivo</th><th>Estado</th><th class="acc"></th></tr></thead>
+        <tbody>${internamientos.map((h) => `<tr>
+          <td><b>${esc(h.numero_habitacion)}</b></td><td class="nowrap">${fecha(h.fecha_ingreso, true)}</td>
+          <td class="nowrap">${h.fecha_egreso ? fecha(h.fecha_egreso, true) : "—"}</td><td>${esc(h.motivo_ingreso)}</td>
+          <td><span class="estado ${h.estado === "ingresado" ? "alerta" : "activo"}">${texto(h.estado)}</span></td>
+          <td class="acc">${h.estado === "ingresado" && activo ? `<button type="button" class="btn sutil chico" data-alta="${h.id_hospitalizacion}">Registrar egreso</button>` : ""}</td>
+        </tr>`).join("")}</tbody></table>`
+        : `<p class="relleno tenue">No ha estado internado. Para ingresarlo, registre una consulta y marque "Ingresar al paciente".</p>`}</div>
+    </section>
+
+    ${ingresado ? `<section class="bloque-hosp">
+      <header class="panel-cab sin-borde"><h2>Enfermería</h2>
+        ${activo ? `<button type="button" class="btn primario chico" data-asignar="${ingresado.id_hospitalizacion}">Asignar enfermero</button>` : ""}</header>
+      <div class="panel">${turnos.length ? `<table class="tabla-datos">
+        <thead><tr><th>Fecha</th><th>Turno</th><th>Enfermero</th><th>Indicaciones</th><th class="acc"></th></tr></thead>
+        <tbody>${turnos.map((t) => `<tr><td class="nowrap">${fecha(t.fecha)}</td><td class="nowrap">${nombreTurno(t.turno)}</td>
+          <td>${esc(t.enfermero_nombre)}</td><td>${esc(t.observaciones || "—")}</td>
+          <td class="acc"><button type="button" class="btn sutil chico" data-anular="${t.id_asignacion}">Quitar</button></td></tr>`).join("")}</tbody></table>`
+        : `<p class="relleno tenue">Sin enfermeros asignados para los próximos turnos.</p>`}</div>
+    </section>` : ""}
+
+    <section class="bloque-hosp">
+      <header class="panel-cab sin-borde"><h2>Cirugías</h2>
+        ${activo ? `<button type="button" class="btn primario chico" data-accion="programar-cx-paciente">+ Programar cirugía</button>` : ""}</header>
+      <div class="panel">${hp.cirugias.length ? tablaCirugias([...hp.cirugias].reverse(), false)
+        : `<p class="relleno tenue">Sin cirugías registradas.</p>`}</div>
+    </section>`;
+}
+
 // ----------------------------------------------------------------- Expediente
 async function abrirPaciente(id, pestana = null) {
   const mismo = estado.idSeleccionado === id && estado.pagina === "paciente";
@@ -446,6 +850,14 @@ async function abrirPaciente(id, pestana = null) {
     ]);
     estado.historial = h;
     estado.especializado = esp;
+    estado.hospPaciente = null;
+    if (estado.inst === "hospital") {
+      const [cirugias, turnos] = await Promise.all([
+        api(`/api/hospital/surgeries?id_paciente=${id}`).catch(() => []),
+        api(`/api/hospital/shifts?id_paciente=${id}`).catch(() => []),
+      ]);
+      estado.hospPaciente = { cirugias, turnos };
+    }
     ir("paciente");
   } catch (e) {
     avisar(e.message, true);
@@ -457,7 +869,7 @@ function pestanaEspecial() {
   const e = estado.especializado;
   if (inst === "odontologia") return ["especial", "Odontograma"];
   if (inst === "pediatrico" && e?.control_crecimiento?.length) return ["especial", "Crecimiento y vacunas"];
-  if (inst === "hospital" && e?.hospitalizaciones?.length) return ["especial", "Hospitalizaciones"];
+  if (inst === "hospital") return ["especial", "Internamiento y cirugías"];
   return null;
 }
 
@@ -521,6 +933,7 @@ function pintarExpediente() {
           ${p.tipo_sangre ? `<span>Sangre <span class="sangre">${esc(p.tipo_sangre)}</span></span>` : ""}
           <span class="estado ${deBaja ? "baja" : (p.estado === "hospitalizado" ? "alerta" : "activo")}">
             ${deBaja ? `Historial ${texto(h.estado)}` : (p.estado === "hospitalizado" ? "Hospitalizado" : "Historial activo")}</span>
+          ${estado.hospPaciente?.cirugias.some((c) => c.estado === "en_curso") ? '<span class="estado critico">En cirugía</span>' : ""}
         </div>
         <dl class="resumen">
           <div><dt>Consultas</dt><dd>${h.consultas.length}</dd></div>
@@ -540,6 +953,11 @@ function pintarExpediente() {
     <div class="pestana-cuerpo">${cuerpo}</div>`;
 }
 
+$("#contenido").addEventListener("change", (ev) => {
+  if (ev.target.id === "qxFecha") { estado.qxFecha = ev.target.value; pintarQuirofanos(); }
+  if (ev.target.id === "enfFecha") { estado.enfFecha = ev.target.value; pintarEnfermeria(); }
+});
+
 // Un solo manejador para todos los botones del área de contenido
 $("#contenido").addEventListener("click", async (ev) => {
   const t = ev.target;
@@ -549,6 +967,36 @@ $("#contenido").addEventListener("click", async (ev) => {
   if (filtro) { estado.filtro = filtro.dataset.filtro; pintarPacientes(); return; }
   const filtroC = t.closest("[data-filtro-citas]");
   if (filtroC) { estado.filtroCitas = filtroC.dataset.filtroCitas; pintarCitasPagina(); return; }
+  const tipoP = t.closest("[data-tipo-personal]");
+  if (tipoP) { estado.tipoPersonal = tipoP.dataset.tipoPersonal; estado.filtroPersonal = "activo"; pintarPersonal(); return; }
+  const qxV = t.closest("[data-qx-vista]");
+  if (qxV) { estado.qxVista = qxV.dataset.qxVista; pintarQuirofanos(); return; }
+  const turnoE = t.closest("[data-turno-enf]");
+  if (turnoE) { estado.enfTurno = turnoE.dataset.turnoEnf; pintarEnfermeria(); return; }
+  const cxI = t.closest("[data-iniciar-cx]");
+  if (cxI) { accionCirugia(Number(cxI.dataset.iniciarCx), "start"); return; }
+  const cxF = t.closest("[data-finalizar-cx]");
+  if (cxF) { accionCirugia(Number(cxF.dataset.finalizarCx), "finish"); return; }
+  const cxC = t.closest("[data-cancelar-cx]");
+  if (cxC) { accionCirugia(Number(cxC.dataset.cancelarCx), "cancel"); return; }
+  const asig = t.closest("[data-asignar]");
+  if (asig) {
+    const enPaciente = estado.pagina === "paciente";
+    const ta = turnoActual();
+    formAsignar(Number(asig.dataset.asignar), enPaciente ? ta.fecha : estado.enfFecha, enPaciente ? ta.turno : estado.enfTurno);
+    return;
+  }
+  const anu = t.closest("[data-anular]");
+  if (anu) { confirmarAnular(Number(anu.dataset.anular)); return; }
+  const alta = t.closest("[data-alta]");
+  if (alta) { formAlta(Number(alta.dataset.alta)); return; }
+  if (t.closest("[data-ir-enfermeros]")) { estado.tipoPersonal = "enfermeros"; ir("personal"); return; }
+  const filtroP = t.closest("[data-filtro-personal]");
+  if (filtroP) { estado.filtroPersonal = filtroP.dataset.filtroPersonal; pintarPersonal(); return; }
+  const editP = t.closest("[data-editar-prof]");
+  if (editP) { formProfesional(estado.personal.find((x) => x.id_profesional === Number(editP.dataset.editarProf))); return; }
+  const estP = t.closest("[data-estado-prof]");
+  if (estP) { cambiarEstadoProfesional(Number(estP.dataset.estadoProf)); return; }
   const pest = t.closest("[data-pestana]");
   if (pest) { estado.pestana = pest.dataset.pestana; pintarExpediente(); return; }
   const atender = t.closest("[data-atender]");
@@ -559,11 +1007,14 @@ $("#contenido").addEventListener("click", async (ev) => {
     return;
   }
   const abrir = t.closest("[data-id]");
-  if (abrir) { abrirPaciente(Number(abrir.dataset.id)); return; }
+  if (abrir) { abrirPaciente(Number(abrir.dataset.id), abrir.dataset.pestanaIr || null); return; }
   const b = t.closest("[data-accion]");
   if (!b) return;
   const accion = b.dataset.accion;
   if (accion === "nuevo") formPaciente(null);
+  if (accion === "nuevo-prof") formProfesional(null);
+  if (accion === "programar-cx") formCirugia(null);
+  if (accion === "programar-cx-paciente") formCirugia(estado.idSeleccionado);
   if (accion === "limpiar") { $("#txtBuscar").value = ""; await cargarPacientes(""); pintarPacientes(); }
   if (accion === "refrescar-motores") pintarMotores();
   if (accion === "consulta") formConsulta();
@@ -678,6 +1129,7 @@ function pintarConsulta(c) {
 function pintarEspecializado() {
   const e = estado.especializado;
   const inst = estado.inst;
+  if (inst === "hospital") return pintarHospitalPaciente();
   if (inst === "odontologia") {
     const tratadas = new Set(estado.historial.datos_adicionales?.piezas_tratadas || Object.keys(e?.odontograma || {}));
     const diente = (n) => `<span class="diente ${tratadas.has(String(n)) ? "tratado" : ""} ${n === 21 || n === 31 ? "medio" : ""}">${n}</span>`;
@@ -813,13 +1265,12 @@ function formPaciente(p) {
 
 // ---------------------------------------------------------------------- Cita
 function formCita() {
-  const odont = estado.inst === "odontologia" ? (estado.catalogos.odontologos || []) : [];
   const manana = new Date(Date.now() + 86400000);
   manana.setHours(9, 0, 0, 0);
   const local = new Date(manana.getTime() - manana.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   const html = `<div class="rejilla">
     ${campo("fecha_hora_programada", "Fecha y hora", { tipo: "datetime-local", req: true, valor: local })}
-    ${odont.length ? `<label>Odontólogo<select name="id_odontologo">${opciones(odont.map((o) => [String(o.id_odontologo), o.nombre_completo]))}</select></label>` : ""}
+    ${campoProfesional(`${nombrePersonal()[0].toUpperCase()}${nombrePersonal().slice(1)} asignado`)}
     <label class="completo"><span class="requerido">Motivo</span><input name="motivo_consulta" required maxlength="200"></label>
   </div>`;
   abrirModal(`Agendar cita para ${estado.historial.paciente.nombres}`, html, "Agendar cita", async (fd) => {
@@ -900,6 +1351,7 @@ function formConsulta(idCita = null) {
   const html = `
     <fieldset><legend>${lab ? "Orden de laboratorio" : "Consulta"}</legend><div class="rejilla">
       <label class="completo"><span class="requerido">Motivo</span><input name="motivo" required maxlength="200" value="${esc(cita?.motivo_consulta || "")}"></label>
+      ${campoProfesional(lab ? "Laboratorista que procesa" : "Atendido por", cita?.id_profesional ?? null)}
       <label>${lab ? "Prioridad" : "Tipo"}<select name="tipo_consulta">${opciones(INST[inst].tipos)}</select></label>
       ${!lab && !dent ? `
         ${!ped ? campo("presion_arterial", "Presión arterial", { extra: 'placeholder="120/80"' }) : ""}
@@ -1009,6 +1461,8 @@ function leerFilas(tipo) {
 }
 
 $("#modalCuerpo").addEventListener("click", (ev) => {
+  if (ev.target.closest("[data-ir-personal]")) { $("#modal").close(); estado.tipoPersonal = "medicos"; ir("personal"); return; }
+  if (ev.target.closest("[data-ir-enfermeros]")) { $("#modal").close(); estado.tipoPersonal = "enfermeros"; ir("personal"); return; }
   const agregar = ev.target.closest("[data-agregar]");
   if (agregar) {
     const tipo = agregar.dataset.agregar;

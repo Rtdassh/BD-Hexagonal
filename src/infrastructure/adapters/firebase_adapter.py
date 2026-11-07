@@ -35,6 +35,7 @@ from ...domain.entities import (
     InstitutionType,
     Patient,
     Prescription,
+    Professional,
     Treatment,
     UnifiedClinicalRecord,
     UserRole,
@@ -242,7 +243,7 @@ class FirebaseAdapter(BaseClinicalAdapter):
     def create_appointment(self, data: Dict[str, Any]) -> Appointment:
         self.requerido(data, "id_paciente", "fecha_hora_programada", "motivo_consulta")
         pid = int(data["id_paciente"])
-        id_odont = int(data.get("id_odontologo") or (data.get("id_profesional") if data.get("rol") == "odontologo" else 1) or 1)
+        id_odont = int(data["id_profesional"])
         pac_ref = self._paciente_ref(pid)
         od_snap = self.db.collection("odontologos").document(str(id_odont)).get()
         od_nombre = od_snap.to_dict().get("nombre_completo") if od_snap.exists else "Odontólogo"
@@ -262,7 +263,7 @@ class FirebaseAdapter(BaseClinicalAdapter):
                 "paciente_nombre": f"{pd['nombres']} {pd['apellidos']}",
                 "id_odontologo": id_odont,
                 "odontologo_nombre": od_nombre,
-                "id_secretaria": int(data["id_profesional"]) if data.get("rol") == "secretaria" else None,
+                "id_secretaria": None,
                 "fecha_hora_programada": str(data["fecha_hora_programada"]).replace("T", " ")[:16],
                 "motivo_consulta": data["motivo_consulta"],
                 "estado_cita": "programada",
@@ -316,7 +317,7 @@ class FirebaseAdapter(BaseClinicalAdapter):
                 "costo": self._f(p.get("costo")) if p.get("costo") not in (None, "") else float(cat.get("costo", 0.0)),
             })
 
-        id_odont = int(data.get("id_profesional") or 1)
+        id_odont = int(data["id_profesional"])
         od_snap = self.db.collection("odontologos").document(str(id_odont)).get()
         od_nombre = od_snap.to_dict().get("nombre_completo") if od_snap.exists else "Odontólogo"
         pac_ref = self._paciente_ref(pid)
@@ -353,7 +354,7 @@ class FirebaseAdapter(BaseClinicalAdapter):
                 })
             else:
                 id_cita = cita["id_cita"]
-                tx.update(cita_ref, {"estado_cita": "atendida"})
+                tx.update(cita_ref, {"estado_cita": "atendida", "id_odontologo": id_odont, "odontologo_nombre": od_nombre})
 
             id_consulta = self._next_id(tx, "consultas", seq_c)
             hoy = datetime.now().strftime("%Y-%m-%d")
@@ -467,6 +468,57 @@ class FirebaseAdapter(BaseClinicalAdapter):
                     "procedimiento": p.get("nombre_procedimiento"), "fecha": c.get("fecha_hora_atencion"),
                 })
         return {"institucion": "Clínica Odontológica", "motor": "Firebase Cloud Firestore", "odontograma": piezas}
+
+    # ------------------------------------------------------------------
+    # Personal: colección odontologos
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _to_prof(d) -> Professional:
+        return Professional(d["id_odontologo"], d["nombre_completo"], d.get("numero_colegiado", ""),
+                            d.get("especialidad", ""), d.get("telefono", ""), d.get("correo_electronico", ""),
+                            d.get("estado", "activo"))
+
+    def list_professionals(self) -> List[Professional]:
+        docs = [s.to_dict() for s in self.db.collection("odontologos").stream()]
+        docs.sort(key=lambda d: (d.get("estado", "activo"), d["nombre_completo"]))
+        return [self._to_prof(d) for d in docs]
+
+    def create_professional(self, data: Dict[str, Any]) -> Professional:
+        self.requerido(data, "nombre_completo", "numero_colegiado")
+        colegiado = data["numero_colegiado"].strip()
+        indice = self.db.collection("colegiado_index").document(colegiado)
+
+        def tx_fn(tx):
+            if indice.get(transaction=tx).exists:
+                raise ValueError(f"Ya existe un odontólogo con colegiado {colegiado}")
+            seq = self._leer_contador(tx, "odontologos")
+            oid = self._next_id(tx, "odontologos", seq)
+            doc = {
+                "id_odontologo": oid,
+                "nombre_completo": data["nombre_completo"].strip(),
+                "numero_colegiado": colegiado,
+                "especialidad": data.get("especialidad") or "Odontología general",
+                "telefono": data.get("telefono") or "",
+                "correo_electronico": data.get("correo_electronico") or "",
+                "horarios_atencion": data.get("horarios_atencion") or "",
+                "estado": "activo",
+            }
+            tx.set(self.db.collection("odontologos").document(str(oid)), doc)
+            tx.set(indice, {"id_odontologo": oid})
+            return doc
+
+        return self._to_prof(self._run_tx(tx_fn))
+
+    def update_professional(self, professional_id: int, data: Dict[str, Any]) -> Professional:
+        self.validar_profesional(data)
+        ref = self.db.collection("odontologos").document(str(int(professional_id)))
+        if not ref.get().exists:
+            raise ValueError(f"Odontólogo {professional_id} no encontrado")
+        cambios = {k: v for k, v in data.items()
+                   if k in ("nombre_completo", "especialidad", "telefono", "correo_electronico", "estado") and v not in (None, "")}
+        if cambios:
+            ref.update(cambios)
+        return self._to_prof(ref.get().to_dict())
 
     def get_catalogs(self) -> Dict[str, Any]:
         procs = sorted((s.to_dict() for s in self.db.collection("procedimientos_catalogo").stream()),

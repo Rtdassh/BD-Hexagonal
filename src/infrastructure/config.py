@@ -61,77 +61,51 @@ class Config:
 
 
 # ---------------------------------------------------------------------------
-# Usuarios de la plataforma.
+# Usuarios de la plataforma: un ADMINISTRADOR por institución.
+# Los doctores no inician sesión: el administrador los registra en "Personal
+# médico" y los asigna a cada cita y consulta.
 # 'institucion' decide a qué motor se enrutan sus operaciones.
-# 'id_profesional' es el id del profesional dentro de la base de su institución
-# (hospital.Medico, pediatra, laboratoristas, odontologos/secretarias).
 # Para la demo todos usan la contraseña "123".
 # ---------------------------------------------------------------------------
 DEMO_USERS: List[Dict[str, Any]] = [
     {
-        "username": "dr_garcia",
+        "username": "admin_hospital",
         "password": "123",
-        "nombre_completo": "Dr. Carlos Roberto Mendoza",
-        "institucion": "hospital",
-        "rol": "medico",
-        "motor": "PostgreSQL",
-        "numero_colegiado": "COL-12450",
-        "id_profesional": 1,
-        "cargo": "Médico internista - Hospital General",
-    },
-    {
-        "username": "dra_lopez",
-        "password": "123",
-        "nombre_completo": "Dra. Mariana Lucía Batres",
-        "institucion": "pediatrico",
-        "rol": "pediatra",
-        "motor": "MySQL",
-        "numero_colegiado": "PED-08912",
-        "id_profesional": 1,
-        "cargo": "Pediatra - Centro Médico Pediátrico",
-    },
-    {
-        "username": "lic_mendez",
-        "password": "123",
-        "nombre_completo": "Licda. Brenda Marisol Morales",
-        "institucion": "laboratorio",
-        "rol": "laboratorista",
-        "motor": "MongoDB",
-        "numero_colegiado": "QB-4521",
-        "id_profesional": 1,
-        "cargo": "Química bióloga - Laboratorio Clínico",
-    },
-    {
-        "username": "sec_claudia",
-        "password": "123",
-        "nombre_completo": "Claudia Maricela Fuentes",
-        "institucion": "odontologia",
-        "rol": "secretaria",
-        "motor": "Firebase Cloud Firestore",
-        "numero_colegiado": None,
-        "id_profesional": 1,
-        "cargo": "Secretaria de recepción - Clínica Odontológica",
-    },
-    {
-        "username": "dr_molina",
-        "password": "123",
-        "nombre_completo": "Dr. Rodrigo Andrés Molina",
-        "institucion": "odontologia",
-        "rol": "odontologo",
-        "motor": "Firebase Cloud Firestore",
-        "numero_colegiado": "ODONT-3210",
-        "id_profesional": 1,
-        "cargo": "Odontólogo - Clínica Odontológica",
-    },
-    {
-        "username": "admin_general",
-        "password": "123",
-        "nombre_completo": "Administrador de la red",
+        "nombre_completo": "Administración Hospital General",
         "institucion": "hospital",
         "rol": "administrador",
         "motor": "PostgreSQL",
         "numero_colegiado": None,
-        "id_profesional": 1,
-        "cargo": "Administrador del sistema (puede consultar las 4 instituciones)",
+        "cargo": "Administrador - Hospital General",
+    },
+    {
+        "username": "admin_pediatria",
+        "password": "123",
+        "nombre_completo": "Administración Centro Pediátrico",
+        "institucion": "pediatrico",
+        "rol": "administrador",
+        "motor": "MySQL",
+        "numero_colegiado": None,
+        "cargo": "Administrador - Centro Médico Pediátrico",
+    },
+    {
+        "username": "admin_laboratorio",
+        "password": "123",
+        "nombre_completo": "Administración Laboratorio Clínico",
+        "institucion": "laboratorio",
+        "rol": "administrador",
+        "motor": "MongoDB",
+        "numero_colegiado": None,
+        "cargo": "Administrador - Laboratorio Clínico",
+    },
+    {
+        "username": "admin_odontologia",
+        "password": "123",
+        "nombre_completo": "Administración Clínica Odontológica",
+        "institucion": "odontologia",
+        "rol": "administrador",
+        "motor": "Firebase Cloud Firestore",
+        "numero_colegiado": None,
+        "cargo": "Administrador - Clínica Odontológica",
     },
 ]

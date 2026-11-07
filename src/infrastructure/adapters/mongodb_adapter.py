@@ -35,6 +35,7 @@ from ...domain.entities import (
     LabExamResult,
     LabParameter,
     Patient,
+    Professional,
     UnifiedClinicalRecord,
     UserRole,
 )
@@ -226,7 +227,7 @@ class MongoDBAdapter(BaseClinicalAdapter):
             doc = {
                 "id_cita": self._next_id("citas", s),
                 "id_paciente": pid,
-                "id_laboratorista": int(data.get("id_profesional") or 1),
+                "id_laboratorista": int(data["id_profesional"]),
                 "fecha_hora_programada": str(data["fecha_hora_programada"]).replace("T", " "),
                 "motivo_consulta": data["motivo_consulta"],
                 "estado_cita": "programada",
@@ -304,7 +305,7 @@ class MongoDBAdapter(BaseClinicalAdapter):
         parametros = self._parametros(data)
         if not parametros:
             raise ValueError("Ingrese al menos un parámetro con su resultado")
-        id_lab = int(data.get("id_profesional") or 1)
+        id_lab = int(data["id_profesional"])
 
         with self._tx() as s:
             h = self.db.historiales_clinicos.find_one({"id_paciente": pid}, session=s)
@@ -317,7 +318,7 @@ class MongoDBAdapter(BaseClinicalAdapter):
             if id_cita:
                 upd = self.db.citas.update_one(
                     {"id_cita": int(id_cita), "id_paciente": pid, "estado_cita": "programada"},
-                    {"$set": {"estado_cita": "atendida"}}, session=s,
+                    {"$set": {"estado_cita": "atendida", "id_laboratorista": id_lab}}, session=s,
                 )
                 if upd.modified_count == 0:
                     raise ValueError("La cita no existe, no es de este paciente o ya fue atendida")
@@ -459,6 +460,53 @@ class MongoDBAdapter(BaseClinicalAdapter):
             {"id_paciente": int(patient_id)}, {"_id": 0}
         ).sort("fecha_hora_analisis", -1))
         return {"institucion": "Laboratorio Clínico", "motor": "MongoDB", "resultados": resultados}
+
+    # ------------------------------------------------------------------
+    # Personal: colección laboratoristas
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _to_prof(d) -> Professional:
+        return Professional(d["id_laboratorista"], d["nombre_completo"], d.get("numero_colegiado_licencia", ""),
+                            d.get("cargo_especialidad", ""), d.get("telefono", ""), d.get("correo_electronico", ""),
+                            d.get("estado", "activo"))
+
+    def list_professionals(self) -> List[Professional]:
+        docs = self.db.laboratoristas.find().sort([("estado", 1), ("nombre_completo", 1)])
+        return [self._to_prof(d) for d in docs]
+
+    def create_professional(self, data: Dict[str, Any]) -> Professional:
+        self.requerido(data, "nombre_completo", "numero_colegiado")
+        if self.db.laboratoristas.find_one({"numero_colegiado_licencia": data["numero_colegiado"].strip()}):
+            raise ValueError(f"Ya existe un laboratorista con colegiado {data['numero_colegiado']}")
+        try:
+            with self._tx() as s:
+                doc = {
+                    "id_laboratorista": self._next_id("laboratoristas", s),
+                    "nombre_completo": data["nombre_completo"].strip(),
+                    "numero_colegiado_licencia": data["numero_colegiado"].strip(),
+                    "cargo_especialidad": data.get("especialidad") or "",
+                    "telefono": data.get("telefono") or "",
+                    "correo_electronico": data.get("correo_electronico") or "",
+                    "estado": "activo",
+                }
+                self.db.laboratoristas.insert_one(doc, session=s)
+        except DuplicateKeyError:
+            raise ValueError(f"Ya existe un laboratorista con colegiado {data['numero_colegiado']}")
+        return self._to_prof(doc)
+
+    def update_professional(self, professional_id: int, data: Dict[str, Any]) -> Professional:
+        self.validar_profesional(data)
+        mapa = {"nombre_completo": "nombre_completo", "especialidad": "cargo_especialidad", "telefono": "telefono",
+                "correo_electronico": "correo_electronico", "estado": "estado"}
+        cambios = {mapa[k]: v for k, v in data.items() if k in mapa and v not in (None, "")}
+        filtro = {"id_laboratorista": int(professional_id)}
+        if cambios:
+            doc = self.db.laboratoristas.find_one_and_update(filtro, {"$set": cambios}, return_document=ReturnDocument.AFTER)
+        else:
+            doc = self.db.laboratoristas.find_one(filtro)
+        if not doc:
+            raise ValueError(f"Laboratorista {professional_id} no encontrado")
+        return self._to_prof(doc)
 
     def get_catalogs(self) -> Dict[str, Any]:
         return {"tipos_examen": list(self.db.tipos_examen.find({}, {"_id": 0}).sort("codigo", 1))}

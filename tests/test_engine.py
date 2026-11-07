@@ -5,6 +5,7 @@ the Application Use Cases, and the REST API.
 """
 
 import unittest
+import dataclasses
 import json
 import os
 import sys
@@ -38,20 +39,20 @@ class TestHexagonalEngine(unittest.TestCase):
     # ------------------------------------------------------------------------
     def test_dynamic_user_routing(self):
         """Verifica que cada usuario se enruta a su motor específico sin alterar lógica."""
-        user_hosp = self.auth_service.login("dr_garcia", "123")
+        user_hosp = self.auth_service.login("admin_hospital", "123")
         self.assertIsNotNone(user_hosp)
         adapter_hosp = self.router.get_adapter_for_user(user_hosp)
         self.assertEqual(adapter_hosp.database_engine, DatabaseEngine.POSTGRESQL)
 
-        user_ped = self.auth_service.login("dra_lopez", "123")
+        user_ped = self.auth_service.login("admin_pediatria", "123")
         adapter_ped = self.router.get_adapter_for_user(user_ped)
         self.assertEqual(adapter_ped.database_engine, DatabaseEngine.MYSQL)
 
-        user_lab = self.auth_service.login("lic_mendez", "123")
+        user_lab = self.auth_service.login("admin_laboratorio", "123")
         adapter_lab = self.router.get_adapter_for_user(user_lab)
         self.assertEqual(adapter_lab.database_engine, DatabaseEngine.MONGODB)
 
-        user_dent = self.auth_service.login("sec_claudia", "123")
+        user_dent = self.auth_service.login("admin_odontologia", "123")
         adapter_dent = self.router.get_adapter_for_user(user_dent)
         self.assertEqual(adapter_dent.database_engine, DatabaseEngine.FIREBASE)
 
@@ -60,7 +61,7 @@ class TestHexagonalEngine(unittest.TestCase):
     # ------------------------------------------------------------------------
     def test_postgresql_hospital_general(self):
         """Verifica la integridad transaccional ACID y hospitalizaciones en PostgreSQL."""
-        user = self.auth_service.login("dr_garcia", "123")
+        user = self.auth_service.login("admin_hospital", "123")
 
         # 1. Registrar paciente nuevo
         p_data = {
@@ -92,7 +93,7 @@ class TestHexagonalEngine(unittest.TestCase):
             "numero_habitacion": "HAB-105",
             "motivo_hospitalizacion": "Post-operatorio de apendicectomía"
         }
-        cons = self.consultation_service.register_consultation_transaction(user, cons_data)
+        cons = self.consultation_service.register_consultation_transaction(user, {**cons_data, "id_profesional": 1})
         self.assertIsNotNone(cons.id_consulta)
         self.assertIsNotNone(cons.hospitalizacion)
         self.assertEqual(cons.hospitalizacion.numero_habitacion, "HAB-105")
@@ -107,7 +108,7 @@ class TestHexagonalEngine(unittest.TestCase):
     # ------------------------------------------------------------------------
     def test_mysql_centro_pediatrico(self):
         """Verifica somatometría, percentiles OMS y vacunas en MySQL."""
-        user = self.auth_service.login("dra_lopez", "123")
+        user = self.auth_service.login("admin_pediatria", "123")
 
         p_data = {
             "nombres": "Lucas Gabriel",
@@ -142,7 +143,7 @@ class TestHexagonalEngine(unittest.TestCase):
             "medicamento": "Paracetamol Gotas",
             "dosis_mg_kg": 15.0
         }
-        cons = self.consultation_service.register_consultation_transaction(user, cons_data)
+        cons = self.consultation_service.register_consultation_transaction(user, {**cons_data, "id_profesional": 1})
         self.assertIsNotNone(cons.somatometria)
         self.assertEqual(cons.somatometria.peso_kg, 7.80)
         self.assertEqual(cons.somatometria.percentil_crecimiento, 65.0)
@@ -153,7 +154,7 @@ class TestHexagonalEngine(unittest.TestCase):
     # ------------------------------------------------------------------------
     def test_mongodb_laboratorio_clinico(self):
         """Verifica esquema dinámico polimórfico y detección de alertas críticas en MongoDB."""
-        user = self.auth_service.login("lic_mendez", "123")
+        user = self.auth_service.login("admin_laboratorio", "123")
 
         p_data = {
             "nombres": "César Augusto",
@@ -174,7 +175,7 @@ class TestHexagonalEngine(unittest.TestCase):
             "valor_analitico": 310.0,
             "unidad_medida": "mg/dL"
         }
-        cons = self.consultation_service.register_consultation_transaction(user, lab_data)
+        cons = self.consultation_service.register_consultation_transaction(user, {**lab_data, "id_profesional": 1})
         self.assertEqual(len(cons.examenes_laboratorio), 1)
         exam = cons.examenes_laboratorio[0]
         self.assertTrue(exam.alertas_criticas)
@@ -184,9 +185,10 @@ class TestHexagonalEngine(unittest.TestCase):
     # 5. PRUEBAS DEL MOTOR FIREBASE (Clínica Odontológica)
     # ------------------------------------------------------------------------
     def test_firebase_clinica_odontologica(self):
-        """Verifica procedimientos por pieza dental y control de acceso (Secretaria vs Odontólogo)."""
-        sec_user = self.auth_service.login("sec_claudia", "123")
-        dent_user = self.auth_service.login("dr_molina", "123")
+        """Verifica procedimientos por pieza dental y el filtro de información restringida."""
+        dent_user = self.auth_service.login("admin_odontologia", "123")
+        # El rol secretaria ya no tiene cuenta de demostración, pero el filtro sigue en el código.
+        sec_user = dataclasses.replace(dent_user, rol=UserRole.SECRETARIA)
 
         p_data = {
             "nombres": "Elena Beatriz",
@@ -209,7 +211,7 @@ class TestHexagonalEngine(unittest.TestCase):
             "costo": 350.0,
             "notas_clinicas": "Grabado total y resina compuesta A1"
         }
-        cons = self.consultation_service.register_consultation_transaction(dent_user, proc_data)
+        cons = self.consultation_service.register_consultation_transaction(dent_user, {**proc_data, "id_profesional": 1})
         self.assertEqual(len(cons.procedimientos_dentales), 1)
         self.assertEqual(cons.procedimientos_dentales[0].pieza_dental, "Pieza 16 (Primer molar superior derecho)")
 
@@ -227,7 +229,7 @@ class TestHexagonalEngine(unittest.TestCase):
     # ------------------------------------------------------------------------
     def test_deactivate_patient(self):
         """Verifica el archivo o baja administrativa de un expediente."""
-        user = self.auth_service.login("dr_garcia", "123")
+        user = self.auth_service.login("admin_hospital", "123")
         res = self.patient_service.archive_patient_record(user, 1, "Traslado a Hospital Regional de Coatepeque")
         self.assertEqual(res["estado"], "archivado")
         self.assertEqual(res["motivo_baja"], "Traslado a Hospital Regional de Coatepeque")
@@ -247,7 +249,7 @@ class TestHexagonalEngine(unittest.TestCase):
         self.assertEqual(len(data_health["motores"]), 4)
 
         # 2. Login
-        res_login = client.post("/api/auth/login", json={"username": "dr_garcia", "password": "123"})
+        res_login = client.post("/api/auth/login", json={"username": "admin_hospital", "password": "123"})
         self.assertEqual(res_login.status_code, 200)
         token = json.loads(res_login.data)["token"]
 
@@ -267,18 +269,28 @@ class TestHexagonalEngine(unittest.TestCase):
         # 5. Sin token -> 401 (ya no hay usuario por defecto)
         self.assertEqual(client.get("/api/patients").status_code, 401)
 
-        # 6. La secretaria no puede registrar consultas -> 403
-        tok_sec = json.loads(client.post("/api/auth/login", json={"username": "sec_claudia", "password": "123"}).data)["token"]
-        res = client.post("/api/consultations", json={"id_paciente": 1, "motivo": "x"},
-                          headers={"Authorization": f"Bearer {tok_sec}"})
-        self.assertEqual(res.status_code, 403)
+        auth = {"Authorization": f"Bearer {token}"}
+
+        # 6. Consulta sin profesional asignado -> 400
+        res = client.post("/api/consultations", json={"id_paciente": 1, "motivo": "x"}, headers=auth)
+        self.assertEqual(res.status_code, 400)
+
+        # 6b. El administrador registra un médico, lo desactiva y ya no se le pueden asignar citas
+        res = client.post("/api/professionals", json={"nombre_completo": "Dra. Prueba", "numero_colegiado": "T-1"}, headers=auth)
+        self.assertEqual(res.status_code, 201)
+        prof = json.loads(res.data)
+        res = client.put(f"/api/professionals/{prof['id_profesional']}", json={"estado": "inactivo"}, headers=auth)
+        self.assertEqual(json.loads(res.data)["estado"], "inactivo")
+        res = client.post("/api/appointments", json={"id_paciente": 1, "fecha_hora_programada": "2030-01-01 08:00",
+                          "motivo_consulta": "x", "id_profesional": prof["id_profesional"]}, headers=auth)
+        self.assertEqual(res.status_code, 400)
 
         # 7. Recetar sin diagnóstico -> 400 (regla común a los 4 motores)
         res = client.post("/api/consultations", json={"id_paciente": 1, "motivo": "x",
-                          "recetas": [{"medicamento": "Ibuprofeno"}]}, headers={"Authorization": f"Bearer {token}"})
+                          "id_profesional": 1, "recetas": [{"medicamento": "Ibuprofeno"}]}, headers=auth)
         self.assertEqual(res.status_code, 400)
 
-        # 8. Un usuario que no es administrador no puede leer otra institución
+        # 8. Cada administrador solo ve su institución, aunque pida otra
         res = client.get("/api/patients?institucion=laboratorio", headers={"Authorization": f"Bearer {token}"})
         self.assertNotIn("Estuardo", res.get_data(as_text=True))
 

@@ -12,11 +12,12 @@ from ..domain.entities import (
     Appointment,
     Consultation,
     Patient,
+    Professional,
     UnifiedClinicalRecord,
     User,
     UserRole,
 )
-from ..domain.ports import AuthPort
+from ..domain.ports import AuthPort, HospitalOperationsPort
 from .router import EngineRouter
 
 ROLES_CLINICOS = {UserRole.MEDICO, UserRole.PEDIATRA, UserRole.LABORATORISTA, UserRole.ODONTOLOGO, UserRole.ADMIN}
@@ -30,6 +31,126 @@ class PermisoDenegado(Exception):
 def _exigir_clinico(user: User, accion: str) -> None:
     if user.rol not in ROLES_CLINICOS:
         raise PermisoDenegado(f"Su rol ({user.rol.value}) no puede {accion}")
+
+
+def _exigir_profesional_activo(adapter, id_profesional) -> int:
+    """Regla común a los 4 motores: toda cita y consulta se asigna a un profesional ACTIVO."""
+    if id_profesional in (None, ""):
+        raise ValueError("Seleccione el profesional que atiende")
+    pid = int(id_profesional)
+    prof = next((p for p in adapter.list_professionals() if p.id_profesional == pid), None)
+    if not prof:
+        raise ValueError(f"El profesional {pid} no existe en esta institución")
+    if prof.estado != "activo":
+        raise ValueError(f"{prof.nombre_completo} está inactivo; no se le pueden asignar citas ni consultas")
+    return pid
+
+
+class ProfessionalService:
+    """Gestión del personal médico. Solo el administrador de la institución."""
+
+    def __init__(self, router: EngineRouter):
+        self.router = router
+
+    def listar(self, user: User) -> List[Professional]:
+        return self.router.get_adapter_for_user(user).list_professionals()
+
+    def registrar(self, user: User, data: Dict[str, Any]) -> Professional:
+        _exigir_admin(user)
+        if not (data.get("nombre_completo") or "").strip() or not (data.get("numero_colegiado") or "").strip():
+            raise ValueError("Nombre completo y número de colegiado son obligatorios")
+        return self.router.get_adapter_for_user(user).create_professional(data)
+
+    def actualizar(self, user: User, professional_id: int, data: Dict[str, Any]) -> Professional:
+        _exigir_admin(user)
+        return self.router.get_adapter_for_user(user).update_professional(professional_id, data)
+
+
+def _exigir_admin(user: User) -> None:
+    if user.rol != UserRole.ADMIN:
+        raise PermisoDenegado("Solo el administrador de la institución gestiona el personal médico")
+
+
+TURNOS = ("manana", "tarde", "noche")
+
+
+class HospitalService:
+    """
+    Quirófanos, cirugías y enfermería. Solo existen en el Hospital General: si el
+    adaptador del usuario no implementa HospitalOperationsPort, la operación se rechaza.
+    """
+
+    def __init__(self, router: EngineRouter):
+        self.router = router
+
+    def _hospital(self, user: User) -> HospitalOperationsPort:
+        adapter = self.router.get_adapter_for_user(user)
+        if not isinstance(adapter, HospitalOperationsPort):
+            raise ValueError("Quirófanos y enfermería solo existen en el Hospital General (con PostgreSQL conectado)")
+        return adapter
+
+    # Quirófanos y cirugías
+    def quirofanos(self, user):
+        return self._hospital(user).list_operating_rooms()
+
+    def cirugias(self, user, fecha=None, id_paciente=None, pendientes=False):
+        return self._hospital(user).list_surgeries(fecha, id_paciente, pendientes)
+
+    def programar_cirugia(self, user, data):
+        _exigir_admin(user)
+        h = self._hospital(user)
+        payload = {**data, "id_medico": _exigir_profesional_activo(h, data.get("id_medico"))}
+        if (payload.get("tipo") or "electiva") not in ("electiva", "urgencia"):
+            raise ValueError("Tipo de cirugía inválido")
+        return h.schedule_surgery(payload)
+
+    def iniciar_cirugia(self, user, id_cirugia):
+        _exigir_admin(user)
+        return self._hospital(user).start_surgery(id_cirugia)
+
+    def finalizar_cirugia(self, user, id_cirugia, notas=None):
+        _exigir_admin(user)
+        return self._hospital(user).finish_surgery(id_cirugia, notas)
+
+    def cancelar_cirugia(self, user, id_cirugia, motivo):
+        _exigir_admin(user)
+        if not (motivo or "").strip():
+            raise ValueError("Indique el motivo de la cancelación")
+        return self._hospital(user).cancel_surgery(id_cirugia, motivo.strip())
+
+    # Enfermería
+    def enfermeros(self, user):
+        return self._hospital(user).list_nurses()
+
+    def registrar_enfermero(self, user, data):
+        _exigir_admin(user)
+        if not (data.get("nombre_completo") or "").strip() or not (data.get("numero_colegiado") or "").strip():
+            raise ValueError("Nombre completo y número de colegiado son obligatorios")
+        return self._hospital(user).create_nurse(data)
+
+    def actualizar_enfermero(self, user, id_enfermero, data):
+        _exigir_admin(user)
+        return self._hospital(user).update_nurse(id_enfermero, data)
+
+    def turnos(self, user, fecha=None, id_paciente=None):
+        return self._hospital(user).list_shift_assignments(fecha, id_paciente)
+
+    def asignar_turno(self, user, data):
+        _exigir_admin(user)
+        if data.get("turno") not in TURNOS:
+            raise ValueError("Turno inválido: mañana, tarde o noche")
+        return self._hospital(user).assign_shift(data)
+
+    def anular_turno(self, user, id_asignacion):
+        _exigir_admin(user)
+        return self._hospital(user).annul_shift(id_asignacion)
+
+    def hospitalizados(self, user, todos=False):
+        return self._hospital(user).list_hospitalizations(not todos)
+
+    def dar_alta(self, user, id_hospitalizacion, tipo="alta"):
+        _exigir_admin(user)
+        return self._hospital(user).discharge(id_hospitalizacion, tipo)
 
 
 class PatientService:
@@ -93,9 +214,9 @@ class ConsultationService:
         if not (data.get("motivo") or "").strip():
             raise ValueError("El motivo de la consulta es obligatorio")
 
+        adapter = self.router.get_adapter_for_user(user, override_inst)
         payload = dict(data)
-        payload["id_profesional"] = user.id_profesional
-        payload["rol"] = user.rol.value
+        payload["id_profesional"] = _exigir_profesional_activo(adapter, data.get("id_profesional"))
         recetas = [r for r in (payload.get("recetas") or []) if (r or {}).get("medicamento")]
         payload["recetas"] = recetas
         # Regla de negocio común: no se receta sin diagnóstico.
@@ -110,12 +231,13 @@ class ConsultationService:
             for k, v in procs[0].items():
                 payload.setdefault(k, v)
 
-        return self.router.get_adapter_for_user(user, override_inst).register_consultation(payload)
+        return adapter.register_consultation(payload)
 
     def schedule_appointment(self, user: User, data: Dict[str, Any],
                              override_inst: Optional[str] = None) -> Appointment:
-        payload = {**data, "id_profesional": user.id_profesional, "rol": user.rol.value}
-        return self.router.get_adapter_for_user(user, override_inst).create_appointment(payload)
+        adapter = self.router.get_adapter_for_user(user, override_inst)
+        payload = {**data, "id_profesional": _exigir_profesional_activo(adapter, data.get("id_profesional"))}
+        return adapter.create_appointment(payload)
 
     def list_appointments(self, user: User, patient_id: Optional[int] = None,
                           override_inst: Optional[str] = None) -> List[Appointment]:

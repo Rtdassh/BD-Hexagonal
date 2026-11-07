@@ -13,6 +13,9 @@ from .entities import (
     UnifiedClinicalRecord,
     Appointment,
     Consultation,
+    Professional,
+    ShiftAssignment,
+    Surgery,
     User
 )
 
@@ -115,9 +118,90 @@ class ClinicalRepositoryPort(ABC):
         pass
 
 
+    # --- Personal médico (lo gestiona el administrador de la institución) ---
+    @abstractmethod
+    def list_professionals(self) -> List[Professional]:
+        """Lista los profesionales de la institución (activos e inactivos)."""
+        pass
+
+    @abstractmethod
+    def create_professional(self, data: Dict[str, Any]) -> Professional:
+        """Registra un profesional. numero_colegiado es único."""
+        pass
+
+    @abstractmethod
+    def update_professional(self, professional_id: int, data: Dict[str, Any]) -> Professional:
+        """Actualiza datos o estado (activo / inactivo). Nunca se borra: tiene citas asociadas."""
+        pass
+
     def get_catalogs(self) -> Dict[str, Any]:
         """Catálogos públicos de la institución (tipos de examen, procedimientos...). Opcional."""
         return {}
+
+
+class HospitalOperationsPort(ABC):
+    """
+    Puerto EXCLUSIVO del Hospital General: quirófanos, cirugías y enfermería.
+    Solo lo implementa el adaptador de PostgreSQL. Las otras instituciones no
+    tienen estas operaciones, así que no ensucian el puerto común.
+    """
+
+    @abstractmethod
+    def list_operating_rooms(self) -> List[Dict[str, Any]]:
+        pass
+
+    @abstractmethod
+    def list_surgeries(self, fecha: Optional[str] = None, patient_id: Optional[int] = None,
+                       solo_pendientes: bool = False) -> List[Surgery]:
+        pass
+
+    @abstractmethod
+    def schedule_surgery(self, data: Dict[str, Any]) -> Surgery:
+        pass
+
+    @abstractmethod
+    def start_surgery(self, surgery_id: int) -> Surgery:
+        pass
+
+    @abstractmethod
+    def finish_surgery(self, surgery_id: int, notas: Optional[str] = None) -> Surgery:
+        pass
+
+    @abstractmethod
+    def cancel_surgery(self, surgery_id: int, motivo: str) -> Surgery:
+        pass
+
+    @abstractmethod
+    def list_nurses(self) -> List[Professional]:
+        pass
+
+    @abstractmethod
+    def create_nurse(self, data: Dict[str, Any]) -> Professional:
+        pass
+
+    @abstractmethod
+    def update_nurse(self, nurse_id: int, data: Dict[str, Any]) -> Professional:
+        pass
+
+    @abstractmethod
+    def list_shift_assignments(self, fecha: Optional[str] = None, patient_id: Optional[int] = None) -> List[ShiftAssignment]:
+        pass
+
+    @abstractmethod
+    def assign_shift(self, data: Dict[str, Any]) -> ShiftAssignment:
+        pass
+
+    @abstractmethod
+    def annul_shift(self, assignment_id: int) -> ShiftAssignment:
+        pass
+
+    @abstractmethod
+    def list_hospitalizations(self, solo_ingresados: bool = True) -> List[Dict[str, Any]]:
+        pass
+
+    @abstractmethod
+    def discharge(self, hospitalization_id: int, tipo: str = "alta") -> Dict[str, Any]:
+        pass
 
 
 class AuthPort(ABC):

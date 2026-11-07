@@ -20,4 +20,7 @@ GRANT CONNECT ON DATABASE hospital_db TO app_hospital;
 GRANT USAGE ON SCHEMA hospital TO app_hospital;
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA hospital TO app_hospital;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA hospital TO app_hospital;
+-- Única excepción al "sin DELETE": la tabla puente médico-especialidad, para cambiar la
+-- especialidad de un médico. No contiene información clínica.
+GRANT DELETE ON hospital.Medico_Especialidad TO app_hospital;
 ALTER ROLE app_hospital SET search_path TO hospital, public;

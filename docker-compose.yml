@@ -16,6 +16,9 @@ services:
       POSTGRES_DB: hospital_db
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+      TZ: America/Guatemala
+    # Hora local de Guatemala para NOW() / CURRENT_TIMESTAMP (por defecto el contenedor usa UTC)
+    command: ["postgres", "-c", "timezone=America/Guatemala"]
     ports:
       - "5433:5432"
     volumes:
@@ -31,6 +34,7 @@ services:
     container_name: bd2_mysql_pediatrico
     environment:
       MYSQL_ROOT_PASSWORD: root
+      TZ: America/Guatemala
     command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
     ports:
       - "3307:3306"
@@ -48,6 +52,7 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: root
+      TZ: America/Guatemala
     # Replica set de un solo nodo: MongoDB solo permite transacciones multi-documento en replica set.
     # El replica set con autenticación necesita un keyFile.
     entrypoint:

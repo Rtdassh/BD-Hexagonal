@@ -67,8 +67,12 @@ Si alguno dice `SIMULADO`, ese motor no respondió y la app usa datos en memoria
 La línea `motivo:` dice por qué. Para la presentación ponga `ENGINE_MODE=live` en `.env`: así la app
 no arranca si falta un motor, y no hay dudas de que todo es real.
 
-**Usuarios** (contraseña `123`): `dr_garcia` (hospital), `dra_lopez` (pediatría), `lic_mendez` (laboratorio),
-`dr_molina` (odontólogo), `sec_claudia` (secretaria dental), `admin_general` (puede ver las 4 instituciones).
+**Usuarios** (contraseña `123`): un administrador por institución — `admin_hospital`, `admin_pediatria`,
+`admin_laboratorio` y `admin_odontologia`. Cada uno solo accede al motor de su institución.
+
+Los doctores **no inician sesión**: el administrador los registra en **Personal médico** (médicos, pediatras,
+laboratoristas u odontólogos según la institución) y los asigna a cada cita y consulta. Un profesional no se
+borra, porque sus citas y consultas quedan en los historiales: se desactiva, y deja de aparecer al agendar.
 
 ### Pruebas
 
@@ -79,6 +83,19 @@ python -m pytest tests -v
 `tests/test_motores_reales.py` corre **el mismo flujo** (registrar paciente, cita, consulta con diagnóstico,
 cita repetida rechazada, filtro de secretaria, baja y bloqueo) contra los 4 motores reales.
 
+### Hospital General: quirófanos y enfermería
+
+Solo el administrador del hospital ve dos secciones extra en el menú:
+
+- **Quirófanos**: tablero de QX-1, QX-2 y QX-3 (libre o en uso), agenda del día, pendientes y búsqueda por fecha.
+  Una cirugía pasa por *programada → en curso → realizada* o *cancelada*. PostgreSQL rechaza programar dos
+  cirugías que se traslapen en el mismo quirófano o con el mismo cirujano.
+- **Enfermería**: pacientes ingresados por turno (mañana 07–15, tarde 15–23, noche 23–07) con sus enfermeros
+  asignados y la carga de cada enfermero. Máximo 6 pacientes por enfermero por turno y solo pacientes ingresados
+  (lo verifica un trigger de PostgreSQL).
+- En **Personal médico** hay una pestaña para **Enfermeros**, y en cada paciente la pestaña
+  **Internamiento y cirugías** permite registrar el egreso (alta o referido), asignar enfermeros y programar cirugías.
+
 ---
 
 ## 3. Cómo se crea y se conecta cada base
@@ -87,7 +104,7 @@ Docker ejecuta automáticamente los scripts de `database/` **solo la primera vez
 
 | Motor | Puerto en su PC | Scripts de creación | Usuario de la app | Driver Python |
 |---|---|---|---|---|
-| PostgreSQL 16 | `5433` | `postgresql/01_init_hospital.sql`, `02_seguridad_hospital.sql` | `app_hospital` | `psycopg2` (pool de conexiones) |
+| PostgreSQL 16 | `5433` | `postgresql/01_init_hospital.sql`, `02_cirugias_enfermeria.sql`, `03_seguridad_hospital.sql` | `app_hospital` | `psycopg2` (pool de conexiones) |
 | MySQL 8.4 | `3307` | `mysql/01_init_pediatrico.sql`, `02_seguridad_pediatrico.sql` | `app_pediatrico` | `mysql-connector-python` (pool) |
 | MongoDB 7 (replica set `rs0`) | `27018` | `mongodb/01_init_laboratorio.js` | `app_laboratorio` | `pymongo` |
 | Firestore (emulador) | `8085` (UI en `4000`) | `firebase/seed_firestore.py` + `firestore.rules` | — | `google-cloud-firestore` / `firebase-admin` |
@@ -130,6 +147,7 @@ python database/firebase/seed_firestore.py
 | Mongo dice "Sin replica set" en *Estado de los motores* | Funciona, pero sin transacciones multi-documento. Verifique que usa el `docker-compose.yml` del proyecto. |
 | Firestore `SIMULADO` | El contenedor tarda en compilarse la primera vez: `docker compose logs firestore`. Verifique `FIRESTORE_EMULATOR_HOST=localhost:8085` en `.env`. |
 | Los datos de Firestore desaparecieron | El emulador guarda al apagarse con `docker compose stop` o `down`. Si Docker se cerró de golpe, vuelva a correr `seed_firestore.py`. |
+| Las horas salen 6 horas adelantadas | Recree las bases (`-Reiniciar`): el `docker-compose.yml` ya fija la zona horaria de Guatemala. |
 | Cambié un `.sql` y no se refleja | Los scripts solo corren con volumen vacío: `docker compose down -v` y vuelva a levantar. |
 | Acentos raros en MySQL | Recree la base (el script ya usa `SET NAMES utf8mb4`). |
 
@@ -150,9 +168,10 @@ database/          scripts de creación de cada motor
 ```
 
 Reglas de negocio que viven en `application/services.py` y aplican igual a los 4 motores:
-solo el personal clínico registra consultas, diagnósticos y recetas, y da de baja historiales;
-no se receta sin diagnóstico; un historial dado de baja no admite registros nuevos;
-la secretaria no ve información restringida (diagnósticos, notas, recetas, resultados).
+solo el administrador gestiona el personal médico; toda cita y consulta se asigna a un profesional
+**activo** de la institución; no se receta sin diagnóstico; un historial dado de baja no admite registros
+nuevos. El filtro de información restringida (rol secretaria) sigue en el código para cuando se agreguen
+cuentas con permisos limitados.
 
 ---
 
@@ -160,7 +179,7 @@ la secretaria no ve información restringida (diagnósticos, notas, recetas, res
 
 **Modelado**
 
-- *PostgreSQL*: 3FN. `Receta → Tratamiento → Diagnóstico → Consulta → Cita → Paciente`; catálogos de `Medicamento` y `Especialidad`.
+- *PostgreSQL*: 3FN. `Receta → Tratamiento → Diagnóstico → Consulta → Cita → Paciente`; catálogos de `Medicamento` y `Especialidad`. Quirófanos y enfermería: `Quirofano`, `Cirugia` (paciente, cirujano, hospitalización, quirófano), `Enfermero` y `Asignacion_Turno` (enfermero × hospitalización × fecha × turno).
 - *MySQL*: el diagnóstico principal y la somatometría van en la fila de `consulta` (una consulta pediátrica es corta y tiene un diagnóstico); `vacunacion` y `receta` son tablas hijas. La dosis en ml se calcula con el peso (mg/kg × kg ÷ mg/ml).
 - *MongoDB*: `resultados` se **referencian** (un paciente acumula cientos de exámenes; embeberlos haría crecer el documento del paciente sin límite, y MongoDB limita a 16 MB). Los `parametros` de cada resultado se **embeben** (siempre se leen juntos y su estructura cambia por examen; la plantilla vive en `tipos_examen`). El contacto de emergencia se embebe (1:1).
 - *Firestore*: el historial se **embebe** en el documento del paciente (1:1). Las consultas son una **subcolección** `pacientes/{id}/consultas` (crecen sin límite; Firestore limita a 1 MB por documento). Cada consulta embebe sus diagnósticos, recetas y procedimientos por pieza. `citas` es colección raíz con el nombre del paciente **duplicado** para que la secretaria liste la agenda con una sola lectura.
@@ -168,6 +187,7 @@ la secretaria no ve información restringida (diagnósticos, notas, recetas, res
 **Consistencia**
 
 - *PostgreSQL / MySQL*: `BEGIN … COMMIT/ROLLBACK`; `SELECT … FOR UPDATE` sobre la cita y el historial para que dos usuarios no atiendan la misma cita. Restricciones `CHECK`, `UNIQUE` y llaves foráneas.
+- *PostgreSQL (hospital)*: restricciones `EXCLUDE USING gist` con rangos de tiempo (`tsrange … WITH &&`) para que un quirófano o un cirujano no tengan dos cirugías activas traslapadas; un trigger `BEFORE INSERT` limita a 6 pacientes por enfermero por turno; un índice único parcial evita asignaciones duplicadas. Las asignaciones se anulan en vez de borrarse. Son garantías que la base hace cumplir aunque la aplicación falle.
 - *MongoDB*: transacción multi-documento (orden + muestra + resultado + historial) con sesión, que requiere replica set. Índices únicos (DPI, ids) y validación `$jsonSchema`. Ids secuenciales con `$inc` atómico en `contadores`.
 - *Firestore*: transacciones (todas las lecturas antes que las escrituras; Firestore reintenta si otro cliente cambió algo). La unicidad del DPI se garantiza leyendo `dpi_index/{dpi}` dentro de la transacción. La carga inicial usa un *batch* atómico.
 
@@ -176,7 +196,7 @@ la secretaria no ve información restringida (diagnósticos, notas, recetas, res
 - *PostgreSQL / MySQL*: usuario de aplicación con `SELECT, INSERT, UPDATE` y **sin DELETE** ni DDL (los historiales nunca se borran, se archivan).
 - *MongoDB*: autenticación activada; usuario `app_laboratorio` con rol `readWrite` solo en su base.
 - *Firestore*: `firestore.rules` por rol (pública: catálogos; confidencial: pacientes y citas; restringida: consultas solo para el odontólogo; `delete` prohibido). El backend usa una cuenta de servicio (Admin SDK), que no pasa por las reglas, así que la API también aplica los permisos.
-- *Aplicación*: token de sesión aleatorio, sin acceso anónimo (401), permisos por rol (403), filtro de información restringida para la secretaria y credenciales fuera del código (`.env`).
+- *Aplicación*: token de sesión aleatorio, sin acceso anónimo (401), un administrador por institución que solo llega a su motor (el parámetro `institucion` se ignora), permisos por rol (403) y credenciales fuera del código (`.env`).
 
 > Pendiente para un sistema real: guardar los usuarios en base de datos con contraseñas cifradas (bcrypt)
 > en lugar de la lista de demostración en `config.py`.

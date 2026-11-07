@@ -58,6 +58,56 @@ class User:
 
 
 @dataclass
+class Professional:
+    """Profesional de salud de una institución (médico, pediatra, laboratorista, odontólogo).
+    No inicia sesión: el administrador lo registra y lo asigna a citas y consultas."""
+    id_profesional: int
+    nombre_completo: str
+    numero_colegiado: str
+    especialidad: str = ""
+    telefono: str = ""
+    correo_electronico: str = ""
+    estado: str = "activo"
+
+
+@dataclass
+class Surgery:
+    """Cirugía del Hospital General: programada -> en_curso -> realizada | cancelada."""
+    id_cirugia: int
+    id_paciente: int
+    paciente_nombre: str
+    id_medico: int
+    cirujano_nombre: str
+    procedimiento: str
+    codigo_quirofano: str
+    tipo: str
+    fecha_hora_programada: str
+    duracion_estimada_min: int
+    estado: str
+    fecha_hora_inicio: Optional[str] = None
+    fecha_hora_fin: Optional[str] = None
+    id_hospitalizacion: Optional[int] = None
+    notas_operatorias: Optional[str] = None
+    motivo_cancelacion: Optional[str] = None
+
+
+@dataclass
+class ShiftAssignment:
+    """Enfermero asignado a un paciente hospitalizado en un turno."""
+    id_asignacion: int
+    id_enfermero: int
+    enfermero_nombre: str
+    id_hospitalizacion: int
+    id_paciente: int
+    paciente_nombre: str
+    numero_habitacion: str
+    fecha: str
+    turno: str
+    observaciones: Optional[str] = None
+    estado: str = "activa"
+
+
+@dataclass
 class Patient:
     id_paciente: int
     nombres: str

@@ -177,8 +177,19 @@ dbInstance.laboratoristas.insertMany([
     telefono: "5553-0201",
     correo_electronico: "bmorales@laboratoriolandivar.gt",
     estado: "activo"
+  },
+  {
+    id_laboratorista: 2,
+    nombre_completo: "Lic. Diego Armando Coyoy",
+    numero_colegiado_licencia: "QB-4890",
+    cargo_especialidad: "Químico Biólogo - Microbiología",
+    telefono: "5553-0202",
+    correo_electronico: "dcoyoy@laboratoriolandivar.gt",
+    estado: "activo"
   }
 ]);
+dbInstance.laboratoristas.createIndex({ id_laboratorista: 1 }, { unique: true });
+dbInstance.laboratoristas.createIndex({ numero_colegiado_licencia: 1 }, { unique: true });
 
 // C. Tipos de Examen
 dbInstance.tipos_examen.insertMany([
@@ -456,7 +467,8 @@ dbInstance.contadores.insertMany([
   { _id: "ordenes", seq: 2 },
   { _id: "muestras", seq: 1 },
   { _id: "resultados", seq: 2 },
-  { _id: "citas", seq: 0 }
+  { _id: "citas", seq: 0 },
+  { _id: "laboratoristas", seq: 2 }
 ]);
 
 // Usuario de la aplicación con mínimo privilegio (solo lectura/escritura en esta base)

@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS pediatra (
     id_pediatra INT AUTO_INCREMENT PRIMARY KEY,
     nombre_completo VARCHAR(100) NOT NULL,
     numero_colegiado VARCHAR(20) NOT NULL UNIQUE,
+    especialidad VARCHAR(80) NOT NULL DEFAULT 'Pediatría general',
     telefono VARCHAR(15),
     correo_electronico VARCHAR(80),
     estado VARCHAR(20) NOT NULL DEFAULT 'activo',
@@ -170,9 +171,9 @@ CREATE TABLE IF NOT EXISTS historial_pediatrico (
 -- DATOS SEMILLA / SEED DATA PARA CENTRO MÉDICO PEDIÁTRICO
 -- ============================================================================
 
-INSERT INTO pediatra (nombre_completo, numero_colegiado, telefono, correo_electronico, estado) VALUES
-('Dra. Mariana Lucía Batres', 'PED-08912', '5552-0101', 'mbatres@centropediatrico.com', 'activo'),
-('Dr. Fernando José Castillo', 'PED-07654', '5552-0102', 'fcastillo@centropediatrico.com', 'activo');
+INSERT INTO pediatra (nombre_completo, numero_colegiado, especialidad, telefono, correo_electronico, estado) VALUES
+('Dra. Mariana Lucía Batres', 'PED-08912', 'Pediatría general', '5552-0101', 'mbatres@centropediatrico.com', 'activo'),
+('Dr. Fernando José Castillo', 'PED-07654', 'Neonatología', '5552-0102', 'fcastillo@centropediatrico.com', 'activo');
 
 -- Paciente infantil 1
 INSERT INTO paciente_pediatrico (

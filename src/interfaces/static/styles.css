@@ -481,3 +481,52 @@ body { background: var(--fondo); }
   .cabecera h1 { font-size: 1.375rem; }
 }
 @media print { .menu, .cab-acciones, .pestanas { display: none !important; } .app { display: block; } }
+
+/* Personal médico */
+.sin-enlace { cursor: default; }
+.sin-enlace:hover { color: var(--tinta); text-decoration: none; }
+.cifra-boton { font: inherit; text-align: left; cursor: pointer; color: inherit; }
+.cifra-boton:hover { border-color: var(--inst); }
+.aviso-sin-personal { background: var(--ambar-claro); color: var(--ambar); padding: 10px 14px; border-radius: var(--radio);
+  display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.tabla-datos .acc .btn + .btn { margin-left: 6px; }
+
+/* ============================ Hospital: quirófanos y enfermería ============================ */
+.estado.critico { background: var(--rojo); color: #fff; }
+.fila-cirugia { background: #FFF5F4; }
+.cifra-alerta { border-top-color: var(--rojo); }
+.cifra-alerta .cifra { color: var(--rojo); }
+
+.salas { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 8px; }
+.sala { background: var(--blanco); border: 1px solid var(--linea); border-top: 4px solid var(--acento); border-radius: 6px; padding: 12px 16px; display: grid; gap: 6px; align-content: start; }
+.sala.ocupada { border-top-color: var(--rojo); }
+.sala.mantenimiento { border-top-color: var(--tenue); opacity: .75; }
+.sala-cab { display: flex; justify-content: space-between; align-items: center; font-size: 1.125rem; }
+.sala p { font-size: 0.9375rem; line-height: 1.4; }
+
+.barra-filtros { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.barra-filtros .pestanas { flex: 1; margin-bottom: 16px; }
+.fecha-filtro { flex-direction: row; align-items: center; gap: 8px; margin-bottom: 16px; }
+.pestanas small { font-weight: 400; color: var(--tenue); }
+.ahora { font-size: 0.6875rem; font-weight: 700; background: var(--acento); color: #fff; padding: 1px 6px; border-radius: 999px; vertical-align: middle; }
+
+.enf-cols { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+.chip { display: inline-flex; align-items: center; gap: 4px; background: color-mix(in srgb, var(--inst) 12%, white);
+  color: var(--tinta); border-radius: 999px; padding: 3px 4px 3px 12px; margin: 2px 4px 2px 0; font-size: 0.875rem; }
+.chip button { border: 0; background: none; cursor: pointer; font-size: 1rem; line-height: 1; padding: 2px 6px; border-radius: 999px; color: var(--tinta-2); }
+.chip button:hover { background: var(--rojo-claro); color: var(--rojo); }
+.sin-asignar { color: var(--ambar); font-weight: 700; font-size: 0.875rem; }
+.carga { list-style: none; margin: 0; padding: 8px 16px 14px; display: grid; gap: 10px; }
+.carga li { display: grid; grid-template-columns: 1fr 70px auto; gap: 10px; align-items: center; font-size: 0.9375rem; }
+.barra-carga { height: 8px; background: #E3E9ED; border-radius: 999px; overflow: hidden; }
+.barra-carga span { display: block; height: 100%; background: var(--acento); }
+
+.segmento { display: inline-flex; border: 1px solid var(--linea); border-radius: 8px; overflow: hidden; margin-bottom: 14px; background: var(--blanco); }
+.segmento button { font: inherit; font-weight: 700; border: 0; background: none; padding: 8px 18px; cursor: pointer; color: var(--tinta-2); }
+.segmento button[aria-pressed="true"] { background: var(--menu); color: #fff; }
+
+.bloque-hosp { margin-bottom: 22px; }
+.panel-cab.sin-borde { border: 0; padding: 0 0 8px; }
+
+@media (max-width: 1000px) { .enf-cols { grid-template-columns: 1fr; } }
+.estado { white-space: nowrap; }

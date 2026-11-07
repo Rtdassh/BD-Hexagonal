@@ -9,7 +9,7 @@ saben qué motor hay detrás: cambiar de motor es cuestión de configuración.
 import logging
 from typing import Any, Callable, Dict, List
 
-from ..domain.entities import InstitutionType, User, UserRole
+from ..domain.entities import InstitutionType, User
 from ..domain.ports import ClinicalRepositoryPort
 from ..infrastructure.config import Config
 
@@ -91,12 +91,10 @@ class EngineRouter:
     def get_adapter_for_user(self, user: User, override_institution: str = None) -> ClinicalRepositoryPort:
         """
         Enrutamiento por usuario: la institución del usuario autenticado decide el motor.
-        Solo el administrador puede consultar otra institución.
+        Cada administrador solo accede al motor de su propia institución
+        (override_institution se ignora a propósito).
         """
-        target = user.institucion
-        if override_institution and user.rol == UserRole.ADMIN:
-            target = InstitutionType(override_institution)
-        return self.get_adapter(target)
+        return self.get_adapter(user.institucion)
 
     def get_all_adapters(self) -> Dict[InstitutionType, ClinicalRepositoryPort]:
         return self._adapters

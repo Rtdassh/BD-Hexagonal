@@ -24,6 +24,7 @@ from ...domain.entities import (
     InstitutionType,
     Patient,
     Prescription,
+    Professional,
     SomatometryRecord,
     UnifiedClinicalRecord,
     UserRole,
@@ -212,7 +213,7 @@ class MySQLAdapter(BaseClinicalAdapter):
             cur.execute(
                 """INSERT INTO cita (id_paciente, id_pediatra, fecha_hora_programada, motivo_consulta)
                    VALUES (%s, %s, %s, %s)""",
-                (data["id_paciente"], data.get("id_profesional") or 1,
+                (data["id_paciente"], data["id_profesional"],
                  str(data["fecha_hora_programada"]).replace("T", " "), data["motivo_consulta"]),
             )
             return self._citas(cur, "c.id_cita = %s", (cur.lastrowid,))[0]
@@ -262,12 +263,13 @@ class MySQLAdapter(BaseClinicalAdapter):
                     raise ValueError("La cita no pertenece a este paciente")
                 if cita["estado_cita"] != "programada":
                     raise ValueError(f"La cita ya está '{cita['estado_cita']}'")
-                cur.execute("UPDATE cita SET estado_cita = 'atendida' WHERE id_cita = %s", (id_cita,))
+                cur.execute("UPDATE cita SET estado_cita = 'atendida', id_pediatra = %s WHERE id_cita = %s",
+                            (data["id_profesional"], id_cita))
             else:
                 cur.execute(
                     """INSERT INTO cita (id_paciente, id_pediatra, fecha_hora_programada, motivo_consulta, estado_cita)
                        VALUES (%s, %s, NOW(), %s, 'atendida')""",
-                    (pid, data.get("id_profesional") or 1, data["motivo"][:200]),
+                    (pid, data["id_profesional"], data["motivo"][:200]),
                 )
                 id_cita = cur.lastrowid
 
@@ -441,6 +443,51 @@ class MySQLAdapter(BaseClinicalAdapter):
             ]
         return {"institucion": "Centro Médico Pediátrico", "motor": "MySQL",
                 "control_crecimiento": crecimiento, "esquema_vacunacion": vacunas}
+
+    # ------------------------------------------------------------------
+    # Personal médico: tabla pediatra
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _to_prof(r) -> Professional:
+        return Professional(r["id_pediatra"], r["nombre_completo"], r["numero_colegiado"],
+                            r.get("especialidad") or "", r["telefono"] or "", r["correo_electronico"] or "", r["estado"])
+
+    def list_professionals(self) -> List[Professional]:
+        with self._tx() as cur:
+            cur.execute("SELECT * FROM pediatra ORDER BY estado, nombre_completo")
+            return [self._to_prof(r) for r in cur.fetchall()]
+
+    def create_professional(self, data: Dict[str, Any]) -> Professional:
+        self.requerido(data, "nombre_completo", "numero_colegiado")
+        try:
+            with self._tx() as cur:
+                cur.execute(
+                    """INSERT INTO pediatra (nombre_completo, numero_colegiado, especialidad, telefono, correo_electronico)
+                       VALUES (%s, %s, %s, %s, %s)""",
+                    (data["nombre_completo"].strip(), data["numero_colegiado"].strip(),
+                     data.get("especialidad") or "Pediatría general", data.get("telefono") or None,
+                     data.get("correo_electronico") or None),
+                )
+                cur.execute("SELECT * FROM pediatra WHERE id_pediatra = %s", (cur.lastrowid,))
+                return self._to_prof(cur.fetchone())
+        except mysql.connector.IntegrityError as e:
+            if e.errno == errorcode.ER_DUP_ENTRY:
+                raise ValueError(f"Ya existe un pediatra con colegiado {data['numero_colegiado']}")
+            raise
+
+    def update_professional(self, professional_id: int, data: Dict[str, Any]) -> Professional:
+        self.validar_profesional(data)
+        campos = {k: data.get(k) for k in ("nombre_completo", "especialidad", "telefono", "correo_electronico", "estado")}
+        campos = {k: v for k, v in campos.items() if v not in (None, "")}
+        with self._tx() as cur:
+            if campos:
+                cur.execute(f"UPDATE pediatra SET {', '.join(f'{k} = %s' for k in campos)} WHERE id_pediatra = %s",
+                            (*campos.values(), professional_id))
+            cur.execute("SELECT * FROM pediatra WHERE id_pediatra = %s", (professional_id,))
+            r = cur.fetchone()
+            if not r:
+                raise ValueError(f"Pediatra {professional_id} no encontrado")
+            return self._to_prof(r)
 
     def _to_patient(self, r) -> Patient:
         return Patient(

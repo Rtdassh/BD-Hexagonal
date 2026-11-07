@@ -71,6 +71,15 @@ class FlujoComun:
         hs = a.get_clinical_history(p.id_paciente, UserRole.SECRETARIA)
         self.assertIn("Restringido", hs.consultas[0].diagnosticos[0].descripcion)
 
+        # Personal médico: registrar, colegiado único, editar y desactivar
+        prof = a.create_professional({"nombre_completo": "Prof. Prueba", "numero_colegiado": f"T-{self.dpi}",
+                                      "especialidad": "General"})
+        with self.assertRaises(ValueError):
+            a.create_professional({"nombre_completo": "Otro", "numero_colegiado": f"T-{self.dpi}"})
+        prof = a.update_professional(prof.id_profesional, {"estado": "inactivo", "telefono": "5555-0000"})
+        self.assertEqual(prof.estado, "inactivo")
+        self.assertIn(prof.id_profesional, [x.id_profesional for x in a.list_professionals()])
+
         res = a.deactivate_patient(p.id_paciente, "Prueba de baja", "traslado")
         self.assertEqual(res["estado"], "trasladado")
         with self.assertRaises(ValueError):  # historial archivado no admite registros
@@ -100,6 +109,51 @@ class TestMongoDB(FlujoComun, unittest.TestCase):
 class TestFirestore(FlujoComun, unittest.TestCase):
     motor = "firestore"
     consulta_extra = {"procedimientos": [{"id_procedimiento": 1, "pieza_dental": "11"}]}
+
+
+class TestHospitalCirugiasEnfermeria(unittest.TestCase):
+    """Reglas que garantiza PostgreSQL: quirófano y cirujano sin traslapes, máximo por turno."""
+
+    def setUp(self):
+        self.a = _adaptador("pg")
+
+    def test_flujo_quirofano_y_turnos(self):
+        a = self.a
+        dpi = str(int(time.time() * 1000))[-13:]
+        p = a.create_patient({"nombres": "Qx", "apellidos": "Prueba", "fecha_nacimiento": "1990-01-01",
+                              "sexo": "M", "dpi": dpi})
+        a.register_consultation({"id_paciente": p.id_paciente, "motivo": "Abdomen agudo", "id_profesional": 1,
+                                 "codigo_cie10": "K35.8", "descripcion_diagnostico": "Apendicitis",
+                                 "requiere_hospitalizacion": True, "numero_habitacion": "HAB-T"})
+        hosp = next(h for h in a.list_hospitalizations() if h["id_paciente"] == p.id_paciente)
+        cuando = "2031-01-15 10:00"
+        c = a.schedule_surgery({"id_paciente": p.id_paciente, "id_medico": 1, "procedimiento": "Apendicectomía",
+                                "codigo_quirofano": "QX-2", "fecha_hora_programada": cuando, "duracion_estimada_min": 60})
+        self.assertEqual(c.id_hospitalizacion, hosp["id_hospitalizacion"])
+        with self.assertRaises(ValueError):   # mismo quirófano, horario traslapado
+            a.schedule_surgery({"id_paciente": p.id_paciente, "id_medico": 2, "procedimiento": "X",
+                                "codigo_quirofano": "QX-2", "fecha_hora_programada": "2031-01-15 10:30",
+                                "duracion_estimada_min": 30})
+        with self.assertRaises(ValueError):   # mismo cirujano, otro quirófano, horario traslapado
+            a.schedule_surgery({"id_paciente": p.id_paciente, "id_medico": 1, "procedimiento": "X",
+                                "codigo_quirofano": "QX-3", "fecha_hora_programada": "2031-01-15 10:30",
+                                "duracion_estimada_min": 30})
+        self.assertEqual(a.start_surgery(c.id_cirugia).estado, "en_curso")
+        with self.assertRaises(ValueError):   # no hay alta durante la cirugía
+            a.discharge(hosp["id_hospitalizacion"])
+        self.assertEqual(a.finish_surgery(c.id_cirugia, "Sin complicaciones").estado, "realizada")
+
+        enf = a.create_nurse({"nombre_completo": "Enf. Prueba", "numero_colegiado": f"E-{dpi}"})
+        t = a.assign_shift({"id_enfermero": enf.id_profesional, "id_hospitalizacion": hosp["id_hospitalizacion"],
+                            "fecha": "2031-01-16", "turno": "manana"})
+        with self.assertRaises(ValueError):   # duplicado
+            a.assign_shift({"id_enfermero": enf.id_profesional, "id_hospitalizacion": hosp["id_hospitalizacion"],
+                            "fecha": "2031-01-16", "turno": "manana"})
+        self.assertEqual(a.annul_shift(t.id_asignacion).estado, "anulada")
+        a.discharge(hosp["id_hospitalizacion"], "alta")
+        with self.assertRaises(ValueError):   # ya no está ingresado
+            a.assign_shift({"id_enfermero": enf.id_profesional, "id_hospitalizacion": hosp["id_hospitalizacion"],
+                            "fecha": "2031-01-17", "turno": "tarde"})
 
 
 if __name__ == "__main__":
