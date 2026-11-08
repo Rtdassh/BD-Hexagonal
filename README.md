@@ -131,6 +131,23 @@ resultados viven en sus colecciones (`muestras`, `resultados`) enlazadas por `id
 transacción multi-documento (replica set `rs0`), y la colección `ordenes` tiene un validador `$jsonSchema`
 que solo admite los seis estados. Prueba sin Docker: `pip install mongomock` y `python -m pytest tests/test_laboratorio_ordenes.py`.
 
+### Caja: aranceles, facturas y pagos
+
+Hospital, Pediátrico y Laboratorio tienen **Caja** en el menú (la Clínica Odontológica ya tenía sus cobros por planes).
+El mismo puerto `BillingPort` lo implementa cada motor a su manera:
+
+| | Hospital (PostgreSQL) | Pediátrico (MySQL) | Laboratorio (MongoDB) |
+|---|---|---|---|
+| Archivo | `02_cobros_hospital.sql` | `04_cobros_pediatrico.sql` | sección 6 de `01_init_laboratorio.js` |
+| Total = suma del detalle | trigger + columna `GENERATED` | trigger + columna `GENERATED` | detalle embebido en la factura |
+| No cobrar de más / no pagar anuladas | trigger con `FOR UPDATE` | trigger con `SIGNAL` | transacción + actualización condicionada |
+| No anular facturas con pagos | trigger | trigger | regla en la transacción |
+| Cobro automático | cada consulta; cuenta del internamiento calculada por `cuenta_internamiento()` | cada consulta (control de niño sano, vacuna) | la factura nace con la orden; **no se entregan resultados con saldo** |
+
+Se cobra en abonos (efectivo, tarjeta, transferencia o cheque; los tres últimos piden referencia), se valida el
+**NIT** con su dígito verificador (o CF) y se imprime un comprobante. El código común de PostgreSQL y MySQL está en
+`src/infrastructure/adapters/billing_sql.py`.
+
 ### Buscador de citas (las cuatro instituciones)
 
 La página **Citas** tiene un buscador por paciente, DPI, n.º de historial o motivo (sin importar tildes ni

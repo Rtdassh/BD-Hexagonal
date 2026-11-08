@@ -100,6 +100,39 @@ class TestMySQL(FlujoComun, unittest.TestCase):
                                    "frecuencia": "c/8h", "duracion_dias": 7}]}
 
 
+class CajaRelacional:
+    """Caja (BillingPort) en PostgreSQL y MySQL: las reglas las imponen triggers de cada base."""
+
+    def test_caja(self):
+        a = self.a
+        f = a.create_invoice({"id_paciente": 1, "lineas": [
+            {"codigo_arancel": "CONSULTA", "concepto": "Consulta", "cantidad": 1, "precio_unitario": 150},
+            {"concepto": "Material", "cantidad": 2, "precio_unitario": 25.5}]})
+        self.assertEqual((f["monto_total"], f["estado"]), (201.0, "pendiente"))   # total calculado por trigger
+        with self.assertRaises(ValueError):    # más que el saldo
+            a.register_invoice_payment(f["id_factura"], {"monto": 500, "metodo_pago": "efectivo"})
+        f = a.register_invoice_payment(f["id_factura"], {"monto": 100, "metodo_pago": "efectivo"})
+        self.assertEqual((f["estado"], f["saldo"]), ("parcial", 101.0))
+        with self.assertRaises(ValueError):    # con pagos no se anula
+            a.void_invoice(f["id_factura"], "Prueba de anulación")
+        f = a.register_invoice_payment(f["id_factura"], {"monto": 101, "metodo_pago": "tarjeta", "referencia": "AUT-1"})
+        self.assertEqual(f["estado"], "pagada")
+
+
+class TestPostgreSQLCaja(CajaRelacional, unittest.TestCase):
+    def setUp(self):
+        self.a = _adaptador("pg")
+
+    def test_cuenta_internamiento(self):
+        cargos = self.a.suggested_charges("internamiento", 1)
+        self.assertTrue(any(c["codigo_arancel"].startswith("CAMA") for c in cargos if c["codigo_arancel"]))
+
+
+class TestMySQLCaja(CajaRelacional, unittest.TestCase):
+    def setUp(self):
+        self.a = _adaptador("mysql")
+
+
 class TestMongoDB(FlujoComun, unittest.TestCase):
     motor = "mongo"
     consulta_extra = {"codigo_examen": "QUI-01", "parametros": [
@@ -125,6 +158,9 @@ class TestMongoDB(FlujoComun, unittest.TestCase):
             a.validate_order(oid, {"id_laboratorista": 1})
         o = a.validate_order(oid, {"id_laboratorista": 2, "conclusiones": {"QUI-01": "Hiperglucemia"}})
         self.assertEqual(o["estado_orden"], "lista_entrega")
+        with self.assertRaises(ValueError):   # factura sin pagar
+            a.deliver_order(oid, {"entregado_a": "Paciente"})
+        a.register_invoice_payment(o["factura"]["id_factura"], {"monto": o["factura"]["saldo"], "metodo_pago": "efectivo"})
         o = a.deliver_order(oid, {"entregado_a": "Paciente"})
         self.assertEqual(o["estado_orden"], "entregada")
         with self.assertRaises(ValueError):   # ya entregada

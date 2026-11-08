@@ -1044,3 +1044,23 @@ input[aria-invalid]:focus, textarea[aria-invalid]:focus { outline-color: rgba(18
 .alergia-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: var(--blanco); border: 1px solid var(--linea); border-radius: 8px; }
 .alerta-anafilaxia { background: var(--rojo-claro); border-left: 4px solid var(--rojo); padding: 8px 12px; border-radius: 6px; color: var(--rojo); font-weight: 700; font-size: 0.875rem; }
 
+
+/* ============================ Caja ============================ */
+.saldo-pend { color: var(--rojo); font-weight: 700; }
+.tabla-factura tfoot td { font-weight: 700; padding-top: 6px; }
+.tabla-factura tfoot tr.saldo td { font-size: 1.0625rem; border-top: 2px solid var(--linea-suave); }
+.saldo-grande { font-size: 1.125rem; margin: 4px 0 12px; }
+.saldo-grande b { font-size: 1.5rem; margin-left: 6px; }
+.cargos-cab { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin: 14px 0 6px; }
+.cargos-cab h3 { font-size: 1rem; }
+.agregar-arancel { min-width: 280px; }
+.tabla-cargos input { width: 100%; }
+.tabla-cargos td:nth-child(2) input { width: 80px; }
+.tabla-cargos td:nth-child(3) input { width: 110px; }
+.tabla-cargos tfoot td { font-weight: 700; font-size: 1.0625rem; }
+.cuenta-resumen { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;
+  background: var(--blanco); border: 1px solid var(--linea-suave); border-radius: 12px; padding: 14px 18px; box-shadow: var(--sombra); }
+.cuenta-resumen > div { display: grid; }
+.cuenta-resumen b { font-size: 1.5rem; }
+.peligro-txt { color: var(--rojo) !important; }
+.cifras.cifras-dinero { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }

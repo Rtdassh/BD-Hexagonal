@@ -18,8 +18,11 @@ from ..domain.entities import (
     UserRole,
 )
 from ..domain import validaciones as V
-from ..domain.ports import AuthPort, HospitalOperationsPort, LaboratoryOrdersPort, PediatricOperationsPort, DentalOperationsPort
+from ..domain.ports import AuthPort, BillingPort, HospitalOperationsPort, LaboratoryOrdersPort, PediatricOperationsPort, DentalOperationsPort
 from .router import EngineRouter
+import logging
+
+logger = logging.getLogger(__name__)
 
 ROLES_CLINICOS = {UserRole.MEDICO, UserRole.PEDIATRA, UserRole.LABORATORISTA, UserRole.ODONTOLOGO, UserRole.ADMIN}
 CATEGORIAS_BAJA = {"traslado", "fallecimiento", "administrativa"}
@@ -450,7 +453,31 @@ class ConsultationService:
             for k, v in procs[0].items():
                 payload.setdefault(k, v)
 
-        return adapter.register_consultation(payload)
+        consulta = adapter.register_consultation(payload)
+        self._cobrar_consulta(user, adapter, consulta, payload)
+        return consulta
+
+    # Cobro automático: la consulta genera su factura pendiente en Caja (hospital y pediátrico).
+    # El laboratorio factura al crear la orden y la clínica dental por planes de tratamiento.
+    def _cobrar_consulta(self, user: User, adapter, consulta, payload: Dict[str, Any]) -> None:
+        inst = user.institucion.value
+        if inst not in ("hospital", "pediatrico") or not isinstance(adapter, BillingPort):
+            return
+        try:
+            precios = {a["codigo"]: a for a in adapter.list_tariffs() if a.get("activo", True)}
+            tipo = payload.get("tipo_consulta") or ""
+            codigo = "EMERGENCIA" if tipo in ("urgente", "urgencia", "emergencia") else "CONSULTA"
+            if inst == "pediatrico" and (tipo == "control_sano" or "control" in (payload.get("motivo") or "").lower()):
+                codigo = "CONTROL-NS"
+            vacuna = inst == "pediatrico" and (payload.get("nombre_vacuna") or tipo == "vacunacion")
+            lineas = ([] if tipo == "vacunacion" else [codigo]) + (["VACUNA-APL"] if vacuna else [])
+            lineas = [{"codigo_arancel": c, "concepto": precios[c]["descripcion"], "cantidad": 1,
+                       "precio_unitario": precios[c]["precio"]} for c in lineas if c in precios]
+            if lineas:
+                adapter.create_invoice({"id_paciente": int(payload["id_paciente"]), "nit": "CF", "lineas": lineas,
+                                        "origen_tipo": "consulta", "origen_id": consulta.id_consulta})
+        except Exception as e:   # la consulta ya quedó registrada; el cobro se puede hacer a mano en Caja
+            logger.warning("No se generó el cobro de la consulta %s: %s", getattr(consulta, "id_consulta", "?"), e)
 
     def schedule_appointment(self, user: User, data: Dict[str, Any],
                              override_inst: Optional[str] = None) -> Appointment:
@@ -553,3 +580,54 @@ class LabService:
 
     def agenda(self, user, desde=None):
         return self._lab(user).sample_agenda(desde)
+
+
+
+class BillingService:
+    """Caja de hospital, pediátrico y laboratorio (la clínica dental tiene la suya por planes)."""
+
+    def __init__(self, router: EngineRouter):
+        self.router = router
+
+    def _caja(self, user: User) -> BillingPort:
+        adapter = self.router.get_adapter_for_user(user)
+        if not isinstance(adapter, BillingPort):
+            raise ValueError("La caja necesita el motor real de la institución conectado")
+        return adapter
+
+    def aranceles(self, user):
+        return self._caja(user).list_tariffs()
+
+    def guardar_arancel(self, user, data):
+        _exigir_admin(user)
+        return self._caja(user).save_tariff(V.validar_arancel(dict(data)))
+
+    def facturas(self, user, estado=None, id_paciente=None):
+        if estado and estado not in BillingPort.ESTADOS:
+            raise ValueError("Estado de factura inválido")
+        return self._caja(user).list_invoices(estado, id_paciente)
+
+    def factura(self, user, id_factura):
+        return self._caja(user).get_invoice(id_factura)
+
+    def crear_factura(self, user, data):
+        _exigir_admin(user)
+        payload = V.validar_factura(dict(data))
+        if not payload.get("id_paciente"):
+            raise ValueError("Elija el paciente")
+        if payload.get("origen_tipo") not in (None, "", "manual", "internamiento"):
+            raise ValueError("Origen de factura inválido")
+        return self._caja(user).create_invoice(payload)
+
+    def cobrar(self, user, id_factura, data):
+        _exigir_admin(user)
+        payload = V.validar_pago(dict(data))
+        payload["recibido_por"] = user.nombre_completo
+        return self._caja(user).register_invoice_payment(id_factura, payload)
+
+    def anular(self, user, id_factura, motivo):
+        _exigir_admin(user)
+        return self._caja(user).void_invoice(id_factura, V.motivo(motivo, "El motivo de la anulación"))
+
+    def cargos_sugeridos(self, user, origen_tipo, origen_id):
+        return self._caja(user).suggested_charges(origen_tipo, int(origen_id))

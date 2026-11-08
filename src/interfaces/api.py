@@ -17,6 +17,7 @@ from ..application.services import (
     DentalService,
     HospitalService,
     LabService,
+    BillingService,
     PatientService,
     PediatricService,
     PermisoDenegado,
@@ -68,6 +69,7 @@ def create_app(config: Config = None, router: EngineRouter = None):
     professional_service = ProfessionalService(engine_router)
     hospital_service = HospitalService(engine_router)
     lab_service = LabService(engine_router)
+    billing_service = BillingService(engine_router)
     pediatric_service = PediatricService(engine_router)
     dental_service = DentalService(engine_router)
     app.engine_router = engine_router
@@ -572,6 +574,49 @@ def create_app(config: Config = None, router: EngineRouter = None):
     @require_auth
     def lab_agenda():
         return _json(lab_service.agenda(request.current_user, request.args.get("desde") or None))
+
+    # ---------------------------------------------------------------- Caja
+    @app.route("/api/billing/tariffs", methods=["GET"])
+    @require_auth
+    def billing_tariffs():
+        return _json(billing_service.aranceles(request.current_user))
+
+    @app.route("/api/billing/tariffs", methods=["POST"])
+    @require_auth
+    def billing_save_tariff():
+        return _json(billing_service.guardar_arancel(request.current_user, body()), 201)
+
+    @app.route("/api/billing/invoices", methods=["GET"])
+    @require_auth
+    def billing_invoices():
+        return _json(billing_service.facturas(request.current_user, request.args.get("estado") or None,
+                                              request.args.get("id_paciente", type=int)))
+
+    @app.route("/api/billing/invoices", methods=["POST"])
+    @require_auth
+    def billing_create_invoice():
+        return _json(billing_service.crear_factura(request.current_user, body()), 201)
+
+    @app.route("/api/billing/invoices/<int:fid>", methods=["GET"])
+    @require_auth
+    def billing_invoice(fid):
+        return _json(billing_service.factura(request.current_user, fid))
+
+    @app.route("/api/billing/invoices/<int:fid>/pay", methods=["POST"])
+    @require_auth
+    def billing_pay(fid):
+        return _json(billing_service.cobrar(request.current_user, fid, body()))
+
+    @app.route("/api/billing/invoices/<int:fid>/void", methods=["POST"])
+    @require_auth
+    def billing_void(fid):
+        return _json(billing_service.anular(request.current_user, fid, body().get("motivo", "")))
+
+    @app.route("/api/billing/suggested", methods=["GET"])
+    @require_auth
+    def billing_suggested():
+        return _json(billing_service.cargos_sugeridos(request.current_user, request.args.get("origen_tipo", ""),
+                                                      request.args.get("origen_id", 0)))
 
     @app.route("/api/engine/status", methods=["GET"])
     def engine_status():

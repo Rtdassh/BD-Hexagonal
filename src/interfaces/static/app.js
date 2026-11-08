@@ -276,6 +276,7 @@ function ir(pagina) {
     enfermeria: pintarEnfermeria,
     habitaciones: pintarHabitaciones,
     ordenes: pintarOrdenes,
+    cobros: pintarCaja,
     agenda: pintarAgenda,
     motores: pintarMotores,
     paciente: pintarExpediente,
@@ -794,7 +795,8 @@ function tablaOrdenes(lista, conPaciente = true) {
         <td class="nowrap"><b>${numOrden(o.id_orden)}</b>${o.prioridad === "urgente" ? '<br><span class="estado critico">Urgente</span>' : ""}</td>
         ${conPaciente ? `<td><button type="button" class="enlace-paciente" data-id="${o.id_paciente}">${esc(o.paciente)}</button><br><small class="tenue">${esc(o.medico_solicitante)}</small></td>` : ""}
         <td><span class="chips-examen">${o.examenes.map((e) => `<span class="chip-examen e-${e.estado}" title="${esc(e.nombre_examen)}">${esc(e.codigo)}</span>`).join("")}</span>
-          ${o.alertas_criticas ? '<br><span class="alerta-critica">Valor crítico</span>' : ""}</td>
+          ${o.alertas_criticas ? '<br><span class="alerta-critica">Valor crítico</span>' : ""}
+          ${o.factura && o.factura.saldo > 0 && o.factura.estado !== "anulada" ? `<br><small class="saldo-pend">Por cobrar ${Q(o.factura.saldo)}</small>` : ""}</td>
         <td class="nowrap">${fecha(o.fecha_hora_ingreso, true)}${o.cita && o.estado_orden === "pendiente_muestra" ? `<br><small class="tenue">Toma: ${fecha(o.cita.fecha_hora_programada, true)}</small>` : ""}</td>
         <td>${chipEstadoOrden(o.estado_orden)}</td>
         <td class="acc">${acc ? `<button type="button" class="btn primario chico" data-paso-orden="${acc[0]}" data-orden="${o.id_orden}">${acc[1]}</button>` : ""}</td>
@@ -837,6 +839,8 @@ async function verOrden(id) {
         <section class="cajon-bloque"><h3>Exámenes</h3>
           ${o.examenes.map((e) => { const t = tipoExamen(e.codigo); return `<p class="linea-dato"><span>${esc(e.nombre_examen)}<br><small class="tenue">${esc(t.indicaciones_preparacion || "")}</small></span><span>${esc(texto(e.estado))}</span></p>`; }).join("")}
         </section>
+        ${o.factura ? `<section class="cajon-bloque"><h3>Cobro</h3><p class="linea-dato"><span>Factura ${esc(o.factura.numero_factura)}<br><small class="tenue">Total ${Q(o.factura.monto_total)}</small></span>
+          <span>${chipFactura(o.factura.estado)}${o.factura.saldo > 0 && o.factura.estado !== "anulada" ? `<br><button type="button" class="btn sutil chico" data-cobrar="${o.factura.id_factura}">Cobrar ${Q(o.factura.saldo)}</button>` : ""}</span></p></section>` : ""}
         ${o.cita ? `<section class="cajon-bloque"><h3>Toma de muestra agendada</h3><p><b>${fecha(o.cita.fecha_hora_programada, true)}</b> · ${esc(texto(o.cita.estado_cita))}</p></section>` : ""}
         ${o.muestras.length ? `<section class="cajon-bloque"><h3>Muestras</h3>${o.muestras.map((m) => `<p class="linea-dato"><span>${esc(m.codigo_etiqueta_barras)}<br><small class="tenue">${esc(m.tipo_muestra)}${m.motivo_rechazo ? ` · ${esc(m.motivo_rechazo)}` : ""}</small></span><span>${esc(texto(m.estado))}</span></p>`).join("")}</section>` : ""}
         ${resultados}
@@ -1054,6 +1058,14 @@ function formValidar(o) {
 }
 
 function formEntregar(o) {
+  if (o.factura && o.factura.saldo > 0 && o.factura.estado !== "anulada") {
+    abrirModal("Cobro pendiente", `<div class="aviso-prep"><b>La factura ${esc(o.factura.numero_factura)} tiene saldo de ${Q(o.factura.saldo)}.</b>
+      Los resultados se entregan cuando la cuenta está pagada.</div>`, `Cobrar ${Q(o.factura.saldo)}`, async () => {
+      estado.ordenTrasCobro = o.id_orden;   // al cobrar, se vuelve a la orden para entregar
+      setTimeout(() => formCobro(o.factura.id_factura), 50);
+    });
+    return;
+  }
   abrirModal("Entregar resultados", `<div class="dosis-resumen"><b>Orden ${numOrden(o.id_orden)} · ${esc(o.paciente)}</b>
       <span class="tenue">${o.examenes.map((e) => esc(e.nombre_examen)).join(", ")}</span></div>
     <label><span class="requerido">Entregado a</span><input name="entregado_a" required maxlength="100" value="${esc(o.paciente)}"></label>
@@ -1129,6 +1141,336 @@ $("#contenido").addEventListener("input", (ev) => {
   estado.busOrdenes = ev.target.value;
   clearTimeout(tBusOrdenes);
   tBusOrdenes = setTimeout(pintarListaOrdenes, 150);
+});
+
+
+// ====================================================================== Caja
+// Hospital (PostgreSQL), Pediátrico (MySQL) y Laboratorio (MongoDB) comparten esta pantalla.
+// La Clínica Odontológica usa su propia facturación por planes de tratamiento.
+const conCaja = () => ["hospital", "pediatrico", "laboratorio"].includes(estado.inst);
+const Q = (n) => `Q${Number(n || 0).toLocaleString("es-GT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const ESTADO_FACTURA = { pendiente: ["Por cobrar", "alerta"], parcial: ["Abonada", "info"], pagada: ["Pagada", "activo"], anulada: ["Anulada", "baja"] };
+const chipFactura = (e) => { const [t, c] = ESTADO_FACTURA[e] || [e, ""]; return `<span class="estado ${c}">${t}</span>`; };
+const METODOS = [["efectivo", "Efectivo"], ["tarjeta", "Tarjeta"], ["transferencia", "Transferencia"], ["cheque", "Cheque"]];
+const CATEGORIAS = { consulta: "Consulta", hospitalizacion: "Hospitalización", cirugia: "Cirugía", medicamento: "Medicamento",
+  procedimiento: "Procedimiento", vacunacion: "Vacunación", examen: "Examen", otro: "Otro" };
+const origenTxt = (f) => ({ consulta: "Consulta", internamiento: "Internamiento", cirugia: "Cirugía",
+  orden: `Orden ${String(f.origen_id).padStart(5, "0")}` })[f.origen_tipo] || "Cargo manual";
+estado.facturasCache = {};
+
+// NIT de Guatemala: módulo 11 (10 = K). La misma regla valida el servidor.
+function revisarNIT(v) {
+  const n = v.replace(/[-\s]/g, "").toUpperCase();
+  if (n === "CF" || n === "C/F") return null;
+  if (!/^\d{1,12}[\dK]$/.test(n)) return "use CF o números con su dígito verificador (ej. 576937-K)";
+  const cuerpo = n.slice(0, -1).split("").reverse();
+  const suma = cuerpo.reduce((s, d, i) => s + Number(d) * (i + 2), 0);
+  const esperado = (11 - (suma % 11)) % 11;
+  return n.slice(-1) === (esperado === 10 ? "K" : String(esperado)) ? null : "el dígito verificador no coincide";
+}
+
+async function aranceles() {
+  if (!estado.aranceles) estado.aranceles = await api("/api/billing/tariffs").catch(() => []);
+  return estado.aranceles;
+}
+
+estado.filtroCaja = "por_cobrar";
+async function pintarCaja() {
+  cabecera({ titulo: "Caja", acciones: btnAccion("nueva-factura", "+ Nueva factura") });
+  $("#vista").innerHTML = `<p class="tenue">Cargando…</p>`;
+  const facturas = await api("/api/billing/invoices").catch((e) => { avisar(e.message, true); return []; });
+  if (estado.pagina !== "cobros") return;
+  estado.facturas = facturas.map((f) => ({ ...f, _buscar: normalizar(`${f.paciente} ${f.numero_factura} ${f.nit} ${f.nombre_facturacion}`) }));
+  const hoy = hoyISO();
+  const vigentes = facturas.filter((f) => f.estado !== "anulada");
+  const deHoy = vigentes.filter((f) => String(f.fecha_emision).slice(0, 10) === hoy);
+  const porCobrar = vigentes.filter((f) => f.saldo > 0);
+  $("#vista").innerHTML = `
+    <div class="cifras cifras-dinero">
+      ${cifra("cobros", Q(porCobrar.reduce((s, f) => s + f.saldo, 0)), `por cobrar en ${porCobrar.length} factura${porCobrar.length === 1 ? "" : "s"}`, null, porCobrar.length ? "cifra-alerta" : "")}
+      ${cifra("cobros", Q(deHoy.reduce((s, f) => s + f.monto_total, 0)), `facturado hoy (${deHoy.length})`)}
+      ${cifra("cobros", Q(vigentes.reduce((s, f) => s + f.monto_pagado, 0)), "cobrado en total")}
+    </div>
+    <div class="barra-busqueda" role="search">
+      <label class="busca-texto"><span class="sr">Buscar factura</span><span class="ico" aria-hidden="true">${svg("buscar")}</span>
+        <input type="search" id="busCaja" maxlength="60" value="${esc(estado.busCaja || "")}" placeholder="Paciente, n.º de factura o NIT" autocomplete="off"></label>
+    </div>
+    <div id="pestanasCaja"></div>
+    <div class="panel" id="tablaCaja"></div>`;
+  pintarListaCaja();
+}
+
+async function pintarListaCaja() {
+  const f0 = estado.facturas || [];
+  const q = normalizar((estado.busCaja || "").trim());
+  const lista = f0.filter((f) => !q || q.split(/\s+/).every((p) => f._buscar.includes(p)));
+  const grupos = {
+    por_cobrar: lista.filter((f) => ["pendiente", "parcial"].includes(f.estado)),
+    pagadas: lista.filter((f) => f.estado === "pagada"),
+    anuladas: lista.filter((f) => f.estado === "anulada"),
+  };
+  $("#pestanasCaja").innerHTML = pestanas([["por_cobrar", `Por cobrar (${grupos.por_cobrar.length})`], ["pagadas", `Pagadas (${grupos.pagadas.length})`],
+    ["anuladas", `Anuladas (${grupos.anuladas.length})`], ["aranceles", "Aranceles"]], estado.filtroCaja, "data-filtro-caja");
+  $(".barra-busqueda").hidden = estado.filtroCaja === "aranceles";
+  if (estado.filtroCaja === "aranceles") { $("#tablaCaja").innerHTML = await tablaAranceles(); return; }
+  const v = grupos[estado.filtroCaja];
+  $("#tablaCaja").innerHTML = v.length ? tablaFacturas(v)
+    : `<div class="vacio-tabla"><span class="vacio-ico">${svg("cobros")}</span><p>${q ? "Ninguna factura coincide con la búsqueda." : { por_cobrar: "No hay cuentas por cobrar.", pagadas: "Todavía no hay facturas pagadas.", anuladas: "No hay facturas anuladas." }[estado.filtroCaja]}</p></div>`;
+}
+
+function tablaFacturas(lista, conPaciente = true) {
+  return `<table class="tabla-datos">
+    <thead><tr><th>Factura</th>${conPaciente ? "<th>Paciente</th>" : ""}<th>Origen</th><th class="num">Total</th><th class="num">Pagado</th><th class="num">Saldo</th><th>Estado</th><th class="acc"></th></tr></thead>
+    <tbody>${lista.map((f) => `<tr class="fila-clic" data-ver-factura="${f.id_factura}">
+      <td class="nowrap"><b>${esc(f.numero_factura)}</b><br><small class="tenue">${fecha(f.fecha_emision, true)}</small></td>
+      ${conPaciente ? `<td><button type="button" class="enlace-paciente" data-id="${f.id_paciente}">${esc(f.paciente)}</button><br><small class="tenue">NIT ${esc(f.nit)}</small></td>` : ""}
+      <td>${esc(origenTxt(f))}</td>
+      <td class="num">${Q(f.monto_total)}</td><td class="num">${Q(f.monto_pagado)}</td>
+      <td class="num"><b class="${f.saldo > 0 && f.estado !== "anulada" ? "saldo-pend" : ""}">${Q(f.estado === "anulada" ? 0 : f.saldo)}</b></td>
+      <td>${chipFactura(f.estado)}</td>
+      <td class="acc">${["pendiente", "parcial"].includes(f.estado) ? `<button type="button" class="btn primario chico" data-cobrar="${f.id_factura}">Cobrar</button>` : ""}</td>
+    </tr>`).join("")}</tbody></table>`;
+}
+
+async function tablaAranceles() {
+  estado.aranceles = null;
+  const lista = await aranceles();
+  const lab = estado.inst === "laboratorio";
+  return `<header class="panel-cab"><h2>Aranceles <span class="tenue">${lista.length} servicios</span></h2>
+      ${lab ? '<span class="tenue">Son los exámenes del catálogo; aquí se cambia su precio.</span>' : '<button type="button" class="btn sutil chico" data-editar-arancel="">+ Nuevo arancel</button>'}</header>
+    <table class="tabla-datos"><thead><tr><th>Código</th><th>Servicio</th><th>Categoría</th><th class="num">Precio</th><th>Estado</th><th class="acc"></th></tr></thead>
+    <tbody>${lista.map((a) => `<tr>
+      <td class="nowrap"><b>${esc(a.codigo)}</b></td><td>${esc(a.descripcion)}</td><td>${esc(CATEGORIAS[a.categoria] || a.categoria)}</td>
+      <td class="num"><b>${Q(a.precio)}</b></td><td>${a.activo ? '<span class="estado activo">Activo</span>' : '<span class="estado baja">Inactivo</span>'}</td>
+      <td class="acc"><button type="button" class="btn sutil chico" data-editar-arancel="${esc(a.codigo)}">Editar</button></td></tr>`).join("")}</tbody></table>`;
+}
+
+async function verFactura(id) {
+  abrirCajon({ ini: "Q", sub: "Cargando…", titulo: "Factura", cuerpo: '<p class="tenue">Cargando…</p>', pie: "" });
+  try {
+    const f = await api(`/api/billing/invoices/${id}`);
+    estado.facturasCache[id] = f;
+    const cobrable = ["pendiente", "parcial"].includes(f.estado);
+    abrirCajon({
+      ini: "Q", sub: `${f.paciente} · ${fecha(f.fecha_emision, true)}`, titulo: `Factura ${f.numero_factura}`,
+      cuerpo: `
+        <div>${chipFactura(f.estado)} <span class="tenue">${esc(origenTxt(f))}</span></div>
+        ${f.motivo_anulacion ? `<p class="aviso-baja">${esc(f.motivo_anulacion)}</p>` : ""}
+        <dl class="datos-cortos"><div><dt>NIT</dt><dd>${esc(f.nit)}</dd></div><div><dt>Nombre</dt><dd>${esc(f.nombre_facturacion)}</dd></div></dl>
+        <section class="cajon-bloque"><h3>Detalle</h3>
+          <table class="tabla tabla-factura"><tbody>${f.detalle.map((d) => `<tr><td>${esc(d.concepto)}<br><small class="tenue">${Number(d.cantidad)} × ${Q(d.precio_unitario)}</small></td><td class="num">${Q(d.subtotal)}</td></tr>`).join("")}</tbody>
+          <tfoot><tr><td>Total</td><td class="num">${Q(f.monto_total)}</td></tr>
+            <tr><td>Pagado</td><td class="num">${Q(f.monto_pagado)}</td></tr>
+            <tr class="saldo"><td>Saldo</td><td class="num">${Q(f.estado === "anulada" ? 0 : f.saldo ?? f.monto_total - f.monto_pagado)}</td></tr></tfoot></table>
+        </section>
+        <section class="cajon-bloque"><h3>Pagos</h3>${f.pagos.length ? f.pagos.map((p) => `<p class="linea-dato"><span>${esc(p.numero_recibo)}<br><small class="tenue">${fecha(p.fecha_pago, true)} · ${esc(texto(p.metodo_pago))}${p.referencia ? ` · ${esc(p.referencia)}` : ""} · ${esc(p.recibido_por || "")}</small></span><span>${Q(p.monto)}</span></p>`).join("")
+          : '<p class="tenue">Sin pagos todavía.</p>'}</section>`,
+      pie: `${cobrable ? `<button type="button" class="btn primario" data-cobrar="${f.id_factura}">Cobrar ${Q(f.saldo)}</button>` : `<button type="button" class="btn primario" data-imprimir-factura="${f.id_factura}">Imprimir comprobante</button>`}
+        ${cobrable ? `<button type="button" class="btn sutil" data-imprimir-factura="${f.id_factura}">Imprimir</button>` : ""}
+        ${f.estado === "pendiente" ? `<button type="button" class="btn sutil peligro-txt" data-anular-factura="${f.id_factura}">Anular</button>` : ""}`,
+    });
+  } catch (e) {
+    $("#cajonCuerpo").innerHTML = `<p class="error">${esc(e.message)}</p>`;
+  }
+}
+
+function refrescarCaja(id = null) {
+  estado.aranceles = null;
+  if (estado.pagina === "cobros") pintarCaja();
+  else if (estado.pagina === "ordenes") pintarOrdenes();
+  else if (estado.pagina === "paciente" && estado.historial) abrirPaciente(estado.historial.paciente.id_paciente, estado.pestana);
+  if (estado.ordenTrasCobro) { const oid = estado.ordenTrasCobro; estado.ordenTrasCobro = null; estado.volverAFactura = null; verOrden(oid); return; }
+  if (id && (estado.volverAFactura === id || $("#cajon").open)) verFactura(id);
+  estado.volverAFactura = null;
+}
+
+// ---- Nueva factura (manual, o la cuenta calculada de un internamiento)
+async function formFactura({ idPaciente = null, lineas = [], origenTipo = "manual", origenId = null, titulo = "Nueva factura" } = {}) {
+  const [pacientes, lista] = await Promise.all([todosLosPacientes(), aranceles()]);
+  const activos = lista.filter((a) => a.activo);
+  const p0 = pacientes.find((p) => p.id_paciente === idPaciente);
+  const fila = (l = {}) => `<tr data-fila="cargo">
+      <td><input data-k="concepto" maxlength="150" required value="${esc(l.concepto || "")}" aria-label="Concepto"><input type="hidden" data-k="codigo_arancel" value="${esc(l.codigo_arancel || "")}"></td>
+      <td><input data-k="cantidad" type="number" min="0.01" max="1000" step="any" required value="${l.cantidad ?? 1}" aria-label="Cantidad"></td>
+      <td><input data-k="precio_unitario" type="number" min="0" max="100000" step="0.01" required value="${l.precio_unitario ?? ""}" aria-label="Precio"></td>
+      <td class="num" data-subtotal></td>
+      <td><button type="button" class="btn-icono" data-quitar-cargo aria-label="Quitar">Quitar</button></td></tr>`;
+  const html = `<div id="cuerpoFactura">
+    <div class="rejilla">
+      <label class="doble"><span class="requerido">Paciente</span><select name="id_paciente" required ${idPaciente ? "disabled" : ""}>
+        <option value="">Seleccione…</option>${pacientes.map((p) => `<option value="${p.id_paciente}" ${p.id_paciente === idPaciente ? "selected" : ""}>${esc(p.nombres)} ${esc(p.apellidos)}</option>`).join("")}</select></label>
+      <label><span class="requerido">NIT</span><input name="nit" required value="CF" maxlength="15"></label>
+      <label>Nombre en la factura<input name="nombre_facturacion" maxlength="120" value="${esc(p0 ? `${p0.nombres} ${p0.apellidos}` : "")}" placeholder="Nombre del paciente"></label>
+    </div>
+    <div class="cargos-cab"><h3>Cargos</h3>
+      <label class="agregar-arancel">Agregar servicio<select id="selArancel"><option value="">Elija un servicio…</option>
+        ${Object.entries(CATEGORIAS).map(([k, t]) => { const g = activos.filter((a) => a.categoria === k); return g.length ? `<optgroup label="${t}">${g.map((a) => `<option value="${esc(a.codigo)}">${esc(a.descripcion)} · ${Q(a.precio)}</option>`).join("")}</optgroup>` : ""; }).join("")}
+      </select></label></div>
+    <table class="tabla tabla-cargos"><thead><tr><th>Concepto</th><th>Cant.</th><th>Precio</th><th class="num">Subtotal</th><th></th></tr></thead>
+      <tbody id="filasCargos">${lineas.map(fila).join("")}</tbody>
+      <tfoot><tr><td colspan="3">Total</td><td class="num" id="totalFactura">Q0.00</td><td></td></tr></tfoot></table>
+    <p class="ayuda" id="ayudaCargos">${lineas.length ? (origenTipo === "internamiento" ? "Cargos calculados por la base de datos con la estancia, los medicamentos aplicados y las cirugías. Puede ajustarlos antes de facturar." : "") : "Agregue los servicios desde la lista o escriba un cargo libre."}</p>
+    <button type="button" class="btn sutil chico" data-cargo-libre>+ Cargo libre</button></div>`;
+  abrirModal(titulo, html, "Emitir factura", async (fd) => {
+    const d = datosForm(fd);
+    const cargos = [...$("#filasCargos").querySelectorAll('[data-fila="cargo"]')].map((tr) =>
+      Object.fromEntries([...tr.querySelectorAll("[data-k]")].map((i) => [i.dataset.k, i.value.trim()])));
+    if (!cargos.length) throw new Error("Agregue al menos un cargo.");
+    const body = { id_paciente: idPaciente || Number(d.id_paciente), nit: d.nit, nombre_facturacion: d.nombre_facturacion,
+      origen_tipo: origenTipo, origen_id: origenId, lineas: cargos.map((c) => ({ ...c, cantidad: Number(c.cantidad), precio_unitario: Number(c.precio_unitario) })) };
+    const f = await api("/api/billing/invoices", { method: "POST", body });
+    avisar(`Factura ${f.numero_factura} por ${Q(f.monto_total)} emitida`);
+    estado.volverAFactura = f.id_factura;
+    refrescarCaja(f.id_factura);
+  });
+  const cuerpo = $("#cuerpoFactura");
+  const total = () => {
+    let t = 0;
+    cuerpo.querySelectorAll('[data-fila="cargo"]').forEach((tr) => {
+      const st = Number(tr.querySelector('[data-k="cantidad"]').value || 0) * Number(tr.querySelector('[data-k="precio_unitario"]').value || 0);
+      t += st;
+      tr.querySelector("[data-subtotal]").textContent = Q(st);
+    });
+    $("#totalFactura").textContent = Q(t);
+  };
+  cuerpo.addEventListener("input", total);
+  cuerpo.addEventListener("change", (ev) => {
+    if (ev.target.id === "selArancel" && ev.target.value) {
+      const a = activos.find((x) => x.codigo === ev.target.value);
+      $("#filasCargos").insertAdjacentHTML("beforeend", fila({ codigo_arancel: a.codigo, concepto: a.descripcion, cantidad: 1, precio_unitario: a.precio }));
+      ev.target.value = "";
+      total();
+    }
+    if (ev.target.name === "id_paciente") {
+      const p = pacientes.find((x) => x.id_paciente === Number(ev.target.value));
+      if (p) cuerpo.querySelector('[name="nombre_facturacion"]').value = `${p.nombres} ${p.apellidos}`;
+    }
+  });
+  cuerpo.addEventListener("click", (ev) => {
+    if (ev.target.closest("[data-quitar-cargo]")) { ev.target.closest("tr").remove(); total(); }
+    if (ev.target.closest("[data-cargo-libre]")) { $("#filasCargos").insertAdjacentHTML("beforeend", fila()); $("#filasCargos tr:last-child input").focus(); total(); }
+  });
+  total();
+}
+
+async function generarCuentaInternamiento(idHosp, idPaciente) {
+  try {
+    const cargos = await api(`/api/billing/suggested?origen_tipo=internamiento&origen_id=${idHosp}`);
+    formFactura({ idPaciente, lineas: cargos, origenTipo: "internamiento", origenId: idHosp, titulo: "Cuenta del internamiento" });
+  } catch (e) { avisar(e.message, true); }
+}
+
+// ---- Cobrar (abono o pago total)
+async function formCobro(id) {
+  const f = estado.facturasCache[id] || await api(`/api/billing/invoices/${id}`);
+  const saldo = Number((f.monto_total - f.monto_pagado).toFixed(2));
+  const html = `<div id="cuerpoCobro"><div class="dosis-resumen"><b>Factura ${esc(f.numero_factura)} · ${esc(f.paciente)}</b>
+      <span class="tenue">Total ${Q(f.monto_total)} · pagado ${Q(f.monto_pagado)}</span></div>
+    <p class="saldo-grande">Saldo <b>${Q(saldo)}</b></p>
+    <div class="rejilla">
+      <label><span class="requerido">Monto</span><input name="monto" type="number" required min="0.01" max="${saldo}" step="0.01" value="${saldo}"></label>
+      <label><span class="requerido">Método</span><select name="metodo_pago">${opciones(METODOS, "efectivo")}</select></label>
+      <label class="doble" id="campoRef" hidden><span class="requerido">Referencia o autorización</span><input name="referencia" maxlength="40" placeholder="AUT-552190"></label>
+    </div>
+    <p class="ayuda" id="ayudaCobro">Paga la factura completa.</p></div>`;
+  abrirModal("Cobrar", html, `Cobrar ${Q(saldo)}`, async (fd) => {
+    const d = datosForm(fd);
+    if (d.metodo_pago !== "efectivo" && !d.referencia) throw new Error("Indique la referencia o el número de autorización.");
+    const r = await api(`/api/billing/invoices/${id}/pay`, { method: "POST", body: { ...d, monto: Number(d.monto) } });
+    const p = r.pagos[r.pagos.length - 1];
+    avisar(`Recibo ${p.numero_recibo} por ${Q(p.monto)}${r.estado === "pagada" ? " · factura pagada" : ` · saldo ${Q(r.monto_total - r.monto_pagado)}`}`);
+    estado.volverAFactura = id;
+    refrescarCaja(id);
+  });
+  const c = $("#cuerpoCobro");
+  const act = () => {
+    const m = Number(c.querySelector('[name="monto"]').value || 0);
+    const met = c.querySelector('[name="metodo_pago"]').value;
+    $("#campoRef").hidden = met === "efectivo";
+    c.querySelector('[name="referencia"]').required = met !== "efectivo";
+    $("#modalAceptar").textContent = `Cobrar ${Q(m)}`;
+    $("#ayudaCobro").textContent = m >= saldo ? "Paga la factura completa." : m > 0 ? `Abono: quedará un saldo de ${Q(saldo - m)}.` : "";
+  };
+  c.addEventListener("input", act);
+  c.addEventListener("change", act);
+  act();
+}
+
+function formAnularFactura(id) {
+  abrirModal("Anular factura", `<label><span class="requerido">Motivo</span><input name="motivo" required minlength="5" maxlength="200" placeholder="Error en los cargos"></label>
+    <p class="ayuda">Solo se anulan facturas sin pagos. Si era la cuenta de una consulta o internamiento, se puede volver a emitir.</p>`,
+  "Anular factura", async (fd) => {
+    await api(`/api/billing/invoices/${id}/void`, { method: "POST", body: datosForm(fd) });
+    avisar("Factura anulada");
+    refrescarCaja(id);
+  });
+}
+
+async function formArancel(codigo) {
+  const lista = await aranceles();
+  const a = lista.find((x) => x.codigo === codigo) || { codigo: "", descripcion: "", categoria: estado.inst === "laboratorio" ? "examen" : "consulta", precio: "", activo: true };
+  const lab = estado.inst === "laboratorio";
+  const cats = Object.entries(CATEGORIAS).filter(([k]) => (estado.inst === "hospital" ? !["vacunacion", "examen"].includes(k) : estado.inst === "pediatrico" ? ["consulta", "vacunacion", "procedimiento", "medicamento", "otro"].includes(k) : k === "examen"));
+  abrirModal(codigo ? `Editar ${codigo}` : "Nuevo arancel", `<div class="rejilla">
+      <label><span class="requerido">Código</span><input name="codigo_arancel" required maxlength="15" value="${esc(a.codigo)}" ${codigo ? "readonly" : ""} placeholder="CURACION"></label>
+      <label><span class="requerido">Precio (Q)</span><input name="precio" type="number" required min="0" max="100000" step="0.01" value="${a.precio}"></label>
+      <label class="doble"><span class="requerido">Servicio</span><input name="descripcion" required minlength="3" maxlength="120" value="${esc(a.descripcion)}"></label>
+      <label>Categoría<select name="categoria" ${lab ? "disabled" : ""}>${opciones(cats, a.categoria)}</select></label>
+      <label class="check"><input type="checkbox" name="activo" value="1" ${a.activo ? "checked" : ""}> Disponible para facturar</label>
+    </div><p class="ayuda">El cambio de precio aplica a las facturas nuevas; las emitidas conservan su precio.</p>`,
+  "Guardar", async (fd) => {
+    const d = datosForm(fd);
+    await api("/api/billing/tariffs", { method: "POST", body: { codigo: d.codigo_arancel.toUpperCase(), descripcion: d.descripcion,
+      categoria: lab ? "examen" : d.categoria, precio: Number(d.precio), activo: fd.get("activo") === "1" } });
+    avisar("Arancel guardado");
+    estado.aranceles = null;
+    if (estado.pagina === "cobros") pintarListaCaja();
+  });
+}
+
+// Comprobante imprimible (se abre en una ventana y se manda a imprimir)
+async function imprimirFactura(id) {
+  const f = estado.facturasCache[id] || await api(`/api/billing/invoices/${id}`);
+  const inst = INST[estado.inst]?.nombre || "";
+  const w = window.open("", "_blank", "width=720,height=900");
+  if (!w) { avisar("Permita las ventanas emergentes para imprimir", true); return; }
+  w.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${esc(f.numero_factura)}</title>
+    <style>body{font:14px system-ui,sans-serif;color:#1d2a33;margin:32px}h1{font-size:20px;margin:0}table{width:100%;border-collapse:collapse;margin:16px 0}
+    td,th{padding:6px 4px;border-bottom:1px solid #ddd;text-align:left}.n{text-align:right}tfoot td{font-weight:700;border:0}.t{color:#666;font-size:12px}
+    .cab{display:flex;justify-content:space-between;border-bottom:2px solid #1d2a33;padding-bottom:10px;margin-bottom:12px}</style></head><body>
+    <div class="cab"><div><h1>${esc(inst)}</h1><div class="t">Comprobante de servicios · documento interno, no es factura electrónica FEL</div></div>
+      <div style="text-align:right"><b>${esc(f.numero_factura)}</b><br>${fecha(f.fecha_emision, true)}<br>${esc(ESTADO_FACTURA[f.estado]?.[0] || f.estado)}</div></div>
+    <div><b>NIT:</b> ${esc(f.nit)} &nbsp; <b>Nombre:</b> ${esc(f.nombre_facturacion)} &nbsp; <b>Paciente:</b> ${esc(f.paciente)}</div>
+    <table><thead><tr><th>Concepto</th><th class="n">Cant.</th><th class="n">Precio</th><th class="n">Subtotal</th></tr></thead>
+    <tbody>${f.detalle.map((d) => `<tr><td>${esc(d.concepto)}</td><td class="n">${Number(d.cantidad)}</td><td class="n">${Q(d.precio_unitario)}</td><td class="n">${Q(d.subtotal)}</td></tr>`).join("")}</tbody>
+    <tfoot><tr><td colspan="3" class="n">Total</td><td class="n">${Q(f.monto_total)}</td></tr><tr><td colspan="3" class="n">Pagado</td><td class="n">${Q(f.monto_pagado)}</td></tr>
+    <tr><td colspan="3" class="n">Saldo</td><td class="n">${Q(f.estado === "anulada" ? 0 : f.monto_total - f.monto_pagado)}</td></tr></tfoot></table>
+    ${f.pagos.length ? `<b>Pagos</b><table>${f.pagos.map((p) => `<tr><td>${esc(p.numero_recibo)}</td><td>${fecha(p.fecha_pago, true)}</td><td>${esc(texto(p.metodo_pago))}${p.referencia ? ` · ${esc(p.referencia)}` : ""}</td><td class="n">${Q(p.monto)}</td></tr>`).join("")}</table>` : ""}
+    <script>window.onload=()=>window.print()<\/script></body></html>`);
+  w.document.close();
+}
+
+// ---- Cuenta del paciente (pestaña de la ficha)
+async function cargarCuentaPaciente() {
+  const caja = $("#cuentaPaciente");
+  if (!caja) return;
+  const id = estado.historial.paciente.id_paciente;
+  try {
+    const facturas = await api(`/api/billing/invoices?id_paciente=${id}`);
+    facturas.forEach((f) => { estado.facturasCache[f.id_factura] = { ...estado.facturasCache[f.id_factura], ...f }; });
+    const saldo = facturas.filter((f) => f.estado !== "anulada").reduce((s, f) => s + f.saldo, 0);
+    caja.innerHTML = `<div class="cuenta-resumen"><div><span class="tenue">Saldo pendiente</span><b class="${saldo > 0 ? "saldo-pend" : ""}">${Q(saldo)}</b></div>
+        <button type="button" class="btn primario chico" data-accion="nueva-factura">+ Nueva factura</button></div>
+      <div class="panel">${facturas.length ? tablaFacturas(facturas, false) : '<div class="vacio-tabla"><p>Este paciente no tiene facturas.</p></div>'}</div>`;
+  } catch (e) { caja.innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+}
+
+let tBusCaja;
+$("#contenido").addEventListener("input", (ev) => {
+  if (ev.target.id !== "busCaja") return;
+  estado.busCaja = ev.target.value;
+  clearTimeout(tBusCaja);
+  tBusCaja = setTimeout(pintarListaCaja, 150);
 });
 
 // ---------------------------------------------------------- Estado de motores
@@ -1686,7 +2028,8 @@ function pintarHospitalPaciente() {
           <td><b>${esc(h.numero_habitacion)}</b>${habitacionDe(h.numero_habitacion) ? `<br><small class="tenue">${esc(habitacionDe(h.numero_habitacion).departamento)}</small>` : ""}</td><td class="nowrap">${fecha(h.fecha_ingreso, true)}</td>
           <td class="nowrap">${h.fecha_egreso ? fecha(h.fecha_egreso, true) : "—"}</td><td>${esc(h.motivo_ingreso)}</td>
           <td><span class="estado ${h.estado === "ingresado" ? "alerta" : "activo"}">${mayus(h.estado)}</span></td>
-          <td class="acc">${h.estado === "ingresado" && activo ? `<button type="button" class="btn sutil chico" data-cambiar-hab="${h.id_hospitalizacion}" data-hab-actual="${esc(h.numero_habitacion)}">Cambiar habitación</button><button type="button" class="btn sutil chico" data-alta="${h.id_hospitalizacion}">Registrar egreso</button>` : ""}</td>
+          <td class="acc">${h.estado === "ingresado" && activo ? `<button type="button" class="btn sutil chico" data-cambiar-hab="${h.id_hospitalizacion}" data-hab-actual="${esc(h.numero_habitacion)}">Cambiar habitación</button><button type="button" class="btn sutil chico" data-alta="${h.id_hospitalizacion}">Registrar egreso</button>` : ""}
+            <button type="button" class="btn sutil chico" data-generar-cuenta="${h.id_hospitalizacion}" data-paciente="${h.id_paciente}">Generar cuenta</button></td>
         </tr>`).join("")}</tbody></table>`
         : `<p class="relleno tenue">No ha estado internado. Para ingresarlo, registre una consulta y marque "Ingresar al paciente".</p>`}</div>
     </section>
@@ -1766,6 +2109,12 @@ function abrirCajon({ ini, sub, titulo, cuerpo, pie }) {
 const cerrarCajon = () => { if ($("#cajon").open) $("#cajon").close(); };
 $("#cajon").addEventListener("click", async (ev) => {
   if (ev.target === $("#cajon") || ev.target.closest("[data-cerrar-cajon]")) { cerrarCajon(); return; }
+  const cb = ev.target.closest("[data-cobrar]");
+  if (cb) { estado.volverAFactura = Number(cb.dataset.cobrar); cerrarCajon(); formCobro(Number(cb.dataset.cobrar)); return; }
+  const an = ev.target.closest("[data-anular-factura]");
+  if (an) { cerrarCajon(); formAnularFactura(Number(an.dataset.anularFactura)); return; }
+  const im = ev.target.closest("[data-imprimir-factura]");
+  if (im) { imprimirFactura(Number(im.dataset.imprimirFactura)); return; }
   const po = ev.target.closest("[data-paso-orden]");
   if (po) { estado.volverAOrden = Number(po.dataset.orden); pasoOrden(po.dataset.pasoOrden, Number(po.dataset.orden)); return; }
   const b = ev.target.closest("[data-cajon]");
@@ -1956,6 +2305,7 @@ function pintarExpediente() {
     lista.push(["dental-planes", `Planes (${estado.dentalPaciente?.planes_tratamiento?.length || 0})`]);
     lista.push(["dental-cobros", `Cobros (${estado.dentalPaciente?.facturacion?.facturas?.length || 0})`]);
   }
+  if (conCaja()) lista.push(["cuenta", "Cuenta"]);
   if (!lista.some(([k]) => k === estado.pestana)) estado.pestana = "historial";
 
   let cuerpo = "";
@@ -1982,6 +2332,9 @@ function pintarExpediente() {
     cuerpo = pintarExpedientePlanes();
   } else if (estado.pestana === "dental-cobros") {
     cuerpo = pintarExpedienteCobros();
+  } else if (estado.pestana === "cuenta") {
+    cuerpo = '<div id="cuentaPaciente"><p class="tenue">Cargando…</p></div>';
+    setTimeout(cargarCuentaPaciente, 0);
   } else {
     cuerpo = pintarEspecializado();
   }
@@ -2092,6 +2445,16 @@ $("#contenido").addEventListener("click", async (ev) => {
   if (anu) { confirmarAnular(Number(anu.dataset.anular)); return; }
   const alta = t.closest("[data-alta]");
   if (alta) { formAlta(Number(alta.dataset.alta)); return; }
+  const fCaja = t.closest("[data-filtro-caja]");
+  if (fCaja) { estado.filtroCaja = fCaja.dataset.filtroCaja; pintarListaCaja(); return; }
+  const cobrar = t.closest("[data-cobrar]");
+  if (cobrar) { formCobro(Number(cobrar.dataset.cobrar)); return; }
+  const edAr = t.closest("[data-editar-arancel]");
+  if (edAr) { formArancel(edAr.dataset.editarArancel); return; }
+  const genCta = t.closest("[data-generar-cuenta]");
+  if (genCta) { generarCuentaInternamiento(Number(genCta.dataset.generarCuenta), Number(genCta.dataset.paciente)); return; }
+  const vFac = t.closest("[data-ver-factura]");
+  if (vFac && (!t.closest("button") || t.closest("button").dataset.verFactura)) { verFactura(Number(vFac.dataset.verFactura)); return; }
   const paso = t.closest("[data-paso-orden]");
   if (paso) { pasoOrden(paso.dataset.pasoOrden, Number(paso.dataset.orden)); return; }
   const fOrd = t.closest("[data-filtro-ordenes]");
@@ -2165,6 +2528,7 @@ $("#contenido").addEventListener("click", async (ev) => {
   if (accion === "refrescar-motores") pintarMotores();
   if (accion === "consulta") { if (estado.inst === "laboratorio") formOrden(estado.historial?.paciente.id_paciente); else formConsulta(); }
   if (accion === "cita") formCita();
+  if (accion === "nueva-factura") formFactura({ idPaciente: estado.pagina === "paciente" ? estado.historial?.paciente.id_paciente : null });
   if (accion === "nueva-orden") formOrden(estado.pagina === "paciente" ? estado.historial?.paciente.id_paciente : null);
   if (accion === "editar") formPaciente(estado.historial.paciente);
   if (accion === "baja") formBaja();
@@ -2470,6 +2834,10 @@ const REGLAS = {
   dosis: { attrs: { maxlength: 50 }, re: RE.dosis, msg: "cantidad y unidad (ej. 500 mg, 1 g, 2 tabletas)" },
   duracion_dias: num(1, 30, 1), indicaciones: txt(200), observaciones: txt(200), motivo_omision: txt(200, 5),
   username: txt(50), password: txt(100),
+  nit: { attrs: { maxlength: 15, placeholder: "CF" }, filtro: "mayus", check: (v) => revisarNIT(v) },
+  nombre_facturacion: txt(120, 3), monto: num(0.01, 1000000, 0.01), referencia: txt(40, 3),
+  descripcion: txt(120, 3), precio: num(0, 100000, 0.01),
+  codigo_arancel: { attrs: { maxlength: 15 }, filtro: "mayus", re: /^[A-Z0-9-]{3,15}$/, msg: "mayúsculas, números y guion (3 a 15)" },
   codigo: { attrs: { maxlength: 8 }, filtro: "mayus", re: /^[A-Z]{2,4}-\d{2,3}$/, msg: "2 a 4 letras, guion y 2 o 3 números (ej. MI-104)" },
   camas: num(1, 6, 1), nombre: nombreR(80), piso: num(0, 20, 1),
   extension: { attrs: { maxlength: 5, inputmode: "numeric" }, filtro: "digitos", re: /^\d{2,5}$/, msg: "de 2 a 5 dígitos" },
@@ -2486,6 +2854,7 @@ const REGLAS = {
   medicamentos_actuales: txt(500), observaciones_medicas: txt(1000),
 };
 const REGLAS_FILA = {
+  concepto: txt(150, 2), cantidad: num(0.01, 1000), precio_unitario: num(0, 100000, 0.01),
   medicamento: txt(100, 2), presentacion: txt(50), dosis: txt(50), frecuencia: txt(50), duracion_dias: num(1, 90, 1),
   dosis_mg_kg: num(0.01, 100, 0.01), concentracion_mg_ml: num(0.1, 1000, 0.1),
   pieza_dental: { attrs: { maxlength: 2, inputmode: "numeric" }, filtro: "digitos",
@@ -2894,7 +3263,7 @@ function formConsulta(idCita = null) {
         throw new Error("Para recetar se necesita un diagnóstico.");
       }
       await api("/api/consultations", { method: "POST", body: d });
-      avisar(lab ? "Resultado guardado" : "Consulta guardada");
+      avisar(lab ? "Resultado guardado" : conCaja() ? "Consulta guardada · su cobro quedó pendiente en Caja" : "Consulta guardada");
       abrirPaciente(estado.idSeleccionado, "historial");
     });
 

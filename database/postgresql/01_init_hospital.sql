@@ -271,7 +271,7 @@ INSERT INTO hospital.Receta (id_tratamiento, id_medicamento, dosis, frecuencia, 
 VALUES (1, 1, '1 tableta', 'Cada 8 horas', 7, 'Oral');
 
 INSERT INTO hospital.Hospitalizacion (id_paciente, id_consulta, fecha_ingreso, numero_habitacion, motivo_ingreso, estado)
-VALUES (1, 1, '2026-03-01 09:30:00', 'CG-304', 'Monitoreo pre y post operatorio de colecistectomía', 'ingresado');
+VALUES (1, 1, (CURRENT_DATE - 2) + TIME '09:30', 'CG-304', 'Monitoreo pre y post operatorio de colecistectomía', 'ingresado');
 
 
 -- ============================================================================

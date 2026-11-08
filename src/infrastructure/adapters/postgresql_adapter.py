@@ -16,6 +16,7 @@ from psycopg2.extras import RealDictCursor
 from psycopg2.pool import ThreadedConnectionPool
 
 from .base_adapter import BaseClinicalAdapter
+from .billing_sql import SQLBillingMixin, _plano
 from ..config import Config
 from ...domain.ports import HospitalOperationsPort
 from ...domain.entities import (
@@ -64,13 +65,39 @@ MENSAJES_CHECK = {
     "chk_cirugia_duracion": "La duración de la cirugía debe estar entre 15 y 720 minutos",
     "chk_orden_frecuencia": "La frecuencia debe estar entre 1 y 72 horas",
     "chk_habitacion_camas": "Una habitación tiene de 1 a 6 camas",
+    "chk_factura_montos": "El monto pagado no puede superar el total de la factura",
+    "chk_factura_nit": "NIT inválido: use CF o números con su dígito verificador (ej. 1234567-8)",
+    "chk_pago_monto": "El pago debe ser mayor que cero",
+    "chk_pago_metodo": "Método de pago inválido",
+    "chk_pago_referencia": "Indique la referencia o autorización del pago",
+    "chk_detalle_cantidad": "La cantidad debe estar entre 1 y 1000",
+    "chk_arancel_precio": "El precio debe estar entre Q0 y Q100,000",
+    "chk_arancel_codigo": "El código del arancel solo admite mayúsculas, números y guion (3 a 15)",
+    "chk_arancel_categoria": "Categoría de arancel inválida",
     "chk_habitacion_codigo": "El código de la habitación es de 2 a 4 letras, guion y 2 o 3 números (ej. MI-104)",
     "chk_departamento_piso": "El piso debe estar entre 0 y 20",
     "chk_departamento_extension": "La extensión es de 2 a 5 dígitos",
 }
 
 
-class PostgreSQLAdapter(BaseClinicalAdapter, HospitalOperationsPort):
+class PostgreSQLAdapter(BaseClinicalAdapter, HospitalOperationsPort, SQLBillingMixin):
+    _PREFIJO_CAJA = "HG"
+
+    def _ultimo_id(self, cur, tabla: str, columna: str) -> int:
+        cur.execute("SELECT currval(pg_get_serial_sequence(%s, %s)) AS id", (f"hospital.{tabla}", columna))
+        return int(cur.fetchone()["id"])
+
+    def suggested_charges(self, origen_tipo: str, origen_id: int) -> List[Dict[str, Any]]:
+        if origen_tipo != "internamiento":
+            return []
+        with self._tx() as cur:
+            cur.execute("SELECT 1 FROM Hospitalizacion WHERE id_hospitalizacion = %s", (int(origen_id),))
+            if not cur.fetchone():
+                raise ValueError("Hospitalización no encontrada")
+            # La cuenta la calcula la función hospital.cuenta_internamiento() (02_cobros_hospital.sql)
+            cur.execute("SELECT * FROM hospital.cuenta_internamiento(%s)", (int(origen_id),))
+            return [_plano(r) for r in cur.fetchall()]
+
     is_live = True
 
     def __init__(self, config: Config):

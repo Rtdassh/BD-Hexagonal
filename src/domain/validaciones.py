@@ -443,3 +443,70 @@ def validar_pago_dental(data: Dict[str, Any]) -> Dict[str, Any]:
     metodo = metodos_map.get(raw_m.lower(), raw_m)
     data["metodo_pago"] = metodo
     return data
+
+
+# ----------------------------------------------------------------------------
+# Caja
+# ----------------------------------------------------------------------------
+METODOS_PAGO = ("efectivo", "tarjeta", "transferencia", "cheque")
+CATEGORIAS_ARANCEL = ("consulta", "hospitalizacion", "cirugia", "medicamento", "procedimiento", "vacunacion", "examen", "otro")
+
+
+def nit_valido(nit: str) -> bool:
+    """NIT de Guatemala: números + dígito verificador (módulo 11; 10 se escribe K)."""
+    n = nit.replace("-", "").upper()
+    if not re.match(r"^\d{1,12}[\dK]$", n):
+        return False
+    cuerpo, dv = n[:-1], n[-1]
+    suma = sum(int(d) * peso for d, peso in zip(reversed(cuerpo), range(2, 2 + len(cuerpo))))
+    esperado = (11 - suma % 11) % 11
+    return dv == ("K" if esperado == 10 else str(esperado))
+
+
+def validar_nit(data: Dict[str, Any]) -> None:
+    nit = _txt(data.get("nit")).upper().replace(" ", "") or "CF"
+    if nit not in ("CF", "C/F") and not nit_valido(nit):
+        raise ValueError("NIT inválido: el dígito verificador no coincide (use CF si es consumidor final)")
+    data["nit"] = "CF" if nit in ("CF", "C/F") else nit
+
+
+def validar_factura(data: Dict[str, Any]) -> Dict[str, Any]:
+    validar_nit(data)
+    texto(data, "nombre_facturacion", "Nombre de facturación", 120, 3)
+    lineas = [dict(l) for l in (data.get("lineas") or []) if (l or {}).get("concepto")]
+    if not lineas:
+        raise ValueError("Agregue al menos un cargo a la factura")
+    if len(lineas) > 30:
+        raise ValueError("Una factura admite como máximo 30 líneas")
+    for i, l in enumerate(lineas, 1):
+        texto(l, "concepto", f"Línea {i}: concepto", 150, 2, req=True)
+        numero(l, "cantidad", f"Línea {i}: cantidad", 0.01, 1000, req=True)
+        numero(l, "precio_unitario", f"Línea {i}: precio", 0, 100000, req=True)
+        l["precio_unitario"] = round(l["precio_unitario"], 2)
+    data["lineas"] = lineas
+    if sum(l["cantidad"] * l["precio_unitario"] for l in lineas) <= 0:
+        raise ValueError("El total de la factura debe ser mayor que cero")
+    return data
+
+
+def validar_pago(data: Dict[str, Any]) -> Dict[str, Any]:
+    numero(data, "monto", "Monto", 0.01, 1000000, req=True)
+    data["monto"] = round(data["monto"], 2)
+    metodo = _txt(data.get("metodo_pago")).lower()
+    if metodo not in METODOS_PAGO:
+        raise ValueError("Método de pago inválido: efectivo, tarjeta, transferencia o cheque")
+    data["metodo_pago"] = metodo
+    texto(data, "referencia", "Referencia", 40, 3, req=metodo != "efectivo")
+    return data
+
+
+def validar_arancel(data: Dict[str, Any]) -> Dict[str, Any]:
+    data["codigo"] = _txt(data.get("codigo")).upper()
+    texto(data, "codigo", "Código", 15, 3, True, re.compile(r"^[A-Z0-9-]{3,15}$"), "mayúsculas, números y guion")
+    texto(data, "descripcion", "Descripción", 120, 3, req=True)
+    if data.get("categoria") not in CATEGORIAS_ARANCEL:
+        raise ValueError("Categoría inválida")
+    numero(data, "precio", "Precio", 0, 100000, req=True)
+    data["precio"] = round(data["precio"], 2)
+    data["activo"] = data.get("activo") not in (False, "0", "false", 0)
+    return data

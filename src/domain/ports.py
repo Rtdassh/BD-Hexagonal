@@ -495,3 +495,50 @@ class LaboratoryOrdersPort(ABC):
     def sample_agenda(self, desde: Optional[str] = None) -> List[Dict[str, Any]]:
         """Tomas de muestra agendadas, con la preparación que debe traer el paciente."""
         pass
+
+
+class BillingPort(ABC):
+    """
+    Caja de cada institución: aranceles (precios), facturas con su detalle y pagos.
+    Lo implementan PostgreSQL (hospital), MySQL (pediátrico) y MongoDB (laboratorio).
+    La Clínica Odontológica tiene su propia facturación por planes en DentalOperationsPort.
+    """
+
+    ESTADOS = ("pendiente", "parcial", "pagada", "anulada")
+
+    @abstractmethod
+    def list_tariffs(self) -> List[Dict[str, Any]]:
+        pass
+
+    @abstractmethod
+    def save_tariff(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Crea el arancel o actualiza su precio y descripción."""
+        pass
+
+    @abstractmethod
+    def list_invoices(self, estado: Optional[str] = None, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        pass
+
+    @abstractmethod
+    def get_invoice(self, invoice_id: int) -> Dict[str, Any]:
+        """Factura con su detalle y sus pagos."""
+        pass
+
+    @abstractmethod
+    def create_invoice(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        pass
+
+    @abstractmethod
+    def register_invoice_payment(self, invoice_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Abono o pago total; nunca mayor que el saldo."""
+        pass
+
+    @abstractmethod
+    def void_invoice(self, invoice_id: int, motivo: str) -> Dict[str, Any]:
+        """Anula una factura sin pagos."""
+        pass
+
+    @abstractmethod
+    def suggested_charges(self, origen_tipo: str, origen_id: int) -> List[Dict[str, Any]]:
+        """Cargos calculados por la base (p. ej. la cuenta de un internamiento)."""
+        pass

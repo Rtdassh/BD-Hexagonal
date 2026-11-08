@@ -25,7 +25,7 @@ from pymongo import MongoClient, ReturnDocument
 from pymongo.errors import DuplicateKeyError, WriteError
 
 from .base_adapter import BaseClinicalAdapter
-from ...domain.ports import LaboratoryOrdersPort
+from ...domain.ports import BillingPort, LaboratoryOrdersPort
 from ..config import Config
 from ...domain.entities import (
     Appointment,
@@ -59,7 +59,7 @@ def _error_esquema(e: WriteError) -> Exception:
                           "(DPI de 13 dígitos, teléfono ####-####, correo válido)")
     return e
 
-class MongoDBAdapter(BaseClinicalAdapter, LaboratoryOrdersPort):
+class MongoDBAdapter(BaseClinicalAdapter, LaboratoryOrdersPort, BillingPort):
     is_live = True
 
     def __init__(self, config: Config, client: Optional[MongoClient] = None):
@@ -444,7 +444,7 @@ class MongoDBAdapter(BaseClinicalAdapter, LaboratoryOrdersPort):
         return doc
 
     def _resumen_orden(self, o: Dict[str, Any], pacientes: Dict[int, Dict[str, Any]], citas: Dict[int, Dict[str, Any]],
-                       alertas: Dict[int, bool]) -> Dict[str, Any]:
+                       alertas: Dict[int, bool], facturas: Optional[Dict[int, Dict[str, Any]]] = None) -> Dict[str, Any]:
         p = pacientes.get(o["id_paciente"], {})
         cita = citas.get(o["id_orden"])
         return {
@@ -462,6 +462,7 @@ class MongoDBAdapter(BaseClinicalAdapter, LaboratoryOrdersPort):
             "cita": {"id_cita": cita["id_cita"], "fecha_hora_programada": cita["fecha_hora_programada"],
                      "estado_cita": cita["estado_cita"]} if cita else None,
             "alertas_criticas": alertas.get(o["id_orden"], False),
+            "factura": facturas.get(o["id_orden"]) if facturas is not None else None,
         }
 
     def list_lab_orders(self, estado: Optional[str] = None, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
@@ -478,15 +479,19 @@ class MongoDBAdapter(BaseClinicalAdapter, LaboratoryOrdersPort):
         alertas: Dict[int, bool] = {}
         for r in self.db.resultados.find({"id_orden": {"$in": ids_o}, "alertas_criticas": True}, {"id_orden": 1}):
             alertas[r["id_orden"]] = True
-        return [self._resumen_orden(o, pacientes, citas, alertas) for o in ordenes]
+        facturas = {f["origen_id"]: self._resumen_factura(f) for f in self.db.facturas.find(
+            {"origen_tipo": "orden", "origen_id": {"$in": ids_o}, "estado": {"$ne": "anulada"}}, {"_id": 0})}
+        return [self._resumen_orden(o, pacientes, citas, alertas, facturas) for o in ordenes]
 
     def get_lab_order(self, order_id: int) -> Dict[str, Any]:
         o = self._orden(order_id)
         pac = self.db.pacientes.find_one({"id_paciente": o["id_paciente"]}, {"_id": 0}) or {}
         cita = self.db.citas.find_one({"id_orden": o["id_orden"], "estado_cita": {"$ne": "cancelada"}}, {"_id": 0})
         resultados = list(self.db.resultados.find({"id_orden": o["id_orden"]}, {"_id": 0}))
+        fac = self.db.facturas.find_one({"origen_tipo": "orden", "origen_id": o["id_orden"], "estado": {"$ne": "anulada"}}, {"_id": 0})
         resumen = self._resumen_orden(o, {o["id_paciente"]: pac}, {o["id_orden"]: cita} if cita else {},
-                                      {o["id_orden"]: any(r.get("alertas_criticas") for r in resultados)})
+                                      {o["id_orden"]: any(r.get("alertas_criticas") for r in resultados)},
+                                      {o["id_orden"]: self._resumen_factura(fac)} if fac else {})
         nombres = {d["id_laboratorista"]: d["nombre_completo"] for d in self.db.laboratoristas.find()}
         for r in resultados:
             r["analista"] = nombres.get(r.get("id_laboratorista_analista"), "")
@@ -537,6 +542,13 @@ class MongoDBAdapter(BaseClinicalAdapter, LaboratoryOrdersPort):
             }, session=s)
             if data.get("fecha_toma"):
                 self._agendar(id_orden, pid, data["fecha_toma"], data.get("id_laboratorista"), tipos.values(), s)
+            # La factura nace con la orden, en la misma transacción
+            self._crear_factura({
+                "id_paciente": pid, "nit": data.get("nit") or "CF", "nombre_facturacion": data.get("nombre_facturacion"),
+                "origen_tipo": "orden", "origen_id": id_orden,
+                "lineas": [{"codigo_arancel": c, "concepto": tipos[c]["nombre_examen"], "cantidad": 1,
+                            "precio_unitario": float(tipos[c].get("costo") or 0)} for c in codigos],
+            }, s)
         return self.get_lab_order(id_orden)
 
     def _agendar(self, id_orden, pid, fecha, id_lab, tipos, session) -> None:
@@ -652,6 +664,10 @@ class MongoDBAdapter(BaseClinicalAdapter, LaboratoryOrdersPort):
         with self._tx() as s:
             o = self._orden(order_id, s)
             self._exigir_estado(o, "lista_entrega")
+            f = self.db.facturas.find_one({"origen_tipo": "orden", "origen_id": o["id_orden"], "estado": {"$ne": "anulada"}}, session=s)
+            if f and f["estado"] != "pagada":
+                raise ValueError(f"La factura {f['numero_factura']} tiene saldo de Q{f['monto_total'] - f['monto_pagado']:.2f}; "
+                                 "cobre antes de entregar los resultados")
             self.db.resultados.update_many({"id_orden": o["id_orden"]}, {"$set": {"estado": "entregado"}}, session=s)
             self._estado_examenes(o, "entregado", s)
             self._cambiar_estado(o["id_orden"], "entregada", f"Entregados a {entregado_a}", s,
@@ -664,6 +680,12 @@ class MongoDBAdapter(BaseClinicalAdapter, LaboratoryOrdersPort):
             self._exigir_estado(o, "pendiente_muestra", "en_analisis")
             if self.db.resultados.count_documents({"id_orden": o["id_orden"]}, session=s):
                 raise ValueError("La orden ya tiene resultados; no se puede cancelar")
+            f = self.db.facturas.find_one({"origen_tipo": "orden", "origen_id": o["id_orden"], "estado": {"$ne": "anulada"}}, session=s)
+            if f and f["monto_pagado"] > 0:
+                raise ValueError(f"La factura {f['numero_factura']} tiene pagos por Q{f['monto_pagado']:.2f}; no se puede cancelar la orden")
+            if f:
+                self.db.facturas.update_one({"id_factura": f["id_factura"]},
+                                            {"$set": {"estado": "anulada", "motivo_anulacion": f"Orden cancelada: {motivo}"}}, session=s)
             self.db.citas.update_many({"id_orden": o["id_orden"], "estado_cita": "programada"},
                                       {"$set": {"estado_cita": "cancelada"}}, session=s)
             self._cambiar_estado(o["id_orden"], "cancelada", f"Cancelada: {motivo}", s, {"motivo_cancelacion": motivo})
@@ -685,6 +707,127 @@ class MongoDBAdapter(BaseClinicalAdapter, LaboratoryOrdersPort):
                            "telefono": p.get("telefono", ""), "examenes": o.get("examenes", []),
                            "estado_orden": o.get("estado_orden"), "laboratorista": self._laboratorista(c.get("id_laboratorista", 1))})
         return salida
+
+    # ==================================================================
+    # Caja (BillingPort): los aranceles son el catálogo de exámenes
+    # ==================================================================
+    @staticmethod
+    def _resumen_factura(f: Dict[str, Any]) -> Dict[str, Any]:
+        return {"id_factura": f["id_factura"], "numero_factura": f["numero_factura"], "estado": f["estado"],
+                "monto_total": f["monto_total"], "saldo": round(f["monto_total"] - f["monto_pagado"], 2)}
+
+    def list_tariffs(self) -> List[Dict[str, Any]]:
+        return [{"codigo": t["codigo"], "descripcion": t["nombre_examen"], "categoria": "examen",
+                 "precio": float(t.get("costo") or 0), "activo": t.get("activo", True)}
+                for t in self.db.tipos_examen.find({}, {"_id": 0}).sort("codigo", 1)]
+
+    def save_tariff(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        res = self.db.tipos_examen.update_one({"codigo": data["codigo"]}, {"$set": {
+            "costo": float(data["precio"]), "nombre_examen": data["descripcion"], "activo": bool(data.get("activo", True))}})
+        if not res.matched_count:
+            raise ValueError("En el laboratorio los aranceles son los exámenes del catálogo; solo se cambia su precio")
+        return next(t for t in self.list_tariffs() if t["codigo"] == data["codigo"])
+
+    def _facturas_con_paciente(self, filtro: Dict[str, Any]) -> List[Dict[str, Any]]:
+        facturas = list(self.db.facturas.find(filtro, {"_id": 0}).sort("fecha_emision", -1))
+        pac = {p["id_paciente"]: p for p in self.db.pacientes.find(
+            {"id_paciente": {"$in": list({f["id_paciente"] for f in facturas})}}, {"_id": 0, "id_paciente": 1, "nombres": 1, "apellidos": 1})}
+        for f in facturas:
+            p = pac.get(f["id_paciente"], {})
+            f["paciente"] = f"{p.get('nombres', '')} {p.get('apellidos', '')}".strip()
+            f["saldo"] = round(f["monto_total"] - f["monto_pagado"], 2)
+        return facturas
+
+    def list_invoices(self, estado: Optional[str] = None, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        filtro: Dict[str, Any] = {}
+        if estado:
+            filtro["estado"] = estado
+        if patient_id:
+            filtro["id_paciente"] = int(patient_id)
+        return self._facturas_con_paciente(filtro)
+
+    def get_invoice(self, invoice_id: int) -> Dict[str, Any]:
+        lista = self._facturas_con_paciente({"id_factura": int(invoice_id)})
+        if not lista:
+            raise ValueError("Factura no encontrada")
+        f = lista[0]
+        f["pagos"] = list(self.db.pagos.find({"id_factura": f["id_factura"]}, {"_id": 0}).sort("id_pago", 1))
+        return f
+
+    def _crear_factura(self, data: Dict[str, Any], s) -> int:
+        pid = int(data["id_paciente"])
+        p = self.db.pacientes.find_one({"id_paciente": pid}, session=s)
+        if not p:
+            raise ValueError(f"Paciente {pid} no encontrado")
+        origen_tipo, origen_id = data.get("origen_tipo") or "manual", data.get("origen_id")
+        if origen_id:
+            ya = self.db.facturas.find_one({"origen_tipo": origen_tipo, "origen_id": int(origen_id), "estado": {"$ne": "anulada"}}, session=s)
+            if ya:
+                raise ValueError(f"Eso ya está facturado en la factura {ya['numero_factura']}")
+        # El detalle va embebido en la factura: un solo documento, una sola escritura
+        detalle = [{"codigo_arancel": l.get("codigo_arancel"), "concepto": l["concepto"], "cantidad": float(l["cantidad"]),
+                    "precio_unitario": float(l["precio_unitario"]),
+                    "subtotal": round(float(l["cantidad"]) * float(l["precio_unitario"]), 2)} for l in data["lineas"]]
+        fid = self._next_id("facturas", s)
+        self.db.facturas.insert_one({
+            "id_factura": fid, "numero_factura": f"LC-{fid:06d}", "id_paciente": pid,
+            "nit": data.get("nit") or "CF",
+            "nombre_facturacion": data.get("nombre_facturacion") or f"{p['nombres']} {p['apellidos']}",
+            "fecha_emision": _ahora().replace("T", " ")[:16], "detalle": detalle,
+            "monto_total": round(sum(d["subtotal"] for d in detalle), 2), "monto_pagado": 0.0,
+            "estado": "pendiente" if sum(d["subtotal"] for d in detalle) > 0 else "pagada",   # exámenes sin costo
+            "origen_tipo": origen_tipo, "origen_id": int(origen_id) if origen_id else None,
+        }, session=s)
+        return fid
+
+    def create_invoice(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        with self._tx() as s:
+            fid = self._crear_factura(data, s)
+        return self.get_invoice(fid)
+
+    def register_invoice_payment(self, invoice_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        monto = round(float(data["monto"]), 2)
+        with self._tx() as s:
+            f = self.db.facturas.find_one({"id_factura": int(invoice_id)}, session=s)
+            if not f:
+                raise ValueError("Factura no encontrada")
+            if f["estado"] == "anulada":
+                raise ValueError(f"La factura {f['numero_factura']} está anulada")
+            if f["estado"] == "pagada":
+                raise ValueError(f"La factura {f['numero_factura']} ya está pagada")
+            saldo = round(f["monto_total"] - f["monto_pagado"], 2)
+            if monto > saldo:
+                raise ValueError(f"El pago (Q{monto:.2f}) supera el saldo de la factura (Q{saldo:.2f})")
+            pid = self._next_id("pagos", s)
+            self.db.pagos.insert_one({
+                "id_pago": pid, "id_factura": f["id_factura"], "numero_recibo": f"R-LC-{pid:06d}",
+                "fecha_pago": _ahora().replace("T", " ")[:16], "monto": monto, "metodo_pago": data["metodo_pago"],
+                "referencia": data.get("referencia") or None, "recibido_por": data.get("recibido_por") or "Caja",
+            }, session=s)
+            nuevo = round(f["monto_pagado"] + monto, 2)
+            # Filtro por el monto que leímos: si otro cajero cobró al mismo tiempo, no se pisa
+            res = self.db.facturas.update_one(
+                {"id_factura": f["id_factura"], "monto_pagado": f["monto_pagado"]},
+                {"$set": {"monto_pagado": nuevo, "estado": "pagada" if nuevo >= f["monto_total"] else "parcial"}}, session=s)
+            if not res.modified_count:
+                raise ValueError("La factura cambió mientras se cobraba; intente de nuevo")
+        return self.get_invoice(invoice_id)
+
+    def void_invoice(self, invoice_id: int, motivo: str) -> Dict[str, Any]:
+        with self._tx() as s:
+            f = self.db.facturas.find_one({"id_factura": int(invoice_id)}, session=s)
+            if not f:
+                raise ValueError("Factura no encontrada")
+            if f["estado"] == "anulada":
+                raise ValueError("La factura ya está anulada")
+            if f["monto_pagado"] > 0:
+                raise ValueError(f"La factura {f['numero_factura']} tiene pagos por Q{f['monto_pagado']:.2f}; no se puede anular")
+            self.db.facturas.update_one({"id_factura": f["id_factura"]},
+                                        {"$set": {"estado": "anulada", "motivo_anulacion": motivo}}, session=s)
+        return self.get_invoice(invoice_id)
+
+    def suggested_charges(self, origen_tipo: str, origen_id: int) -> List[Dict[str, Any]]:
+        return []
 
     # ------------------------------------------------------------------
     # Historial

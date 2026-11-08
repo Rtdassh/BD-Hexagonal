@@ -27,8 +27,9 @@ class TestOrdenesLaboratorio(unittest.TestCase):
         cli = mongomock.MongoClient()
         db = cli["lab"]
         db.tipos_examen.insert_many([
-            {"codigo": "QUI-01", "nombre_examen": "Perfil glucémico", "indicaciones_preparacion": "Ayuno de 8 horas", "requiere_cita": True},
-            {"codigo": "URO-01", "nombre_examen": "Uroanálisis", "requiere_cita": False},
+            {"codigo": "QUI-01", "nombre_examen": "Perfil glucémico", "indicaciones_preparacion": "Ayuno de 8 horas",
+             "requiere_cita": True, "costo": 95.0},
+            {"codigo": "URO-01", "nombre_examen": "Uroanálisis", "requiere_cita": False, "costo": 60.0},
         ])
         db.laboratoristas.insert_many([
             {"id_laboratorista": 1, "nombre_completo": "Lab Uno", "estado": "activo"},
@@ -65,6 +66,16 @@ class TestOrdenesLaboratorio(unittest.TestCase):
         o = a.validate_order(oid, {"id_laboratorista": 2})
         self.assertEqual(o["estado_orden"], "lista_entrega")
         self.assertTrue(all(m["estado"] == "procesada" for m in o["muestras"]))
+        # La factura nació con la orden (Q95 + Q60): sin pagar no se entregan resultados
+        self.assertEqual((o["factura"]["estado"], o["factura"]["saldo"]), ("pendiente", 155.0))
+        with self.assertRaises(ValueError):
+            a.deliver_order(oid, {"entregado_a": "Ana Ruiz"})
+        fid = o["factura"]["id_factura"]
+        with self.assertRaises(ValueError):   # no se cobra de más
+            a.register_invoice_payment(fid, {"monto": 200, "metodo_pago": "efectivo"})
+        a.register_invoice_payment(fid, {"monto": 100, "metodo_pago": "efectivo"})
+        f = a.register_invoice_payment(fid, {"monto": 55, "metodo_pago": "tarjeta", "referencia": "AUT-1"})
+        self.assertEqual((f["estado"], len(f["pagos"])), ("pagada", 2))
         o = a.deliver_order(oid, {"entregado_a": "Ana Ruiz"})
         self.assertEqual(o["estado_orden"], "entregada")
         self.assertEqual([h["estado"] for h in o["historial_estados"]][-1], "entregada")
@@ -79,6 +90,7 @@ class TestOrdenesLaboratorio(unittest.TestCase):
         self.assertEqual((o["estado_orden"], o["muestras"][0]["estado"]), ("pendiente_muestra", "rechazada"))
         o = a.cancel_order(oid, "El paciente no regresó")
         self.assertEqual(o["estado_orden"], "cancelada")
+        self.assertEqual(a.list_invoices("anulada")[0]["origen_id"], oid)   # la factura se anula con la orden
         with self.assertRaises(ValueError):
             a.register_sample(oid, {"id_laboratorista": 1, "tipo_muestra": "Suero", "preparacion_cumplida": True})
 

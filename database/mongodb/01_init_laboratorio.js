@@ -552,6 +552,64 @@ dbInstance.runCommand({
 });
 dbInstance.ordenes.createIndex({ estado_orden: 1, fecha_hora_ingreso: -1 });
 
+// ----------------------------------------------------------------------------
+// 6. CAJA: facturas (detalle embebido) y pagos
+//    La factura de una orden se crea en la misma transacción que la orden y
+//    los resultados no se entregan mientras tenga saldo.
+// ----------------------------------------------------------------------------
+dbInstance.facturas.drop();
+dbInstance.pagos.drop();
+dbInstance.createCollection("facturas", { validator: { $jsonSchema: {
+  bsonType: "object",
+  required: ["id_factura", "numero_factura", "id_paciente", "nit", "detalle", "monto_total", "monto_pagado", "estado"],
+  properties: {
+    id_factura: { bsonType: "int" },
+    numero_factura: { bsonType: "string", pattern: "^LC-[0-9]{6}$" },
+    nit: { bsonType: "string", pattern: "^(CF|[0-9]{1,12}-?[0-9K])$" },
+    monto_total: { bsonType: ["double", "int"], minimum: 0 },
+    monto_pagado: { bsonType: ["double", "int"], minimum: 0 },
+    estado: { enum: ["pendiente", "parcial", "pagada", "anulada"] },
+    origen_tipo: { enum: ["manual", "orden"] },
+    detalle: { bsonType: "array", minItems: 1, maxItems: 30, items: {
+      bsonType: "object", required: ["concepto", "cantidad", "precio_unitario", "subtotal"],
+      properties: { cantidad: { bsonType: ["double", "int"], minimum: 0.01, maximum: 1000 },
+                    precio_unitario: { bsonType: ["double", "int"], minimum: 0 } } } }
+  }
+} } });
+dbInstance.createCollection("pagos", { validator: { $jsonSchema: {
+  bsonType: "object",
+  required: ["id_pago", "id_factura", "numero_recibo", "monto", "metodo_pago"],
+  properties: {
+    monto: { bsonType: ["double", "int"], minimum: 0.01 },
+    metodo_pago: { enum: ["efectivo", "tarjeta", "transferencia", "cheque"] }
+  }
+} } });
+dbInstance.facturas.createIndex({ numero_factura: 1 }, { unique: true });
+dbInstance.facturas.createIndex({ id_paciente: 1, fecha_emision: -1 });
+dbInstance.facturas.createIndex({ origen_tipo: 1, origen_id: 1 });
+dbInstance.pagos.createIndex({ id_factura: 1 });
+dbInstance.pagos.createIndex({ numero_recibo: 1 }, { unique: true });
+
+function factura(id, pid, idOrden, fecha, codigo, nombre, precio, pagado) {
+  return { id_factura: id, numero_factura: "LC-" + String(id).padStart(6, "0"), id_paciente: pid, nit: "CF",
+    nombre_facturacion: "Consumidor final", fecha_emision: fecha,
+    detalle: [{ codigo_arancel: codigo, concepto: nombre, cantidad: 1, precio_unitario: precio, subtotal: precio }],
+    monto_total: precio, monto_pagado: pagado,
+    estado: pagado >= precio ? "pagada" : (pagado > 0 ? "parcial" : "pendiente"),
+    origen_tipo: "orden", origen_id: idOrden };
+}
+dbInstance.facturas.insertMany([
+  factura(1, 1, 1, "2026-03-01 07:15", "HEM-01", "Hematología Completa Automatizada", 120.0, 120.0),
+  factura(2, 1, 2, "2026-03-01 08:00", "QUI-01", "Perfil Glucémico y Renal (Glucosa + Creatinina)", 95.0, 95.0),
+  factura(3, 2, 3, fechaLocal(0, "08:00"), "QUI-01", "Perfil Glucémico y Renal (Glucosa + Creatinina)", 95.0, 0.0),
+  factura(4, 1, 4, fechaLocal(0, "07:20"), "HEM-01", "Hematología Completa Automatizada", 120.0, 50.0)
+]);
+dbInstance.pagos.insertMany([
+  { id_pago: 1, id_factura: 1, numero_recibo: "R-LC-000001", fecha_pago: "2026-03-01 07:16", monto: 120.0, metodo_pago: "efectivo", referencia: null, recibido_por: "Recepción" },
+  { id_pago: 2, id_factura: 2, numero_recibo: "R-LC-000002", fecha_pago: "2026-03-01 08:01", monto: 95.0, metodo_pago: "tarjeta", referencia: "AUT-778120", recibido_por: "Recepción" },
+  { id_pago: 3, id_factura: 4, numero_recibo: "R-LC-000003", fecha_pago: fechaLocal(0, "07:21"), monto: 50.0, metodo_pago: "efectivo", referencia: null, recibido_por: "Recepción" }
+]);
+
 // Contadores para ids enteros secuenciales (se incrementan con $inc dentro de la transacción)
 dbInstance.contadores.drop();
 dbInstance.contadores.insertMany([
@@ -561,6 +619,8 @@ dbInstance.contadores.insertMany([
   { _id: "muestras", seq: 2 },
   { _id: "resultados", seq: 2 },
   { _id: "citas", seq: 1 },
+  { _id: "facturas", seq: 4 },
+  { _id: "pagos", seq: 3 },
   { _id: "laboratoristas", seq: 2 }
 ]);
 

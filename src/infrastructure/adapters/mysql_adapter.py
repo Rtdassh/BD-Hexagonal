@@ -16,6 +16,7 @@ import mysql.connector
 from mysql.connector import errorcode, pooling
 
 from .base_adapter import BaseClinicalAdapter
+from .billing_sql import SQLBillingMixin
 from ..config import Config
 from ...domain.entities import (
     Appointment,
@@ -65,10 +66,26 @@ MENSAJES_CHECK = {
     "chk_ped_percentil": "El percentil debe estar entre 0 y 100",
     "chk_ped_cie10": "El código CIE-10 no tiene un formato válido (ej. Z00.1)",
     "chk_ped_receta_duracion": "La duración de la receta debe estar entre 1 y 90 días",
+    "chk_factura_montos": "El monto pagado no puede superar el total de la factura",
+    "chk_factura_nit": "NIT inválido: use CF o números con su dígito verificador (ej. 1234567-8)",
+    "chk_pago_monto": "El pago debe ser mayor que cero",
+    "chk_pago_metodo": "Método de pago inválido",
+    "chk_pago_referencia": "Indique la referencia o autorización del pago",
+    "chk_detalle_cantidad": "La cantidad debe estar entre 1 y 1000",
+    "chk_arancel_precio": "El precio debe estar entre Q0 y Q100,000",
+    "chk_arancel_codigo": "El código del arancel solo admite mayúsculas, números y guion (3 a 15)",
 }
 
 
-class MySQLAdapter(BaseClinicalAdapter, PediatricOperationsPort):
+class MySQLAdapter(BaseClinicalAdapter, PediatricOperationsPort, SQLBillingMixin):
+    _PREFIJO_CAJA = "CP"
+
+    def _ultimo_id(self, cur, tabla: str, columna: str) -> int:
+        return int(cur.lastrowid)
+
+    def _tabla_pacientes(self) -> str:
+        return "paciente_pediatrico"
+
     is_live = True
 
     def __init__(self, config: Config):
