@@ -14,8 +14,10 @@ from ..application.services import (
     AuthService,
     ClinicalHistoryService,
     ConsultationService,
+    DentalService,
     HospitalService,
     PatientService,
+    PediatricService,
     PermisoDenegado,
     ProfessionalService,
 )
@@ -64,6 +66,8 @@ def create_app(config: Config = None, router: EngineRouter = None):
     consultation_service = ConsultationService(engine_router)
     professional_service = ProfessionalService(engine_router)
     hospital_service = HospitalService(engine_router)
+    pediatric_service = PediatricService(engine_router)
+    dental_service = DentalService(engine_router)
     app.engine_router = engine_router
 
     def _usuario_json(user: User):
@@ -352,6 +356,181 @@ def create_app(config: Config = None, router: EngineRouter = None):
         if accion == "omit":
             return _json(hospital_service.omitir_dosis(u, did, b.get("id_enfermero"), b.get("motivo", "")))
         return _json({"error": "Acción inválida"}, 404)
+
+    # --------------------------------------------------------------------
+    # Centro Médico Pediátrico: tutores, perinatal, somatometría, vacunas, hitos, alergias
+    # --------------------------------------------------------------------
+    @app.route("/api/pediatric/patients/<int:pid>/details", methods=["GET"])
+    @require_auth
+    def ped_patient_details(pid):
+        return _json(pediatric_service.detalles(request.current_user, pid))
+
+    @app.route("/api/pediatric/patients/<int:pid>/perinatal", methods=["PUT"])
+    @require_auth
+    def ped_update_perinatal(pid):
+        return _json(pediatric_service.actualizar_perinatal(request.current_user, pid, body()))
+
+    @app.route("/api/pediatric/patients/<int:pid>/guardian", methods=["PUT"])
+    @require_auth
+    def ped_update_guardian(pid):
+        return _json(pediatric_service.actualizar_tutor(request.current_user, pid, body()))
+
+    @app.route("/api/pediatric/patients/<int:pid>/somatometry", methods=["POST"])
+    @require_auth
+    def ped_add_somatometry(pid):
+        return _json(pediatric_service.registrar_somatometria(request.current_user, pid, body()), 201)
+
+    @app.route("/api/pediatric/somatometry", methods=["GET"])
+    @require_auth
+    def ped_list_all_somatometry():
+        pid = request.args.get("patient_id", type=int)
+        return _json(pediatric_service.somatometria(request.current_user, pid))
+
+    @app.route("/api/pediatric/vaccines", methods=["GET"])
+    @require_auth
+    def ped_vaccines_catalog():
+        return _json(pediatric_service.vacunas_catalogo(request.current_user))
+
+    @app.route("/api/pediatric/vaccine-batches", methods=["GET"])
+    @require_auth
+    def ped_vaccine_batches():
+        return _json(pediatric_service.lotes_vacunas(request.current_user))
+
+    @app.route("/api/pediatric/vaccine-batches", methods=["POST"])
+    @require_auth
+    def ped_create_vaccine_batch():
+        return _json(pediatric_service.crear_lote_vacuna(request.current_user, body()), 201)
+
+    @app.route("/api/pediatric/patients/<int:pid>/vaccinations", methods=["POST"])
+    @require_auth
+    def ped_add_vaccination(pid):
+        return _json(pediatric_service.aplicar_vacuna(request.current_user, pid, body()), 201)
+
+    @app.route("/api/pediatric/vaccinations", methods=["GET"])
+    @require_auth
+    def ped_list_all_vaccinations():
+        pid = request.args.get("patient_id", type=int)
+        return _json(pediatric_service.vacunaciones(request.current_user, pid))
+
+    @app.route("/api/pediatric/patients/<int:pid>/milestones", methods=["GET"])
+    @require_auth
+    def ped_list_milestones(pid):
+        return _json(pediatric_service.hitos_desarrollo(request.current_user, pid))
+
+    @app.route("/api/pediatric/milestones", methods=["GET"])
+    @require_auth
+    def ped_list_all_milestones():
+        pid = request.args.get("patient_id", type=int)
+        return _json(pediatric_service.hitos_desarrollo(request.current_user, pid))
+
+    @app.route("/api/pediatric/patients/<int:pid>/milestones", methods=["POST"])
+    @require_auth
+    def ped_add_milestone(pid):
+        return _json(pediatric_service.evaluar_hito(request.current_user, pid, body()), 201)
+
+    @app.route("/api/pediatric/patients/<int:pid>/allergies", methods=["GET"])
+    @require_auth
+    def ped_list_allergies(pid):
+        return _json(pediatric_service.alergias(request.current_user, pid))
+
+    @app.route("/api/pediatric/allergies", methods=["GET"])
+    @require_auth
+    def ped_list_all_allergies():
+        pid = request.args.get("patient_id", type=int)
+        return _json(pediatric_service.alergias(request.current_user, pid))
+
+    @app.route("/api/pediatric/patients/<int:pid>/allergies", methods=["POST"])
+    @require_auth
+    def ped_add_allergy(pid):
+        return _json(pediatric_service.registrar_alergia(request.current_user, pid, body()), 201)
+
+    @app.route("/api/pediatric/allergens", methods=["GET"])
+    @require_auth
+    def ped_allergens_catalog():
+        return _json(pediatric_service.alergenos_catalogo(request.current_user))
+
+    @app.route("/api/pediatric/growth-percentiles", methods=["GET"])
+    @require_auth
+    def ped_growth_percentiles():
+        return _json(pediatric_service.percentiles_oms(
+            request.current_user, request.args.get("sexo"), request.args.get("parametro")
+        ))
+
+    # --------------------------------------------------------------------
+    # Clínica Odontológica: anamnesis sistémica, odontograma FDI, planes, cobros, aranceles
+    # --------------------------------------------------------------------
+    @app.route("/api/dental/patients/<int:pid>/details", methods=["GET"])
+    @require_auth
+    def dental_patient_details(pid):
+        return _json(dental_service.detalles(request.current_user, pid))
+
+    @app.route("/api/dental/patients/<int:pid>/systemic", methods=["PUT"])
+    @require_auth
+    def dental_update_systemic(pid):
+        return _json(dental_service.actualizar_sistemico(request.current_user, pid, body()))
+
+    @app.route("/api/dental/patients/<int:pid>/odontogram", methods=["GET"])
+    @require_auth
+    def dental_get_odontogram(pid):
+        return _json(dental_service.odontograma(request.current_user, pid))
+
+    @app.route("/api/dental/odontogram", methods=["GET"])
+    @require_auth
+    def dental_get_all_odontogram():
+        pid = request.args.get("id_paciente", type=int) or request.args.get("patient_id", type=int)
+        return _json(dental_service.odontograma(request.current_user, pid))
+
+    @app.route("/api/dental/patients/<int:pid>/odontogram/findings", methods=["POST"])
+    @require_auth
+    def dental_save_finding(pid):
+        return _json(dental_service.registrar_hallazgo(request.current_user, pid, body()), 201)
+
+    @app.route("/api/dental/treatment-plans", methods=["GET"])
+    @require_auth
+    def dental_list_treatment_plans():
+        return _json(dental_service.planes(request.current_user, request.args.get("id_paciente", type=int)))
+
+    @app.route("/api/dental/treatment-plans", methods=["POST"])
+    @require_auth
+    def dental_create_treatment_plan():
+        return _json(dental_service.crear_plan(request.current_user, body()), 201)
+
+    @app.route("/api/dental/treatment-plans/<int:plan_id>/stages/<int:stage_id>", methods=["PUT"])
+    @require_auth
+    def dental_update_plan_stage(plan_id, stage_id):
+        return _json(dental_service.actualizar_etapa_plan(
+            request.current_user, plan_id, stage_id, body().get("estado", "completada")
+        ))
+
+    @app.route("/api/dental/procedures", methods=["GET"])
+    @require_auth
+    def dental_list_procedures():
+        return _json(dental_service.procedimientos(request.current_user))
+
+    @app.route("/api/dental/procedures", methods=["POST"])
+    @require_auth
+    def dental_create_procedure():
+        return _json(dental_service.crear_procedimiento(request.current_user, body()), 201)
+
+    @app.route("/api/dental/billing", methods=["GET"])
+    @require_auth
+    def dental_billing():
+        return _json(dental_service.facturacion(request.current_user, request.args.get("id_paciente", type=int)))
+
+    @app.route("/api/dental/payments", methods=["POST"])
+    @require_auth
+    def dental_create_payment():
+        return _json(dental_service.registrar_pago(request.current_user, body()), 201)
+
+    @app.route("/api/dental/findings-catalog", methods=["GET"])
+    @require_auth
+    def dental_findings_catalog():
+        return _json(dental_service.hallazgos_catalogo(request.current_user))
+
+    @app.route("/api/dental/supplies", methods=["GET"])
+    @require_auth
+    def dental_supplies():
+        return _json(dental_service.insumos(request.current_user))
 
     # Estado de los motores ----------------------------------------------
     @app.route("/api/engine/status", methods=["GET"])

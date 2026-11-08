@@ -327,3 +327,101 @@ def validar_habitacion(data: Dict[str, Any], nueva: bool = True) -> Dict[str, An
     if data.get("estado") and data["estado"] not in ("disponible", "mantenimiento"):
         raise ValueError("Estado inválido: disponible o mantenimiento")
     return data
+
+
+# ----------------------------------------------------------------------------
+# Validaciones específicas Centro Médico Pediátrico
+# ----------------------------------------------------------------------------
+def validar_antecedente_perinatal(data: Dict[str, Any]) -> Dict[str, Any]:
+    numero(data, "semanas_gestacion", "Semanas de gestación", 20, 45, req=True, entero=True)
+    numero(data, "peso_nacer_kg", "Peso al nacer", 0.3, 7.0, req=True)
+    numero(data, "talla_nacer_cm", "Talla al nacer", 20.0, 65.0, req=True)
+    numero(data, "perimetro_cefalico_nacer_cm", "Perímetro cefálico al nacer", 20.0, 55.0, req=False)
+    numero(data, "apgar_1min", "Apgar a 1 min", 0, 10, req=False, entero=True)
+    numero(data, "apgar_5min", "Apgar a 5 min", 0, 10, req=False, entero=True)
+    texto(data, "complicaciones_neonatales", "Complicaciones", 500, 0, False)
+    return data
+
+
+def validar_somatometria_pediatrica(data: Dict[str, Any]) -> Dict[str, Any]:
+    numero(data, "peso_kg", "Peso", 0.3, 150.0, req=True)
+    numero(data, "talla_cm", "Talla", 20.0, 200.0, req=True)
+    numero(data, "perimetro_cefalico_cm", "Perímetro cefálico", 20.0, 70.0, req=False)
+    numero(data, "percentil_crecimiento", "Percentil", 0.0, 100.0, req=False)
+    return data
+
+
+def validar_lote_vacuna(data: Dict[str, Any]) -> Dict[str, Any]:
+    if "fecha_fabricacion" not in data or not data["fecha_fabricacion"]:
+        data["fecha_fabricacion"] = date.today().isoformat()
+    if "stock_disponible" not in data and "dosis_disponibles" in data:
+        data["stock_disponible"] = data["dosis_disponibles"]
+    if "dosis_disponibles" not in data and "stock_disponible" in data:
+        data["dosis_disponibles"] = data["stock_disponible"]
+    texto(data, "numero_lote", "Número de lote", 40, 2, True)
+    texto(data, "fabricante", "Fabricante", 100, 2, True)
+    fecha(data, "fecha_fabricacion", "Fecha de fabricación", req=True, pasada=True)
+    fecha(data, "fecha_vencimiento", "Fecha de vencimiento", req=True, futura=True)
+    numero(data, "stock_disponible", "Stock disponible", 0, 100000, req=True, entero=True)
+    t_min = numero(data, "temp_min_celsius", "Temperatura mínima", -50.0, 50.0, req=True)
+    t_max = numero(data, "temp_max_celsius", "Temperatura máxima", -50.0, 50.0, req=True)
+    if t_min >= t_max:
+        raise ValueError("La temperatura mínima de conservación debe ser menor que la máxima")
+    return data
+
+
+# ----------------------------------------------------------------------------
+# Validaciones específicas Clínica Odontológica
+# ----------------------------------------------------------------------------
+CARAS_DENTALES_VALIDAS = {"O", "M", "D", "V", "L", "P", "O/I", "GENERAL"}
+
+
+def validar_antecedente_sistemico_dental(data: Dict[str, Any]) -> Dict[str, Any]:
+    texto(data, "medicamentos_actuales", "Medicamentos actuales", 500, 0, False)
+    texto(data, "observaciones_medicas", "Observaciones médicas", 500, 0, False)
+    return data
+
+
+def validar_hallazgo_odontograma(data: Dict[str, Any]) -> Dict[str, Any]:
+    fdi = numero(data, "codigo_fdi", "Pieza dental (FDI)", 11, 85, req=True, entero=True)
+    if int(fdi) not in PIEZAS_FDI:
+        raise ValueError(f"Pieza dental {int(fdi)} no es válida en notación FDI (11-48 permanentes, 51-85 temporales)")
+    cara = _txt(data.get("cara", "O")).upper()
+    if cara not in CARAS_DENTALES_VALIDAS:
+        raise ValueError(f"Cara dental inválida ({cara}). Use: {', '.join(sorted(CARAS_DENTALES_VALIDAS))}")
+    data["cara"] = cara
+    texto(data, "hallazgo", "Hallazgo o diagnóstico", 80, 2, True)
+    texto(data, "color_hex", "Color simbología", 10, 4, False)
+    texto(data, "notas", "Notas específicas", 255, 0, False)
+    return data
+
+
+def validar_plan_tratamiento(data: Dict[str, Any]) -> Dict[str, Any]:
+    if "titulo" not in data and "diagnostico_general" in data:
+        data["titulo"] = data["diagnostico_general"]
+    if "diagnostico_general" not in data and "titulo" in data:
+        data["diagnostico_general"] = data["titulo"]
+    texto(data, "titulo", "Título del plan de tratamiento", 120, 3, True)
+    numero(data, "costo_total_estimado", "Costo total estimado", 0.0, 500000.0, req=True)
+    return data
+
+
+def validar_pago_dental(data: Dict[str, Any]) -> Dict[str, Any]:
+    if "monto_abonado" not in data and "monto" in data:
+        data["monto_abonado"] = data["monto"]
+    if "monto" not in data and "monto_abonado" in data:
+        data["monto"] = data["monto_abonado"]
+    numero(data, "monto_abonado", "Monto abonado", 0.5, 100000.0, req=True)
+    texto(data, "numero_recibo", "Número de recibo", 30, 2, True)
+    metodos_map = {
+        "efectivo": "Efectivo",
+        "tarjeta": "Tarjeta de Crédito/Débito",
+        "tarjeta_credito": "Tarjeta de Crédito/Débito",
+        "tarjeta_debito": "Tarjeta de Crédito/Débito",
+        "transferencia": "Transferencia bancaria",
+        "transferencia_bancaria": "Transferencia bancaria"
+    }
+    raw_m = str(data.get("metodo_pago", "Efectivo")).strip()
+    metodo = metodos_map.get(raw_m.lower(), raw_m)
+    data["metodo_pago"] = metodo
+    return data

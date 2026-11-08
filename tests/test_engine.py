@@ -294,6 +294,280 @@ class TestHexagonalEngine(unittest.TestCase):
         res = client.get("/api/patients?institucion=laboratorio", headers={"Authorization": f"Bearer {token}"})
         self.assertNotIn("Estuardo", res.get_data(as_text=True))
 
+    # ------------------------------------------------------------------------
+    # 8. PRUEBAS DE INTEGRACIÓN DE MODELOS RELACIONALES EXPANDIDOS (+20 TABLAS)
+    # ------------------------------------------------------------------------
+    def test_expanded_relational_models_integration(self):
+        """Verifica que los modelos expandidos del Centro Pediátrico (+20 tablas)
+        y la Clínica Odontológica cuenten con todas las tablas 3FN requeridas."""
+        # 1. PEDIÁTRICO: Verificar que el motor contiene >= 20 tablas normalizadas
+        user_ped = self.auth_service.login("admin_pediatria", "123")
+        adapter_ped = self.router.get_adapter_for_user(user_ped)
+        mysql_engine = getattr(adapter_ped, "simulated", getattr(adapter_ped, "engine", None))
+
+        tablas_pediatrico = list(mysql_engine.tables.keys())
+        self.assertGreaterEqual(len(tablas_pediatrico), 20, f"Debe tener al menos 20 tablas, tiene {len(tablas_pediatrico)}")
+        self.assertIn("tutor_legal", tablas_pediatrico)
+        self.assertIn("tutor_paciente", tablas_pediatrico)
+        self.assertIn("antecedente_perinatal", tablas_pediatrico)
+        self.assertIn("antropometria_somatometria", tablas_pediatrico)
+        self.assertIn("normativa_percentil_oms", tablas_pediatrico)
+        self.assertIn("evaluacion_desarrollo", tablas_pediatrico)
+        self.assertIn("catalogo_cie10_pediatrico", tablas_pediatrico)
+        self.assertIn("diagnostico_consulta", tablas_pediatrico)
+        self.assertIn("vacuna_catalogo", tablas_pediatrico)
+        self.assertIn("lote_vacuna", tablas_pediatrico)
+        self.assertIn("detalle_receta_pediatrica", tablas_pediatrico)
+
+        # 2. Registrar paciente y verificar sincronización 3FN en tablas hijas
+        p_data = {
+            "nombres": "Camila",
+            "apellidos": "Santizo",
+            "dpi": "7777111120101",
+            "cui_nacimiento": "7777111120101",
+            "fecha_nacimiento": "2024-05-10",
+            "sexo": "F",
+            "direccion": "Zona 1, Quetzaltenango",
+            "nombre_tutor": "Patricia Santizo",
+            "parentesco_tutor": "Madre",
+            "dpi_tutor": "1111222230101",
+            "telefono_tutor": "5555-4433",
+            "semanas_gestacion": 38,
+            "peso_nacer_kg": 3.10,
+            "talla_nacer_cm": 48.0
+        }
+        paciente = self.patient_service.register_new_patient(user_ped, p_data)
+        self.assertIsNotNone(paciente)
+
+        # Verificar que el tutor y antecedente perinatal se insertaron en 3FN
+        tutores = [t for t in mysql_engine.tables["tutor_legal"] if t["dpi"] == "1111222230101"]
+        self.assertEqual(len(tutores), 1)
+        self.assertEqual(tutores[0]["nombres"], "Patricia Santizo")
+
+        perinatales = [a for a in mysql_engine.tables["antecedente_perinatal"] if a["id_paciente"] == paciente.id_paciente]
+        self.assertEqual(len(perinatales), 1)
+        self.assertEqual(perinatales[0]["semanas_gestacion"], 38)
+        self.assertEqual(perinatales[0]["peso_nacer_kg"], 3.10)
+
+        # 3. Registrar consulta y verificar antropometría somatométrica
+        cons_data = {
+            "id_paciente": paciente.id_paciente,
+            "id_profesional": 1,
+            "motivo": "Control de los 9 meses",
+            "peso_kg": 8.5,
+            "talla_cm": 70.0,
+            "perimetro_cefalico_cm": 44.0,
+            "percentil_crecimiento": 55.0,
+            "codigo_cie10": "Z00.1",
+            "descripcion_diagnostico": "Crecimiento adecuado",
+            "medicamento": "Vitamina C Gotas",
+            "dosis_mg_kg": 5.0
+        }
+        cons = self.consultation_service.register_consultation_transaction(user_ped, cons_data)
+        somato = [s for s in mysql_engine.tables["antropometria_somatometria"] if s["id_consulta"] == cons.id_consulta]
+        self.assertEqual(len(somato), 1)
+        self.assertEqual(somato[0]["peso_kg"], 8.5)
+
+        # 4. ODONTOLOGÍA: Verificar colecciones y catálogo anatómico FDI
+        user_dent = self.auth_service.login("admin_odontologia", "123")
+        adapter_dent = self.router.get_adapter_for_user(user_dent)
+        fb_engine = getattr(adapter_dent, "simulated", getattr(adapter_dent, "engine", None))
+
+        colls = list(fb_engine.collections.keys())
+        self.assertIn("piezas_dentales", colls)
+        self.assertIn("odontogramas", colls)
+        self.assertIn("planes_tratamiento", colls)
+        self.assertIn("insumos_dentales", colls)
+        self.assertTrue(len(fb_engine.collections["piezas_dentales"]) >= 4)
+
+    # ------------------------------------------------------------------------
+    # 7. PRUEBAS INTEGRALES DE SERVICIOS Y ENDPOINTS: CENTRO PEDIÁTRICO
+    # ------------------------------------------------------------------------
+    def test_pediatric_services_and_api(self):
+        """Valida casos de uso y endpoints especializados del Centro Médico Pediátrico."""
+        app = create_app(self.config, self.router)
+        client = app.test_client()
+
+        # Login con administrador del Centro Pediátrico
+        login_resp = client.post("/api/auth/login", json={"username": "admin_pediatria", "password": "123"})
+        self.assertEqual(login_resp.status_code, 200)
+        token = login_resp.get_json()["token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # 1. Obtener detalles pediátricos
+        det_resp = client.get("/api/pediatric/patients/1/details", headers=headers)
+        self.assertEqual(det_resp.status_code, 200)
+        det_data = det_resp.get_json()
+        self.assertIn("antecedente_perinatal", det_data)
+        self.assertIn("tutores", det_data)
+        self.assertIn("somatometria", det_data)
+        self.assertIn("vacunaciones", det_data)
+
+        # 2. Actualizar antecedentes perinatales
+        peri_resp = client.put("/api/pediatric/patients/1/perinatal", headers=headers, json={
+            "semanas_gestacion": 39,
+            "peso_nacer_kg": 3.45,
+            "talla_nacer_cm": 50.5,
+            "tipo_parto": "Eutócico vaginal",
+            "apgar_1min": 9,
+            "apgar_5min": 10,
+            "complicaciones_neonatales": "Sin complicaciones clínicas"
+        })
+        self.assertEqual(peri_resp.status_code, 200)
+        self.assertEqual(peri_resp.get_json()["semanas_gestacion"], 39)
+
+        # 3. Registrar somatometría
+        som_resp = client.post("/api/pediatric/patients/1/somatometry", headers=headers, json={
+            "peso_kg": 11.2,
+            "talla_cm": 82.0,
+            "perimetro_cefalico_cm": 46.5,
+            "edad_meses_atencion": 18,
+            "observaciones": "Percentil ponderal óptimo"
+        })
+        self.assertEqual(som_resp.status_code, 201)
+        self.assertEqual(som_resp.get_json()["peso_kg"], 11.2)
+
+        # 4. Catálogo y lotes de vacunas
+        vac_cat_resp = client.get("/api/pediatric/vaccines", headers=headers)
+        self.assertEqual(vac_cat_resp.status_code, 200)
+        self.assertTrue(len(vac_cat_resp.get_json()) > 0)
+
+        # Login admin para crear lote
+        adm_resp = client.post("/api/auth/login", json={"username": "admin_pediatria", "password": "123"})
+        adm_headers = {"Authorization": f"Bearer {adm_resp.get_json()['token']}"}
+        lote_resp = client.post("/api/pediatric/vaccine-batches", headers=adm_headers, json={
+            "id_vacuna": 1,
+            "numero_lote": "TEST-LOT-99",
+            "fecha_vencimiento": "2027-12-31",
+            "dosis_disponibles": 100,
+            "temp_min_celsius": 2.5,
+            "temp_max_celsius": 6.5,
+            "fabricante": "GlaxoSmithKline"
+        })
+        self.assertEqual(lote_resp.status_code, 201)
+        self.assertEqual(lote_resp.get_json()["numero_lote"], "TEST-LOT-99")
+
+        # 5. Aplicar vacuna
+        ap_resp = client.post("/api/pediatric/patients/1/vaccinations", headers=headers, json={
+            "id_lote": lote_resp.get_json()["id_lote"],
+            "numero_dosis": 1,
+            "dosis": "1.ª dosis",
+            "via_administracion": "Intramuscular",
+            "profesional_aplico": "Dra. Sofía Reyes"
+        })
+        self.assertEqual(ap_resp.status_code, 201)
+
+        # 6. Evaluar hito psicomotor
+        hito_resp = client.post("/api/pediatric/patients/1/milestones", headers=headers, json={
+            "area_desarrollo": "lenguaje",
+            "hito_evaluado": "Dice palabras con intención comunicativa",
+            "cumple_hito": True,
+            "observaciones": "Vocabulario de 10 palabras"
+        })
+        self.assertEqual(hito_resp.status_code, 201)
+
+        # 7. Registrar alergia pediátrica
+        alerg_resp = client.post("/api/pediatric/patients/1/allergies", headers=headers, json={
+            "id_alergeno": 2,
+            "severidad": "grave",
+            "sintomas_observados": "Urticaria aguda y estridor",
+            "fecha_deteccion": "2026-02-15"
+        })
+        self.assertEqual(alerg_resp.status_code, 201)
+
+    # ------------------------------------------------------------------------
+    # 8. PRUEBAS INTEGRALES DE SERVICIOS Y ENDPOINTS: CLÍNICA ODONTOLÓGICA
+    # ------------------------------------------------------------------------
+    def test_dental_services_and_api(self):
+        """Valida casos de uso y endpoints especializados de la Clínica Odontológica."""
+        app = create_app(self.config, self.router)
+        client = app.test_client()
+
+        # Login con administrador odontológico
+        login_resp = client.post("/api/auth/login", json={"username": "admin_odontologia", "password": "123"})
+        self.assertEqual(login_resp.status_code, 200)
+        token = login_resp.get_json()["token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # 1. Obtener detalles odontológicos
+        det_resp = client.get("/api/dental/patients/1/details", headers=headers)
+        self.assertEqual(det_resp.status_code, 200)
+        det_data = det_resp.get_json()
+        self.assertIn("antecedentes_sistemicos", det_data)
+        self.assertIn("odontograma", det_data)
+        self.assertIn("planes_tratamiento", det_data)
+        self.assertIn("facturacion", det_data)
+
+        # 2. Actualizar anamnesis sistémica médica
+        sist_resp = client.put("/api/dental/patients/1/systemic", headers=headers, json={
+            "hipertension": True,
+            "diabetes": False,
+            "enfermedad_cardiaca": False,
+            "trastornos_hemorragicos": False,
+            "alergia_anestesia_local": True,
+            "alergia_latex": False,
+            "embarazo": False,
+            "medicamentos_actuales": "Losartán 50mg cada 24 horas",
+            "observaciones_medicas": "Precaución con anestésicos locales tipo amida"
+        })
+        self.assertEqual(sist_resp.status_code, 200)
+        self.assertTrue(sist_resp.get_json()["alergia_anestesia_local"])
+
+        # 3. Registrar hallazgo en odontograma (Pieza 46, Cara Oclusal)
+        hall_resp = client.post("/api/dental/patients/1/odontogram/findings", headers=headers, json={
+            "codigo_fdi": 46,
+            "cara": "O",
+            "hallazgo": "Caries de dentina",
+            "color_hex": "#B42318",
+            "estado": "activo",
+            "severidad": "moderada",
+            "notas": "Fosa central profunda con desmineralización"
+        })
+        self.assertEqual(hall_resp.status_code, 201)
+        self.assertEqual(hall_resp.get_json()["codigo_fdi"], 46)
+
+        # 4. Formular plan de tratamiento
+        plan_resp = client.post("/api/dental/treatment-plans", headers=headers, json={
+            "id_paciente": 1,
+            "diagnostico_general": "Caries oclusal en primer molar inferior y gingivitis",
+            "costo_total_estimado": 850.00,
+            "etapas": [
+                {
+                    "numero_etapa": 1,
+                    "nombre_etapa": "Fase Higiénica",
+                    "procedimientos_planificados": "Profilaxis y detartraje",
+                    "costo_estimado": 250.00,
+                    "estado": "pendiente"
+                },
+                {
+                    "numero_etapa": 2,
+                    "nombre_etapa": "Fase Restauradora",
+                    "procedimientos_planificados": "Restauración con resina compuesta en pieza 46",
+                    "costo_estimado": 600.00,
+                    "estado": "pendiente"
+                }
+            ]
+        })
+        self.assertEqual(plan_resp.status_code, 201)
+        plan_id = plan_resp.get_json()["id_plan"]
+
+        # 5. Avanzar etapa de plan
+        etapa_resp = client.put(f"/api/dental/treatment-plans/{plan_id}/stages/1", headers=headers, json={
+            "estado": "completada"
+        })
+        self.assertEqual(etapa_resp.status_code, 200)
+
+        # 6. Registrar abono de pago
+        pago_resp = client.post("/api/dental/payments", headers=headers, json={
+            "id_factura": 1,
+            "numero_recibo": "REC-TEST-001",
+            "monto": 250.00,
+            "metodo_pago": "efectivo",
+            "referencia": "PAGO-IN-SITU"
+        })
+        self.assertEqual(pago_resp.status_code, 201)
+        self.assertEqual(pago_resp.get_json()["monto"], 250.00)
+
 
 if __name__ == "__main__":
     unittest.main()

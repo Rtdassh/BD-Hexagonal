@@ -934,3 +934,54 @@ input[aria-invalid]:focus, textarea[aria-invalid]:focus { outline-color: rgba(18
 .busca-texto input { width: 100%; padding-left: 38px; }
 .barra-busqueda #busCitasLimpiar { margin-bottom: 4px; }
 .hab-cab b { white-space: nowrap; } .hab-cab { gap: 8px; } .hab-meta small { text-align: right; }
+
+/* ==========================================================================
+   Módulos Especializados: Centro Pediátrico y Clínica Odontológica
+   ========================================================================== */
+
+/* ---- Odontograma Anatómico FDI (5 caras por diente) ---- */
+.odontograma-box { display: grid; gap: 16px; background: var(--blanco); padding: 18px; border-radius: 12px; border: 1px solid var(--linea); }
+.odontograma-controles { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+.odontograma-arcada { display: flex; justify-content: center; gap: 4px; flex-wrap: nowrap; overflow-x: auto; padding: 6px 2px; }
+.arcada-separador { width: 3px; background: var(--tinta-2); height: 42px; margin: 0 4px; border-radius: 2px; align-self: center; }
+.diente-anatomico { display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; user-select: none; padding: 4px; border-radius: 6px; transition: background .12s; }
+.diente-anatomico:hover { background: color-mix(in srgb, var(--inst) 8%, white); }
+.diente-anatomico.seleccionado { background: color-mix(in srgb, var(--inst) 16%, white); outline: 2px solid var(--inst); }
+.diente-anatomico .diente-num { font-size: 0.6875rem; font-weight: 700; color: var(--tinta-2); }
+.diente-svg { width: 32px; height: 32px; display: block; }
+.diente-svg polygon, .diente-svg rect { fill: #FFFFFF; stroke: #A0B2AF; stroke-width: 1.2; cursor: pointer; transition: fill .15s, stroke .15s; }
+.diente-svg polygon:hover, .diente-svg rect:hover { stroke: var(--tinta); stroke-width: 2; }
+.diente-svg .cara-ausente { fill: #E0E0E0 !important; }
+
+.leyenda-hallazgos { display: flex; flex-wrap: wrap; gap: 8px 14px; font-size: 0.8125rem; align-items: center; padding: 10px 14px; background: var(--papel); border-radius: 8px; }
+.leyenda-item { display: inline-flex; align-items: center; gap: 6px; }
+.leyenda-dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex: none; }
+
+.odontograma-detalle-panel { background: var(--blanco); border: 1px solid var(--linea); border-radius: 12px; padding: 16px 20px; display: grid; gap: 12px; }
+
+/* ---- Hitos Psicomotores Denver II ---- */
+.grid-hitos { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.hito-tarjeta { background: var(--blanco); border: 1px solid var(--linea); border-radius: 10px; padding: 12px 16px; display: grid; gap: 6px; }
+.hito-area { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--inst); }
+.hito-nombre { font-size: 0.9375rem; font-weight: 700; color: var(--tinta); }
+.hito-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; width: fit-content; }
+.hito-badge.cumple { background: #E6F4EA; color: #137333; }
+.hito-badge.pendiente { background: #FEF7E0; color: #B06000; }
+
+/* ---- Planes de Tratamiento Dental ---- */
+.grid-planes { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+.plan-tarjeta { background: var(--blanco); border: 1px solid var(--linea); border-radius: 12px; padding: 18px; display: grid; gap: 12px; box-shadow: var(--sombra); }
+.plan-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.plan-etapas { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.plan-etapa { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--papel); border-radius: 6px; font-size: 0.875rem; }
+.plan-etapa.completada { background: #E6F4EA; border-left: 3px solid #137333; }
+.plan-etapa.en_curso { background: #FEF7E0; border-left: 3px solid #B06000; }
+.plan-etapa.pendiente { background: var(--papel); border-left: 3px solid var(--tenue); }
+
+/* ---- Cadena de Frío y Lotes de Vacunas ---- */
+.temp-badge { display: inline-flex; align-items: center; gap: 4px; font-size: 0.8125rem; font-weight: 700; padding: 2px 8px; border-radius: 6px; background: #E8F0FE; color: #1967D2; }
+
+/* ---- Alergias y Alertas ---- */
+.alergia-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: var(--blanco); border: 1px solid var(--linea); border-radius: 8px; }
+.alerta-anafilaxia { background: var(--rojo-claro); border-left: 4px solid var(--rojo); padding: 8px 12px; border-radius: 6px; color: var(--rojo); font-weight: 700; font-size: 0.875rem; }
+

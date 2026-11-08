@@ -31,6 +31,7 @@ from ...domain.entities import (
     UserRole,
     VaccinationRecord,
 )
+from ...domain.ports import PediatricOperationsPort
 
 # Campos de la API -> columnas de paciente_pediatrico
 CAMPOS_EDITABLES = {
@@ -67,7 +68,7 @@ MENSAJES_CHECK = {
 }
 
 
-class MySQLAdapter(BaseClinicalAdapter):
+class MySQLAdapter(BaseClinicalAdapter, PediatricOperationsPort):
     is_live = True
 
     def __init__(self, config: Config):
@@ -532,3 +533,378 @@ class MySQLAdapter(BaseClinicalAdapter):
             telefono_tutor=r["telefono_tutor"], semanas_gestacion=r["semanas_gestacion"],
             peso_nacer_kg=self._f(r["peso_nacer_kg"]), talla_nacer_cm=self._f(r["talla_nacer_cm"]),
         )
+
+    # ------------------------------------------------------------------
+    # Implementación de PediatricOperationsPort (Base de Datos MySQL)
+    # ------------------------------------------------------------------
+    def get_pediatric_details(self, patient_id: int) -> Dict[str, Any]:
+        with self._tx() as cur:
+            cur.execute("SELECT * FROM paciente_pediatrico WHERE id_paciente = %s", (patient_id,))
+            p = cur.fetchone()
+            if not p:
+                raise ValueError(f"Paciente {patient_id} no encontrado")
+
+            cur.execute("SELECT * FROM antecedente_perinatal WHERE id_paciente = %s", (patient_id,))
+            peri = cur.fetchone() or {
+                "id_antecedente": 0, "id_paciente": patient_id,
+                "semanas_gestacion": p.get("semanas_gestacion") or 39,
+                "peso_nacer_kg": self._f(p.get("peso_nacer_kg")) or 3.2,
+                "talla_nacer_cm": self._f(p.get("talla_nacer_cm")) or 50.0,
+                "perimetro_cefalico_nacer_cm": 34.5, "tipo_parto": "Eutócico vaginal",
+                "apgar_1min": 9, "apgar_5min": 10, "complicaciones_neonatales": ""
+            }
+            if peri.get("id_antecedente"):
+                peri["peso_nacer_kg"] = self._f(peri["peso_nacer_kg"])
+                peri["talla_nacer_cm"] = self._f(peri["talla_nacer_cm"])
+                peri["perimetro_cefalico_nacer_cm"] = self._f(peri["perimetro_cefalico_nacer_cm"])
+
+            cur.execute("""
+                SELECT tl.*, tp.parentesco, tp.es_tutor_principal
+                FROM tutor_paciente tp
+                JOIN tutor_legal tl ON tl.id_tutor = tp.id_tutor
+                WHERE tp.id_paciente = %s LIMIT 1
+            """, (patient_id,))
+            tutor = cur.fetchone() or {
+                "id_tutor": 0, "dpi": p["dpi_tutor"], "nombres": p["nombre_tutor"],
+                "apellidos": "", "telefono_principal": p["telefono_tutor"],
+                "direccion": p["direccion"] or "", "parentesco": p["parentesco_tutor"],
+                "es_tutor_principal": True
+            }
+
+            cur.execute("""
+                SELECT * FROM antropometria_somatometria
+                WHERE id_paciente = %s ORDER BY id_somatometria DESC
+            """, (patient_id,))
+            soms = [
+                {**r, "peso_kg": self._f(r["peso_kg"]), "talla_cm": self._f(r["talla_cm"]),
+                 "perimetro_cefalico_cm": self._f(r["perimetro_cefalico_cm"]),
+                 "imc_calculado": self._f(r["imc_calculado"]),
+                 "percentil_peso_edad": self._f(r["percentil_peso_edad"])}
+                for r in cur.fetchall()
+            ]
+
+            cur.execute("SELECT * FROM vacunacion WHERE id_paciente = %s ORDER BY fecha_aplicacion DESC", (patient_id,))
+            vacs = [{**r, "fecha_aplicacion": self._s(r["fecha_aplicacion"]), "proxima_fecha_refuerzo": self._s(r["proxima_fecha_refuerzo"])} for r in cur.fetchall()]
+
+            cur.execute("SELECT * FROM evaluacion_desarrollo WHERE id_paciente = %s ORDER BY id_evaluacion DESC", (patient_id,))
+            hitos = cur.fetchall()
+
+            cur.execute("""
+                SELECT ap.*, ca.nombre_alergeno, ca.tipo_alergeno, ca.riesgo_anafilaxia
+                FROM alergia_paciente ap
+                JOIN catalogo_alergeno ca ON ca.id_alergeno = ap.id_alergeno
+                WHERE ap.id_paciente = %s
+            """, (patient_id,))
+            alergias = [{**r, "fecha_deteccion": self._s(r["fecha_deteccion"])} for r in cur.fetchall()]
+
+        return {
+            "paciente": self._to_patient(p),
+            "perinatal": peri,
+            "tutor": tutor,
+            "somatometrias": soms,
+            "vacunas": vacs,
+            "hitos": hitos,
+            "alergias": alergias
+        }
+
+    def update_perinatal(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        with self._tx() as cur:
+            cur.execute("SELECT id_antecedente FROM antecedente_perinatal WHERE id_paciente = %s", (patient_id,))
+            row = cur.fetchone()
+            if row:
+                cur.execute("""
+                    UPDATE antecedente_perinatal
+                    SET semanas_gestacion = %s, peso_nacer_kg = %s, talla_nacer_cm = %s,
+                        perimetro_cefalico_nacer_cm = %s, tipo_parto = %s, apgar_1min = %s,
+                        apgar_5min = %s, complicaciones_neonatales = %s
+                    WHERE id_paciente = %s
+                """, (
+                    self._i(data.get("semanas_gestacion")), self._f(data.get("peso_nacer_kg")),
+                    self._f(data.get("talla_nacer_cm")), self._f(data.get("perimetro_cefalico_nacer_cm")),
+                    data.get("tipo_parto", "Eutócico vaginal"), self._i(data.get("apgar_1min", 9)),
+                    self._i(data.get("apgar_5min", 10)), data.get("complicaciones_neonatales"),
+                    patient_id
+                ))
+            else:
+                cur.execute("""
+                    INSERT INTO antecedente_perinatal (id_paciente, semanas_gestacion, peso_nacer_kg,
+                        talla_nacer_cm, perimetro_cefalico_nacer_cm, tipo_parto, apgar_1min, apgar_5min,
+                        complicaciones_neonatales)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    patient_id, self._i(data.get("semanas_gestacion", 39)), self._f(data.get("peso_nacer_kg", 3.2)),
+                    self._f(data.get("talla_nacer_cm", 50.0)), self._f(data.get("perimetro_cefalico_nacer_cm", 34.5)),
+                    data.get("tipo_parto", "Eutócico vaginal"), self._i(data.get("apgar_1min", 9)),
+                    self._i(data.get("apgar_5min", 10)), data.get("complicaciones_neonatales")
+                ))
+            # Sincronizar en paciente_pediatrico
+            cur.execute("""
+                UPDATE paciente_pediatrico
+                SET semanas_gestacion = %s, peso_nacer_kg = %s, talla_nacer_cm = %s
+                WHERE id_paciente = %s
+            """, (self._i(data.get("semanas_gestacion")), self._f(data.get("peso_nacer_kg")),
+                  self._f(data.get("talla_nacer_cm")), patient_id))
+        return self.get_pediatric_details(patient_id)["perinatal"]
+
+    def update_guardian(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        with self._tx() as cur:
+            cur.execute("""
+                UPDATE paciente_pediatrico
+                SET nombre_tutor = %s, parentesco_tutor = %s, dpi_tutor = %s, telefono_tutor = %s
+                WHERE id_paciente = %s
+            """, (data.get("nombres") or data.get("nombre_tutor"), data.get("parentesco", "Tutor Legal"),
+                  data.get("dpi"), data.get("telefono_principal") or data.get("telefono"), patient_id))
+
+            cur.execute("""
+                SELECT tp.id_tutor FROM tutor_paciente tp WHERE tp.id_paciente = %s LIMIT 1
+            """, (patient_id,))
+            tp = cur.fetchone()
+            if tp:
+                cur.execute("""
+                    UPDATE tutor_legal
+                    SET dpi = %s, nombres = %s, telefono_principal = %s, direccion = COALESCE(%s, direccion)
+                    WHERE id_tutor = %s
+                """, (data.get("dpi"), data.get("nombres") or data.get("nombre_tutor"),
+                      data.get("telefono_principal") or data.get("telefono"), data.get("direccion"), tp["id_tutor"]))
+        return {"ok": True, "paciente_id": patient_id}
+
+    def add_somatometry(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        peso = self._f(data["peso_kg"])
+        talla = self._f(data["talla_cm"])
+        perimetro = self._f(data.get("perimetro_cefalico_cm")) or 48.0
+        edad_meses = self._i(data.get("edad_meses", 24))
+        imc = round(peso / ((talla / 100) ** 2), 2)
+        percentil = self._f(data.get("percentil_crecimiento", 50.0))
+
+        with self._tx() as cur:
+            cur.execute("""
+                INSERT INTO antropometria_somatometria (id_consulta, id_paciente, edad_meses_atencion,
+                    peso_kg, talla_cm, perimetro_cefalico_cm, imc_calculado, percentil_peso_edad,
+                    percentil_talla_edad, percentil_pc_edad)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                self._i(data.get("id_consulta", 1)), patient_id, edad_meses,
+                peso, talla, perimetro, imc, percentil, percentil, percentil
+            ))
+            new_id = cur.lastrowid
+            cur.execute("SELECT * FROM antropometria_somatometria WHERE id_somatometria = %s", (new_id,))
+            r = cur.fetchone()
+        return {**r, "peso_kg": self._f(r["peso_kg"]), "talla_cm": self._f(r["talla_cm"]), "imc_calculado": self._f(r["imc_calculado"])}
+
+    def list_somatometry(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        with self._tx() as cur:
+            if patient_id is not None:
+                cur.execute("""
+                    SELECT s.*, CONCAT(p.nombres, ' ', p.apellidos) as paciente_nombre
+                    FROM antropometria_somatometria s
+                    JOIN paciente_pediatrico p ON p.id_paciente = s.id_paciente
+                    WHERE s.id_paciente = %s
+                    ORDER BY s.id_somatometria DESC
+                """, (patient_id,))
+            else:
+                cur.execute("""
+                    SELECT s.*, CONCAT(p.nombres, ' ', p.apellidos) as paciente_nombre
+                    FROM antropometria_somatometria s
+                    JOIN paciente_pediatrico p ON p.id_paciente = s.id_paciente
+                    ORDER BY s.id_somatometria DESC
+                """)
+            return [{**r, "peso_kg": self._f(r["peso_kg"]), "talla_cm": self._f(r["talla_cm"]), "imc_calculado": self._f(r["imc_calculado"])} for r in cur.fetchall()]
+
+    def list_vaccines_catalog(self) -> List[Dict[str, Any]]:
+        with self._tx() as cur:
+            cur.execute("SELECT * FROM vacuna_catalogo ORDER BY id_vacuna")
+            return cur.fetchall()
+
+    def list_vaccine_batches(self) -> List[Dict[str, Any]]:
+        with self._tx() as cur:
+            cur.execute("""
+                SELECT l.*, v.nombre_vacuna, v.via_administracion
+                FROM lote_vacuna l
+                JOIN vacuna_catalogo v ON v.id_vacuna = l.id_vacuna
+                ORDER BY l.fecha_vencimiento ASC
+            """)
+            return [{**r, "fecha_fabricacion": self._s(r["fecha_fabricacion"]),
+                     "fecha_vencimiento": self._s(r["fecha_vencimiento"]),
+                     "temp_min_celsius": self._f(r["temp_min_celsius"]),
+                     "temp_max_celsius": self._f(r["temp_max_celsius"])} for r in cur.fetchall()]
+
+    def create_vaccine_batch(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        with self._tx() as cur:
+            cur.execute("""
+                INSERT INTO lote_vacuna (id_vacuna, numero_lote, fabricante, fecha_fabricacion,
+                    fecha_vencimiento, stock_disponible, temp_min_celsius, temp_max_celsius)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                self._i(data["id_vacuna"]), data["numero_lote"].strip().upper(),
+                data["fabricante"].strip(), data["fecha_fabricacion"],
+                data["fecha_vencimiento"], self._i(data["stock_disponible"]),
+                self._f(data.get("temp_min_celsius", 2.0)), self._f(data.get("temp_max_celsius", 8.0))
+            ))
+            new_id = cur.lastrowid
+            cur.execute("SELECT l.*, v.nombre_vacuna FROM lote_vacuna l JOIN vacuna_catalogo v ON v.id_vacuna = l.id_vacuna WHERE l.id_lote = %s", (new_id,))
+            r = cur.fetchone()
+        return {**r, "fecha_fabricacion": self._s(r["fecha_fabricacion"]), "fecha_vencimiento": self._s(r["fecha_vencimiento"])}
+
+    def add_vaccination(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        with self._tx() as cur:
+            id_lote = self._i(data.get("id_lote"))
+            lote_num = data.get("lote") or "LOTE-VAC"
+            nombre_vac = data.get("nombre_vacuna") or "Biológico"
+            if id_lote:
+                cur.execute("SELECT l.*, v.nombre_vacuna FROM lote_vacuna l JOIN vacuna_catalogo v ON v.id_vacuna = l.id_vacuna WHERE l.id_lote = %s", (id_lote,))
+                lrow = cur.fetchone()
+                if lrow:
+                    lote_num = lrow["numero_lote"]
+                    nombre_vac = lrow["nombre_vacuna"]
+                    cur.execute("UPDATE lote_vacuna SET stock_disponible = GREATEST(0, stock_disponible - 1) WHERE id_lote = %s", (id_lote,))
+
+            # Usar id_consulta existente o crear una rápida
+            id_con = self._i(data.get("id_consulta"))
+            if not id_con:
+                cur.execute("SELECT id_consulta FROM consulta ORDER BY id_consulta DESC LIMIT 1")
+                con_row = cur.fetchone()
+                id_con = con_row["id_consulta"] if con_row else 1
+
+            cur.execute("""
+                INSERT INTO vacunacion (id_paciente, id_consulta, nombre_vacuna, dosis, lote,
+                    fecha_aplicacion, proxima_fecha_refuerzo)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (
+                patient_id, id_con, nombre_vac, data.get("dosis", "Dosis única"),
+                lote_num, data.get("fecha_aplicacion", date.today().isoformat()),
+                data.get("proxima_fecha_refuerzo") or None
+            ))
+            new_id = cur.lastrowid
+            cur.execute("""
+                INSERT INTO registro_vacunacion (id_vacunacion, id_paciente, id_consulta, id_lote,
+                    numero_dosis, fecha_aplicacion, profesional_aplico, proxima_fecha_refuerzo, reaccion_adversa)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                new_id, patient_id, id_con, id_lote, self._i(data.get("numero_dosis", 1)),
+                data.get("fecha_aplicacion", date.today().isoformat()),
+                data.get("profesional_aplico", "Enfermería Pediátrica"),
+                data.get("proxima_fecha_refuerzo") or None, data.get("reaccion_adversa", "Sin reacciones adversas")
+            ))
+            cur.execute("SELECT * FROM vacunacion WHERE id_vacunacion = %s", (new_id,))
+            r = cur.fetchone()
+        return {**r, "fecha_aplicacion": self._s(r["fecha_aplicacion"]), "proxima_fecha_refuerzo": self._s(r["proxima_fecha_refuerzo"])}
+
+    def list_vaccinations(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        with self._tx() as cur:
+            if patient_id is not None:
+                cur.execute("""
+                    SELECT rv.*, v.nombre_vacuna, l.numero_lote, CONCAT(p.nombres, ' ', p.apellidos) as paciente_nombre
+                    FROM registro_vacunacion rv
+                    JOIN lote_vacuna l ON l.id_lote = rv.id_lote
+                    JOIN vacuna_catalogo v ON v.id_vacuna = l.id_vacuna
+                    JOIN paciente_pediatrico p ON p.id_paciente = rv.id_paciente
+                    WHERE rv.id_paciente = %s
+                    ORDER BY rv.fecha_aplicacion DESC
+                """, (patient_id,))
+            else:
+                cur.execute("""
+                    SELECT rv.*, v.nombre_vacuna, l.numero_lote, CONCAT(p.nombres, ' ', p.apellidos) as paciente_nombre
+                    FROM registro_vacunacion rv
+                    JOIN lote_vacuna l ON l.id_lote = rv.id_lote
+                    JOIN vacuna_catalogo v ON v.id_vacuna = l.id_vacuna
+                    JOIN paciente_pediatrico p ON p.id_paciente = rv.id_paciente
+                    ORDER BY rv.fecha_aplicacion DESC
+                """)
+            return [{**r, "fecha_aplicacion": self._s(r["fecha_aplicacion"]), "proxima_fecha_refuerzo": self._s(r["proxima_fecha_refuerzo"])} for r in cur.fetchall()]
+
+    def list_development_milestones(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        with self._tx() as cur:
+            if patient_id is not None:
+                cur.execute("""
+                    SELECT e.*, CONCAT(p.nombres, ' ', p.apellidos) as paciente_nombre
+                    FROM evaluacion_desarrollo e
+                    JOIN paciente_pediatrico p ON p.id_paciente = e.id_paciente
+                    WHERE e.id_paciente = %s
+                    ORDER BY e.id_evaluacion DESC
+                """, (patient_id,))
+            else:
+                cur.execute("""
+                    SELECT e.*, CONCAT(p.nombres, ' ', p.apellidos) as paciente_nombre
+                    FROM evaluacion_desarrollo e
+                    JOIN paciente_pediatrico p ON p.id_paciente = e.id_paciente
+                    ORDER BY e.id_evaluacion DESC
+                """)
+            return cur.fetchall()
+
+    def add_development_milestone(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        with self._tx() as cur:
+            id_con = self._i(data.get("id_consulta", 1))
+            cur.execute("""
+                INSERT INTO evaluacion_desarrollo (id_consulta, id_paciente, area_desarrollo,
+                    hito_evaluado, cumple_hito, observaciones)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (
+                id_con, patient_id, data["area_desarrollo"], data["hito_evaluado"].strip(),
+                bool(data.get("cumple_hito", True)), data.get("observaciones", "")
+            ))
+            new_id = cur.lastrowid
+            cur.execute("SELECT * FROM evaluacion_desarrollo WHERE id_evaluacion = %s", (new_id,))
+            return cur.fetchone()
+
+    def list_patient_allergies(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        with self._tx() as cur:
+            if patient_id is not None:
+                cur.execute("""
+                    SELECT ap.*, ca.nombre_alergeno, ca.tipo_alergeno, ca.riesgo_anafilaxia, CONCAT(p.nombres, ' ', p.apellidos) as paciente_nombre
+                    FROM alergia_paciente ap
+                    JOIN catalogo_alergeno ca ON ca.id_alergeno = ap.id_alergeno
+                    JOIN paciente_pediatrico p ON p.id_paciente = ap.id_paciente
+                    WHERE ap.id_paciente = %s
+                    ORDER BY ap.id_alergia DESC
+                """, (patient_id,))
+            else:
+                cur.execute("""
+                    SELECT ap.*, ca.nombre_alergeno, ca.tipo_alergeno, ca.riesgo_anafilaxia, CONCAT(p.nombres, ' ', p.apellidos) as paciente_nombre
+                    FROM alergia_paciente ap
+                    JOIN catalogo_alergeno ca ON ca.id_alergeno = ap.id_alergeno
+                    JOIN paciente_pediatrico p ON p.id_paciente = ap.id_paciente
+                    ORDER BY ap.id_alergia DESC
+                """)
+            return [{**r, "fecha_deteccion": self._s(r["fecha_deteccion"])} for r in cur.fetchall()]
+
+    def add_patient_allergy(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        with self._tx() as cur:
+            cur.execute("""
+                INSERT INTO alergia_paciente (id_paciente, id_alergeno, fecha_deteccion, severidad, sintomas_observados)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (
+                patient_id, self._i(data["id_alergeno"]), data.get("fecha_deteccion", date.today().isoformat()),
+                data.get("severidad", "Moderada"), data.get("sintomas_observados", "")
+            ))
+            new_id = cur.lastrowid
+            cur.execute("""
+                SELECT ap.*, ca.nombre_alergeno, ca.tipo_alergeno, ca.riesgo_anafilaxia
+                FROM alergia_paciente ap
+                JOIN catalogo_alergeno ca ON ca.id_alergeno = ap.id_alergeno
+                WHERE ap.id_alergia_paciente = %s
+            """, (new_id,))
+            r = cur.fetchone()
+        return {**r, "fecha_deteccion": self._s(r["fecha_deteccion"])}
+
+    def list_allergens_catalog(self) -> List[Dict[str, Any]]:
+        with self._tx() as cur:
+            cur.execute("SELECT * FROM catalogo_alergeno ORDER BY tipo_alergeno, nombre_alergeno")
+            return cur.fetchall()
+
+    def list_growth_percentiles(self, sexo: Optional[str] = None, parametro: Optional[str] = None) -> List[Dict[str, Any]]:
+        with self._tx() as cur:
+            sql = "SELECT * FROM normativa_percentil_oms WHERE 1=1"
+            params = []
+            if sexo:
+                sql += " AND sexo = %s"
+                params.append(sexo.upper())
+            if parametro:
+                sql += " AND parametro_antropometrico = %s"
+                params.append(parametro)
+            sql += " ORDER BY parametro_antropometrico, edad_meses ASC"
+            cur.execute(sql, params)
+            return [
+                {**r, "p3": self._f(r["p3"]), "p15": self._f(r["p15"]), "p50": self._f(r["p50"]),
+                 "p85": self._f(r["p85"]), "p97": self._f(r["p97"])}
+                for r in cur.fetchall()
+            ]

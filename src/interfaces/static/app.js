@@ -196,9 +196,20 @@ const ICONO = {
   motores: '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
   buscar: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
   salir: '<path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/>',
+  grafica: '<path d="M3 3v18h18"/><path d="M7 16l4-7 4 4 5-9"/>',
+  hitos: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/>',
+  diente: '<path d="M7 3C4.8 3 3 4.8 3 7c0 3.5 1.5 7 2.5 10.5.5 1.8 1.8 3.5 3.5 3.5 1.5 0 2-1 3-2 1 1 1.5 2 3 2 1.7 0 3-1.7 3.5-3.5C19.5 14 21 10.5 21 7c0-2.2-1.8-4-4-4-2 0-3.5 1.5-5 1.5S9 3 7 3z"/>',
+  planes: '<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 12l2 2 4-4"/><path d="M9 17h6"/>',
+  procedimientos: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  cobros: '<rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><circle cx="7" cy="15" r="1"/><circle cx="12" cy="15" r="1"/>',
 };
-const svg = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONO[n]}</svg>`;
-document.querySelectorAll("[data-icono]").forEach((el) => { el.innerHTML = svg(el.dataset.icono); });
+const svg = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONO[n] || ""}</svg>`;
+function actualizarIconos(raiz = document) {
+  raiz.querySelectorAll("[data-icono]").forEach((el) => {
+    el.innerHTML = svg(el.dataset.icono);
+  });
+}
+actualizarIconos();
 
 function entrar(u) {
   estado.usuario = u;
@@ -232,6 +243,7 @@ async function aplicarInstitucion() {
   $("#txtBuscar").value = "";
   $("#menuPersonal").textContent = `Personal médico`;
   document.querySelectorAll("[data-solo]").forEach((el) => { el.hidden = el.dataset.solo !== estado.inst; });
+  actualizarIconos();
   try { estado.catalogos = await api("/api/catalogs"); } catch (_) { estado.catalogos = {}; }
   await Promise.all([cargarPacientes(""), cargarPersonal()]);
   ir("inicio");
@@ -252,8 +264,25 @@ function ir(pagina) {
   });
   $("#contenido").scrollTo?.(0, 0);
   window.scrollTo(0, 0);
-  ({ inicio: pintarInicio, pacientes: pintarPacientes, citas: pintarCitasPagina, personal: pintarPersonal,
-     quirofanos: pintarQuirofanos, enfermeria: pintarEnfermeria, habitaciones: pintarHabitaciones, motores: pintarMotores, paciente: pintarExpediente })[pagina]();
+  const mapa = {
+    inicio: pintarInicio,
+    pacientes: pintarPacientes,
+    citas: pintarCitasPagina,
+    personal: pintarPersonal,
+    quirofanos: pintarQuirofanos,
+    enfermeria: pintarEnfermeria,
+    habitaciones: pintarHabitaciones,
+    motores: pintarMotores,
+    paciente: pintarExpediente,
+    "pediatrico-vacunas": pintarPediatricoVacunas,
+    "pediatrico-crecimiento": pintarPediatricoCrecimiento,
+    "pediatrico-desarrollo": pintarPediatricoDesarrollo,
+    "dental-odontograma": pintarDentalOdontograma,
+    "dental-planes": pintarDentalPlanes,
+    "dental-aranceles": pintarDentalAranceles,
+    "dental-cobros": pintarDentalCobros,
+  };
+  (mapa[pagina] || pintarInicio)();
 }
 
 function cabecera({ migas = "", titulo, acciones = "" }) {
@@ -1414,6 +1443,8 @@ async function abrirPaciente(id, pestana = null) {
     estado.historial = h;
     estado.especializado = esp;
     estado.hospPaciente = null;
+    estado.pediatricoPaciente = null;
+    estado.dentalPaciente = null;
     if (estado.inst === "hospital") {
       const ingreso = (esp?.hospitalizaciones || []).find((x) => x.estado === "ingresado");
       const [cirugias, turnos, ordenes, dosis] = await Promise.all([
@@ -1425,6 +1456,10 @@ async function abrirPaciente(id, pestana = null) {
       ]);
       guardarDosis(dosis);
       estado.hospPaciente = { cirugias, turnos, ordenes, dosis };
+    } else if (estado.inst === "pediatrico") {
+      estado.pediatricoPaciente = await api(`/api/pediatric/patients/${id}/details`).catch(() => null);
+    } else if (estado.inst === "odontologia") {
+      estado.dentalPaciente = await api(`/api/dental/patients/${id}/details`).catch(() => null);
     }
     ir("paciente");
   } catch (e) {
@@ -1435,8 +1470,6 @@ async function abrirPaciente(id, pestana = null) {
 function pestanaEspecial() {
   const inst = estado.inst;
   const e = estado.especializado;
-  if (inst === "odontologia") return ["especial", "Odontograma"];
-  if (inst === "pediatrico" && e?.control_crecimiento?.length) return ["especial", "Crecimiento y vacunas"];
   if (inst === "hospital") return ["especial", "Internamiento y cirugías"];
   return null;
 }
@@ -1473,8 +1506,19 @@ function pintarExpediente() {
     ["historial", `${lab ? "Órdenes y resultados" : "Historial clínico"} (${h.consultas.length})`],
     ["citas", `Citas (${h.citas.length})`],
     ["datos", "Datos personales"],
-    ...(especial ? [especial] : []),
   ];
+  if (inst === "hospital" && especial) {
+    lista.push(especial);
+  } else if (inst === "pediatrico") {
+    lista.push(["pediatrico-somatometria", `Somatometría (${estado.pediatricoPaciente?.somatometria?.length || 0})`]);
+    lista.push(["pediatrico-vacunas", `Vacunas (${estado.pediatricoPaciente?.vacunaciones?.length || 0})`]);
+    lista.push(["pediatrico-hitos", `Hitos Denver (${estado.pediatricoPaciente?.hitos_desarrollo?.length || 0})`]);
+    lista.push(["pediatrico-alergias", `Alergias (${estado.pediatricoPaciente?.alergias?.length || 0})`]);
+  } else if (inst === "odontologia") {
+    lista.push(["dental-odontograma", "Odontograma interactivo"]);
+    lista.push(["dental-planes", `Planes (${estado.dentalPaciente?.planes_tratamiento?.length || 0})`]);
+    lista.push(["dental-cobros", `Cobros (${estado.dentalPaciente?.facturacion?.facturas?.length || 0})`]);
+  }
   if (!lista.some(([k]) => k === estado.pestana)) estado.pestana = "historial";
 
   let cuerpo = "";
@@ -1487,8 +1531,38 @@ function pintarExpediente() {
       : `<div class="vacio-tabla"><p>Este paciente no tiene citas.</p>${!deBaja ? btnAccion("cita", "+ Agendar cita") : ""}</div>`}</div>`;
   } else if (estado.pestana === "datos") {
     cuerpo = `<div class="panel relleno">${pintarDatos(p)}</div>`;
+  } else if (estado.pestana === "pediatrico-somatometria") {
+    cuerpo = pintarExpedienteSomatometria();
+  } else if (estado.pestana === "pediatrico-vacunas") {
+    cuerpo = pintarExpedienteVacunas();
+  } else if (estado.pestana === "pediatrico-hitos") {
+    cuerpo = pintarExpedienteHitos();
+  } else if (estado.pestana === "pediatrico-alergias") {
+    cuerpo = pintarExpedienteAlergias();
+  } else if (estado.pestana === "dental-odontograma") {
+    cuerpo = pintarExpedienteOdontograma();
+  } else if (estado.pestana === "dental-planes") {
+    cuerpo = pintarExpedientePlanes();
+  } else if (estado.pestana === "dental-cobros") {
+    cuerpo = pintarExpedienteCobros();
   } else {
     cuerpo = pintarEspecializado();
+  }
+
+  // Alertas clínicas de alto riesgo en la pulsera
+  let alertasPulsera = "";
+  if (inst === "odontologia") {
+    const sist = estado.dentalPaciente?.antecedentes_sistemicos || {};
+    if (sist.alergia_anestesia_local) alertasPulsera += '<span class="alerta-anafilaxia">⚠ Alergia a anestesia local</span>';
+    if (sist.trastornos_hemorragicos) alertasPulsera += '<span class="alerta-anafilaxia">⚠ Trastornos hemorrágicos</span>';
+    if (sist.embarazo) alertasPulsera += `<span class="estado alerta">Embarazo (${sist.meses_embarazo || 0} meses)</span>`;
+    if (sist.alergia_latex) alertasPulsera += '<span class="estado alerta">Alergia látex</span>';
+    if (sist.hipertension || sist.diabetes) alertasPulsera += '<span class="estado alerta">Riesgo sistémico</span>';
+  } else if (inst === "pediatrico") {
+    const alergias = estado.pediatricoPaciente?.alergias || [];
+    if (alergias.some((a) => a.severidad === "grave" || a.riesgo_anafilaxia)) {
+      alertasPulsera += '<span class="alerta-anafilaxia">⚠ Alerta anafilaxia</span>';
+    }
   }
 
   $("#vista").innerHTML = `
@@ -1503,6 +1577,7 @@ function pintarExpediente() {
           <span class="estado ${deBaja ? "baja" : (p.estado === "hospitalizado" ? "alerta" : "activo")}">
             ${deBaja ? `Historial ${texto(h.estado)}` : (p.estado === "hospitalizado" ? "Hospitalizado" : "Historial activo")}</span>
           ${estado.hospPaciente?.cirugias.some((c) => c.estado === "en_curso") ? '<span class="estado critico">En cirugía</span>' : ""}
+          ${alertasPulsera}
         </div>
         <dl class="resumen">
           <div><dt>Consultas</dt><dd>${h.consultas.length}</dd></div>
@@ -1615,6 +1690,21 @@ $("#contenido").addEventListener("click", async (ev) => {
   if (rapida && estado.pagina !== "paciente") { vistaRapida(Number(rapida.dataset.id), rapida.dataset.pestanaIr || null); return; }
   const abrir = t.closest("[data-id]");
   if (abrir) { abrirPaciente(Number(abrir.dataset.id), abrir.dataset.pestanaIr || null); return; }
+  const avEt = t.closest("[data-avanzar-etapa]");
+  if (avEt) {
+    cambiarEstadoEtapaTratamiento(Number(avEt.dataset.planId), Number(avEt.dataset.avanzarEtapa), avEt.dataset.estado);
+    return;
+  }
+  const caraEl = t.closest("[data-cara-click]");
+  if (caraEl) {
+    seleccionarPiezaOdontograma(Number(caraEl.dataset.pieza), caraEl.dataset.caraClick);
+    return;
+  }
+  const dienteEl = t.closest("[data-diente-click]");
+  if (dienteEl) {
+    seleccionarPiezaOdontograma(Number(dienteEl.dataset.dienteClick), "O");
+    return;
+  }
   const b = t.closest("[data-accion]");
   if (!b) return;
   const accion = b.dataset.accion;
@@ -1633,6 +1723,25 @@ $("#contenido").addEventListener("click", async (ev) => {
   if (accion === "baja") formBaja();
   if (accion === "imprimir") window.print();
   if (accion === "atender") formConsulta(Number(b.dataset.cita));
+  if (accion === "editar-perinatal") formPerinatal(estado.idSeleccionado);
+  if (accion === "editar-tutor") formTutor(estado.idSeleccionado);
+  if (accion === "editar-sistemico") formAnamnesisSistemica(estado.idSeleccionado);
+  if (accion === "nueva-somatometria") formSomatometria(null);
+  if (accion === "nueva-somatometria-paciente") formSomatometria(estado.idSeleccionado);
+  if (accion === "nueva-vacuna-lote") formNuevoLoteVacuna();
+  if (accion === "aplicar-vacuna-general") formAplicarVacuna(null);
+  if (accion === "aplicar-vacuna-paciente") formAplicarVacuna(estado.idSeleccionado);
+  if (accion === "nuevo-hito") formHito(null);
+  if (accion === "nuevo-hito-paciente") formHito(estado.idSeleccionado);
+  if (accion === "nueva-alergia") formAlergia(null);
+  if (accion === "nueva-alergia-paciente") formAlergia(estado.idSeleccionado);
+  if (accion === "nuevo-hallazgo") formHallazgoDental(null);
+  if (accion === "nuevo-hallazgo-paciente") formHallazgoDental(estado.idSeleccionado, Number(b.dataset.piezaSel || 0) || null, b.dataset.caraSel || null);
+  if (accion === "nuevo-plan-tratamiento") formPlanTratamiento(null);
+  if (accion === "nuevo-plan-paciente") formPlanTratamiento(estado.idSeleccionado);
+  if (accion === "nuevo-procedimiento-arancel") formProcedimientoArancel();
+  if (accion === "nuevo-abono") formAbonoDental(null);
+  if (accion === "nuevo-abono-paciente") formAbonoDental(estado.idSeleccionado);
 });
 
 function pintarDatos(p) {
@@ -1649,7 +1758,79 @@ function pintarDatos(p) {
     filas.push(["Emergencia", [p.contacto_emergencia_nombre, p.contacto_emergencia_telefono].filter(Boolean).join(", ")]);
   }
   filas.push(["Registro", fecha(p.fecha_registro)]);
-  return `<dl class="datos">${filas.filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${k === "Registro" ? v : esc(v)}</dd>`).join("")}</dl>`;
+  let html = `<dl class="datos">${filas.filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${k === "Registro" ? v : esc(v)}</dd>`).join("")}</dl>`;
+
+  if (estado.inst === "pediatrico") {
+    const peri = estado.pediatricoPaciente?.antecedente_perinatal || {};
+    const tutor = estado.pediatricoPaciente?.tutores?.[0] || {};
+    html += `
+      <div class="bloque-detalle" style="margin-top:24px; padding-top:16px; border-top:1px solid var(--linea)">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+          <h3 style="font-size:16px; margin:0">Antecedentes Perinatales y Datos del Nacimiento</h3>
+          <button type="button" class="btn sutil chico" data-accion="editar-perinatal">Editar perinatales</button>
+        </div>
+        <dl class="datos">
+          <dt>Semanas gestación</dt><dd>${peri.semanas_gestacion ? `${peri.semanas_gestacion} semanas` : "—"}</dd>
+          <dt>Peso al nacer</dt><dd>${peri.peso_nacer_kg ? `${peri.peso_nacer_kg} kg` : "—"}</dd>
+          <dt>Talla al nacer</dt><dd>${peri.talla_nacer_cm ? `${peri.talla_nacer_cm} cm` : "—"}</dd>
+          <dt>Perímetro cefálico</dt><dd>${peri.perimetro_cefalico_nacer_cm ? `${peri.perimetro_cefalico_nacer_cm} cm` : "—"}</dd>
+          <dt>Apgar 1 min / 5 min</dt><dd>${peri.apgar_1min != null ? `${peri.apgar_1min} / 10` : "—"} · ${peri.apgar_5min != null ? `${peri.apgar_5min} / 10` : "—"}</dd>
+          <dt>Vía de parto</dt><dd>${esc(peri.tipo_parto || "—")}</dd>
+          <dt>Complicaciones</dt><dd>${esc(peri.complicaciones_neonatales || "Sin complicaciones reportadas")}</dd>
+        </dl>
+      </div>
+      <div class="bloque-detalle" style="margin-top:20px; padding-top:16px; border-top:1px solid var(--linea)">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+          <h3 style="font-size:16px; margin:0">Tutor Legal y Custodia</h3>
+          <button type="button" class="btn sutil chico" data-accion="editar-tutor">Editar tutor</button>
+        </div>
+        <dl class="datos">
+          <dt>Nombre del tutor</dt><dd><b>${esc(tutor.nombres ? `${tutor.nombres} ${tutor.apellidos || ""}`.trim() : (p.nombre_tutor || "—"))}</b></dd>
+          <dt>Parentesco</dt><dd>${esc(tutor.parentesco || p.parentesco_tutor || "—")}</dd>
+          <dt>DPI del tutor</dt><dd>${esc(tutor.dpi || p.dpi_tutor || "—")}</dd>
+          <dt>Teléfono principal</dt><dd>${esc(tutor.telefono_principal || p.telefono_tutor || "—")}</dd>
+          <dt>Dirección</dt><dd>${esc(tutor.direccion || p.direccion || "—")}</dd>
+        </dl>
+      </div>`;
+  } else if (estado.inst === "odontologia") {
+    const sist = estado.dentalPaciente?.antecedentes_sistemicos || {};
+    html += `
+      <div class="bloque-detalle" style="margin-top:24px; padding-top:16px; border-top:1px solid var(--linea)">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+          <h3 style="font-size:16px; margin:0">Anamnesis Médica y Riesgo Sistémico Dental</h3>
+          <button type="button" class="btn sutil chico" data-accion="editar-sistemico">Editar antecedentes médicos</button>
+        </div>
+        <div class="cuadricula-sistemica" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(210px, 1fr)); gap:10px; margin-bottom:14px">
+          <div style="padding:10px; border-radius:6px; border:1px solid var(--linea); background:${sist.hipertension ? "#FFF4EB" : "var(--blanco)"}">
+            <span class="tenue">Hipertensión:</span> <b style="color:${sist.hipertension ? "var(--ambar)" : "inherit"}">${sist.hipertension ? "SÍ (Vasoconstrictor prec.)" : "No"}</b>
+          </div>
+          <div style="padding:10px; border-radius:6px; border:1px solid var(--linea); background:${sist.diabetes ? "#FFF4EB" : "var(--blanco)"}">
+            <span class="tenue">Diabetes:</span> <b style="color:${sist.diabetes ? "var(--ambar)" : "inherit"}">${sist.diabetes ? "SÍ (Riesgo infección)" : "No"}</b>
+          </div>
+          <div style="padding:10px; border-radius:6px; border:1px solid var(--linea); background:${sist.enfermedad_cardiaca ? "#FFF4EB" : "var(--blanco)"}">
+            <span class="tenue">Cardiopatía:</span> <b style="color:${sist.enfermedad_cardiaca ? "var(--ambar)" : "inherit"}">${sist.enfermedad_cardiaca ? "SÍ (Profilaxis ATB)" : "No"}</b>
+          </div>
+          <div style="padding:10px; border-radius:6px; border:1px solid var(--linea); background:${sist.trastornos_hemorragicos ? "#FDF2F2" : "var(--blanco)"}">
+            <span class="tenue">Trastornos hemorrágicos:</span> <b style="color:${sist.trastornos_hemorragicos ? "var(--rojo)" : "inherit"}">${sist.trastornos_hemorragicos ? "SÍ (Alto riesgo sangrado)" : "No"}</b>
+          </div>
+          <div style="padding:10px; border-radius:6px; border:1px solid var(--linea); background:${sist.alergia_anestesia_local ? "#FDF2F2" : "var(--blanco)"}">
+            <span class="tenue">Alergia anestesia local:</span> <b style="color:${sist.alergia_anestesia_local ? "var(--rojo)" : "inherit"}">${sist.alergia_anestesia_local ? "SÍ (CONTRAINDICADA)" : "No"}</b>
+          </div>
+          <div style="padding:10px; border-radius:6px; border:1px solid var(--linea); background:${sist.alergia_latex ? "#FFF4EB" : "var(--blanco)"}">
+            <span class="tenue">Alergia al látex:</span> <b style="color:${sist.alergia_latex ? "var(--ambar)" : "inherit"}">${sist.alergia_latex ? "SÍ (Guantes nitrilo)" : "No"}</b>
+          </div>
+          <div style="padding:10px; border-radius:6px; border:1px solid var(--linea); background:${sist.embarazo ? "#FFF4EB" : "var(--blanco)"}">
+            <span class="tenue">Embarazo:</span> <b style="color:${sist.embarazo ? "var(--ambar)" : "inherit"}">${sist.embarazo ? `SÍ (${sist.meses_embarazo || 0} meses)` : "No"}</b>
+          </div>
+        </div>
+        <dl class="datos">
+          <dt>Medicamentos actuales</dt><dd>${esc(sist.medicamentos_actuales || "Ninguno reportado")}</dd>
+          <dt>Observaciones médicas</dt><dd>${esc(sist.observaciones_medicas || "Sin observaciones")}</dd>
+          <dt>Última actualización</dt><dd>${fecha(sist.fecha_actualizacion || sist.fecha_evaluacion)}</dd>
+        </dl>
+      </div>`;
+  }
+  return html;
 }
 
 function pintarCitas(citas) {
@@ -1841,6 +2022,17 @@ const REGLAS = {
   codigo: { attrs: { maxlength: 8 }, filtro: "mayus", re: /^[A-Z]{2,4}-\d{2,3}$/, msg: "2 a 4 letras, guion y 2 o 3 números (ej. MI-104)" },
   camas: num(1, 6, 1), nombre: nombreR(80), piso: num(0, 20, 1),
   extension: { attrs: { maxlength: 5, inputmode: "numeric" }, filtro: "digitos", re: /^\d{2,5}$/, msg: "de 2 a 5 dígitos" },
+  numero_lote: { attrs: { maxlength: 30 }, re: RE.lote, msg: "letras, números o guion (3 a 30 caracteres)" },
+  temp_min_c: num(-20, 30, 0.1), temp_max_c: num(-20, 30, 0.1),
+  dosis_disponibles: num(1, 100000, 1), dosis_recibidas: num(1, 100000, 1), fabricante: txt(100, 2),
+  apgar_1min: num(0, 10, 1), apgar_5min: num(0, 10, 1), tipo_parto: txt(50), complicaciones_neonatales: txt(300),
+  edad_meses: num(0, 216, 1), sintomas_observados: txt(200),
+  monto_total: num(0, 100000, 0.01), monto_abono: num(0.01, 100000, 0.01),
+  numero_recibo: txt(30, 2), numero_factura: txt(30, 2), numero_autorizacion: txt(50),
+  diagnostico_plan: txt(300, 3), nombre_procedimiento: txt(100, 2), categoria_procedimiento: txt(50),
+  costo_base: num(0, 50000, 0.01), duracion_minutos: num(5, 480, 5), hallazgo: txt(100, 2),
+  nombre_etapa: txt(100, 2), costo_etapa: num(0, 50000, 0.01),
+  medicamentos_actuales: txt(500), observaciones_medicas: txt(1000),
 };
 const REGLAS_FILA = {
   medicamento: txt(100, 2), presentacion: txt(50), dosis: txt(50), frecuencia: txt(50), duracion_dias: num(1, 90, 1),
@@ -2308,6 +2500,1446 @@ $("#modalCuerpo").addEventListener("click", (ev) => {
     fila.querySelector("select, input").focus();
   }
 });
+
+// ==============================================================================
+// MÓDULOS ESPECIALIZADOS: CENTRO PEDIÁTRICO Y CLÍNICA ODONTOLÓGICA
+// ==============================================================================
+
+// ---------------------------------------------------------------- Odontograma SVG
+const PIEZAS_PERM_SUP = [18, 17, 16, 15, 14, 13, 12, 11, 21, 22, 23, 24, 25, 26, 27, 28];
+const PIEZAS_PERM_INF = [48, 47, 46, 45, 44, 43, 42, 41, 31, 32, 33, 34, 35, 36, 37, 38];
+const PIEZAS_TEMP_SUP = [55, 54, 53, 52, 51, 61, 62, 63, 64, 65];
+const PIEZAS_TEMP_INF = [85, 84, 83, 82, 81, 71, 72, 73, 74, 75];
+
+let piezaOdontoSeleccionada = null;
+let caraOdontoSeleccionada = null;
+
+function renderDienteSVG(pieza, hallazgosPieza = [], seleccionada = false) {
+  const carasColor = {};
+  let cruzExtraido = false;
+  let endodoncia = false;
+  for (const h of hallazgosPieza) {
+    const c = String(h.cara || "G").toUpperCase();
+    const hTxt = String(h.hallazgo || "").toLowerCase();
+    if (c === "G" || c === "T") {
+      if (hTxt.includes("ausente") || hTxt.includes("extra") || hTxt.includes("perdida")) cruzExtraido = true;
+      if (hTxt.includes("endodon") || hTxt.includes("conducto") || hTxt.includes("perno")) endodoncia = true;
+    }
+    carasColor[c] = h.color_hex || "#B42318";
+  }
+
+  const cO = carasColor["O"] || "#FFFFFF";
+  const cV = carasColor["V"] || "#FFFFFF";
+  const cL = carasColor["L"] || carasColor["P"] || "#FFFFFF";
+  const cM = carasColor["M"] || "#FFFFFF";
+  const cD = carasColor["D"] || "#FFFFFF";
+
+  return `
+    <div class="diente-caja ${seleccionada ? "seleccionado" : ""}" data-diente="${pieza}">
+      <svg class="diente-svg" viewBox="0 0 40 40" width="38" height="38" aria-label="Pieza dental FDI ${pieza}">
+        <polygon points="4,4 36,4 28,12 12,12" fill="${cV}" stroke="#4A5C59" stroke-width="1.2" data-cara-click="V" data-pieza="${pieza}" class="cara-diente"></polygon>
+        <polygon points="12,28 28,28 36,36 4,36" fill="${cL}" stroke="#4A5C59" stroke-width="1.2" data-cara-click="L" data-pieza="${pieza}" class="cara-diente"></polygon>
+        <polygon points="4,4 12,12 12,28 4,36" fill="${cM}" stroke="#4A5C59" stroke-width="1.2" data-cara-click="M" data-pieza="${pieza}" class="cara-diente"></polygon>
+        <polygon points="28,12 36,4 36,36 28,28" fill="${cD}" stroke="#4A5C59" stroke-width="1.2" data-cara-click="D" data-pieza="${pieza}" class="cara-diente"></polygon>
+        <polygon points="12,12 28,12 28,28 12,28" fill="${cO}" stroke="#4A5C59" stroke-width="1.2" data-cara-click="O" data-pieza="${pieza}" class="cara-diente"></polygon>
+        ${cruzExtraido ? '<line x1="4" y1="4" x2="36" y2="36" stroke="#B42318" stroke-width="3"/><line x1="36" y1="4" x2="4" y2="36" stroke="#B42318" stroke-width="3"/>' : ""}
+        ${endodoncia ? '<line x1="20" y1="6" x2="20" y2="34" stroke="#7A4FB0" stroke-width="3.5"/>' : ""}
+      </svg>
+      <span class="diente-num" data-diente-click="${pieza}">${pieza}</span>
+    </div>`;
+}
+
+function seleccionarPiezaOdontograma(pieza, cara = "O") {
+  piezaOdontoSeleccionada = pieza;
+  caraOdontoSeleccionada = cara;
+  document.querySelectorAll(".diente-caja").forEach((el) => {
+    el.classList.toggle("seleccionado", Number(el.dataset.diente) === pieza);
+  });
+  const cont = $("#detallePiezaOdontograma");
+  if (!cont) return;
+
+  const odonto = estado.pagina === "paciente"
+    ? (estado.dentalPaciente?.odontograma || {})
+    : (estado.odontogramaGeneral || {});
+  const hallazgos = (odonto.piezas?.[String(pieza)] || odonto.hallazgos?.filter((h) => Number(h.codigo_fdi) === pieza)) || [];
+  const CARAS_TXT = { O: "Oclusal / Incisal", V: "Vestibular", L: "Lingual / Palatina", M: "Mesial", D: "Distal", G: "General / Toda la pieza" };
+
+  cont.innerHTML = `
+    <div class="tarjeta-detalle-pieza" style="padding:16px; border:1px solid var(--linea); border-radius:8px; background:var(--blanco)">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px">
+        <h4 style="margin:0; font-size:16px">Pieza dental FDI <b>${pieza}</b> · Cara <b>${CARAS_TXT[cara] || cara}</b></h4>
+        <button type="button" class="btn primario chico" data-accion="${estado.pagina === "paciente" ? "nuevo-hallazgo-paciente" : "nuevo-hallazgo"}" data-pieza-sel="${pieza}" data-cara-sel="${cara}">+ Registrar hallazgo</button>
+      </div>
+      ${hallazgos.length ? `
+        <table class="tabla-datos">
+          <thead><tr><th>Cara</th><th>Hallazgo</th><th>Estado</th><th>Notas</th><th>Fecha</th></tr></thead>
+          <tbody>
+            ${hallazgos.map((h) => `
+              <tr>
+                <td><b>${esc(CARAS_TXT[h.cara] || h.cara)}</b></td>
+                <td><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${esc(h.color_hex || "#B42318")}; margin-right:6px"></span>${esc(h.hallazgo)}</td>
+                <td><span class="estado ${h.estado === "tratado" ? "activo" : (h.estado === "activo" ? "alerta" : "sutil")}">${esc(h.estado || "activo")}</span></td>
+                <td>${esc(h.notas || "—")}</td>
+                <td class="tenue">${fecha(h.fecha_registro)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      ` : `<p class="tenue" style="margin:0">Esta pieza no presenta hallazgos patológicos registrados (sana).</p>`}
+    </div>`;
+}
+
+// ------------------------------------------------------------- Pestañas del Paciente
+function pintarExpedienteOdontograma() {
+  const o = estado.dentalPaciente?.odontograma || {};
+  const piezasMap = o.piezas || {};
+  const dSVG = (p) => renderDienteSVG(p, piezasMap[String(p)] || [], p === piezaOdontoSeleccionada);
+
+  return `
+    <div class="panel relleno">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px">
+        <div>
+          <h2 style="margin:0 0 4px 0">Odontograma Digital del Paciente</h2>
+          <p class="tenue" style="margin:0">Haga clic en una cara o en el número de pieza para inspeccionar o agregar hallazgos clínicos.</p>
+        </div>
+        <div>${btnAccion("nuevo-hallazgo-paciente", "+ Registrar hallazgo")}</div>
+      </div>
+
+      <div class="odontograma-box" style="margin-bottom:20px">
+        <h4 style="margin:0 0 6px 0; font-size:13px; text-transform:uppercase; letter-spacing:0.04em" class="tenue">Arcada Permanente Superior (18 – 28)</h4>
+        <div class="arcada" style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:14px">${PIEZAS_PERM_SUP.map(dSVG).join("")}</div>
+
+        <h4 style="margin:0 0 6px 0; font-size:13px; text-transform:uppercase; letter-spacing:0.04em" class="tenue">Arcada Permanente Inferior (48 – 38)</h4>
+        <div class="arcada" style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:18px">${PIEZAS_PERM_INF.map(dSVG).join("")}</div>
+
+        <h4 style="margin:0 0 6px 0; font-size:13px; text-transform:uppercase; letter-spacing:0.04em" class="tenue">Dentición Temporal / Decidua (55 – 85)</h4>
+        <div class="arcada" style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:10px">${PIEZAS_TEMP_SUP.map(dSVG).join("")}</div>
+        <div class="arcada" style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:16px">${PIEZAS_TEMP_INF.map(dSVG).join("")}</div>
+
+        <div class="leyenda-hallazgos" style="display:flex; gap:16px; flex-wrap:wrap; padding:10px 14px; background:var(--papel); border-radius:6px; font-size:13px">
+          <span><span style="display:inline-block; width:12px; height:12px; background:#B42318; border-radius:2px; vertical-align:middle; margin-right:4px"></span> Caries activa</span>
+          <span><span style="display:inline-block; width:12px; height:12px; background:#2F5E9E; border-radius:2px; vertical-align:middle; margin-right:4px"></span> Resina / Obturación</span>
+          <span><span style="display:inline-block; width:12px; height:12px; background:#7A4FB0; border-radius:2px; vertical-align:middle; margin-right:4px"></span> Endodoncia / Perno</span>
+          <span><span style="display:inline-block; width:12px; height:12px; background:#9A5B05; border-radius:2px; vertical-align:middle; margin-right:4px"></span> Sellante / Fluorización</span>
+          <span><span style="display:inline-block; width:12px; height:12px; background:#6E7F7C; border-radius:2px; vertical-align:middle; margin-right:4px"></span> Diente ausente / Extraído</span>
+        </div>
+      </div>
+
+      <div id="detallePiezaOdontograma" style="margin-bottom:20px">
+        <p class="tenue">Seleccione cualquier pieza o cara para ver o añadir registros clínicos.</p>
+      </div>
+
+      <h3 style="margin:20px 0 10px 0; font-size:16px">Historial de Hallazgos Dentales Registrados</h3>
+      ${(o.hallazgos || []).length ? `
+        <table class="tabla-datos">
+          <thead><tr><th>Pieza FDI</th><th>Cara</th><th>Hallazgo</th><th>Estado</th><th>Severidad</th><th>Notas clínicas</th><th>Fecha</th></tr></thead>
+          <tbody>
+            ${o.hallazgos.map((h) => `
+              <tr>
+                <td><b>Pieza ${h.codigo_fdi}</b></td>
+                <td>${esc(h.cara || "General")}</td>
+                <td><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${esc(h.color_hex || "#B42318")}; margin-right:6px"></span>${esc(h.hallazgo)}</td>
+                <td><span class="estado ${h.estado === "tratado" ? "activo" : (h.estado === "activo" ? "alerta" : "sutil")}">${esc(h.estado || "activo")}</span></td>
+                <td>${esc(h.severidad || "moderada")}</td>
+                <td>${esc(h.notas || "—")}</td>
+                <td class="tenue">${fecha(h.fecha_registro)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      ` : `<div class="vacio-tabla"><p>No se han registrado hallazgos patológicos en el odontograma.</p></div>`}
+    </div>`;
+}
+
+function pintarExpedientePlanes() {
+  const planes = estado.dentalPaciente?.planes_tratamiento || [];
+  return `
+    <div class="panel relleno">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px">
+        <div>
+          <h2 style="margin:0 0 4px 0">Planes de Tratamiento Odontológico</h2>
+          <p class="tenue" style="margin:0">Evolución de fases terapéuticas (profilaxis, operatoria, endodoncia, prótesis).</p>
+        </div>
+        <div>${btnAccion("nuevo-plan-paciente", "+ Proponer plan de tratamiento")}</div>
+      </div>
+
+      ${planes.length ? `
+        <div class="lista-planes" style="display:flex; flex-direction:column; gap:16px">
+          ${planes.map((pl) => `
+            <div class="tarjeta-plan" style="padding:16px; border:1px solid var(--linea); border-radius:8px; background:var(--blanco)">
+              <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px">
+                <div>
+                  <h3 style="margin:0 0 4px 0; font-size:16px">${esc(pl.diagnostico_general || "Plan Odontológico Integral")}</h3>
+                  <span class="tenue">Propuesto el ${fecha(pl.fecha_propuesta)} · Odontólogo: ${esc(pl.odontologo_nombre || "Clínico")}</span>
+                </div>
+                <div style="text-align:right">
+                  <span class="estado ${pl.estado === "aprobado_paciente" ? "activo" : (pl.estado === "en_curso" ? "alerta" : "sutil")}">${esc(pl.estado || "propuesto")}</span>
+                  <div style="margin-top:4px; font-size:16px; font-weight:700">Q${Number(pl.costo_total_estimado || 0).toFixed(2)}</div>
+                </div>
+              </div>
+
+              <h4 style="margin:12px 0 8px 0; font-size:14px">Etapas y Fases de Tratamiento:</h4>
+              <div class="grid-etapas" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:10px">
+                ${(pl.etapas || []).map((et) => `
+                  <div class="etapa-card" style="padding:12px; border-radius:6px; border:1px solid var(--linea); background:${et.estado === "completada" ? "#E8F5E9" : (et.estado === "en_curso" ? "#FFF8E1" : "var(--papel)")}">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px">
+                      <b>Fase ${et.numero_etapa}: ${esc(et.nombre_etapa)}</b>
+                      <span class="estado ${et.estado === "completada" ? "activo" : (et.estado === "en_curso" ? "alerta" : "sutil")}">${esc(et.estado)}</span>
+                    </div>
+                    <p style="font-size:13px; margin:0 0 8px 0; color:var(--tinta-2)">${esc(et.procedimientos_planificados || "Sin detalle")}</p>
+                    <div style="display:flex; justify-content:space-between; align-items:center">
+                      <small class="tenue">Costo: Q${Number(et.costo_estimado || 0).toFixed(2)}</small>
+                      ${et.estado !== "completada" ? `
+                        <div style="display:flex; gap:6px">
+                          ${et.estado === "pendiente" ? `<button type="button" class="btn sutil chico" data-avanzar-etapa="${et.id_etapa}" data-plan-id="${pl.id_plan}" data-estado="en_curso">Iniciar</button>` : ""}
+                          <button type="button" class="btn primario chico" data-avanzar-etapa="${et.id_etapa}" data-plan-id="${pl.id_plan}" data-estado="completada">Completar</button>
+                        </div>
+                      ` : '<span style="color:var(--verde); font-weight:600; font-size:12px">✓ Finalizada</span>'}
+                    </div>
+                  </div>
+                `).join("")}
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      ` : `<div class="vacio-tabla"><p>No hay planes de tratamiento formulados para este paciente.</p>${btnAccion("nuevo-plan-paciente", "+ Proponer primer plan")}</div>`}
+    </div>`;
+}
+
+function pintarExpedienteCobros() {
+  const fac = estado.dentalPaciente?.facturacion?.facturas || [];
+  const pagos = estado.dentalPaciente?.facturacion?.pagos || [];
+  const totalFacturado = fac.reduce((s, f) => s + Number(f.monto_total || 0), 0);
+  const totalPagado = fac.reduce((s, f) => s + Number(f.monto_pagado || 0), 0);
+  const saldoPendiente = totalFacturado - totalPagado;
+
+  return `
+    <div class="panel relleno">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px">
+        <div>
+          <h2 style="margin:0 0 4px 0">Procedimientos, Facturas y Abonos</h2>
+          <p class="tenue" style="margin:0">Cuentas corrientes odontológicas, presupuestos y control de cobros.</p>
+        </div>
+        <div>${btnAccion("nuevo-abono-paciente", "+ Registrar abono / pago")}</div>
+      </div>
+
+      <div class="cifras" style="margin-bottom:20px">
+        <div class="cifra-caja">
+          <span class="cifra-ico">${svg("cobros")}</span>
+          <span class="cifra-texto"><span class="cifra">Q${totalFacturado.toFixed(2)}</span><span class="cifra-etq">Total Presupuestado</span></span>
+        </div>
+        <div class="cifra-caja">
+          <span class="cifra-ico">${svg("cobros")}</span>
+          <span class="cifra-texto"><span class="cifra">Q${totalPagado.toFixed(2)}</span><span class="cifra-etq">Total Abonado</span></span>
+        </div>
+        <div class="cifra-caja ${saldoPendiente > 0 ? "cifra-alerta" : ""}">
+          <span class="cifra-ico">${svg("cobros")}</span>
+          <span class="cifra-texto"><span class="cifra">Q${saldoPendiente.toFixed(2)}</span><span class="cifra-etq">Saldo Pendiente</span></span>
+        </div>
+      </div>
+
+      <h3 style="margin:16px 0 10px 0; font-size:16px">Facturas y Cuentas de Cobro</h3>
+      ${fac.length ? `
+        <table class="tabla-datos" style="margin-bottom:24px">
+          <thead><tr><th>N.º Factura</th><th>Fecha</th><th>Plan Asociado</th><th class="num">Monto Total</th><th class="num">Abonado</th><th class="num">Saldo</th><th>Estado</th></tr></thead>
+          <tbody>
+            ${fac.map((f) => `
+              <tr>
+                <td><b>${esc(f.numero_factura)}</b></td>
+                <td>${fecha(f.fecha_emision)}</td>
+                <td>${f.id_plan ? `Plan #${f.id_plan}` : "Atención directa"}</td>
+                <td class="num">Q${Number(f.monto_total || 0).toFixed(2)}</td>
+                <td class="num" style="color:var(--verde)">Q${Number(f.monto_pagado || 0).toFixed(2)}</td>
+                <td class="num" style="color:${(f.saldo_pendiente || 0) > 0 ? "var(--rojo)" : "inherit"}; font-weight:700">Q${Number(f.saldo_pendiente || 0).toFixed(2)}</td>
+                <td><span class="estado ${f.estado === "pagada" ? "activo" : (f.estado === "parcial" ? "alerta" : "baja")}">${esc(f.estado)}</span></td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      ` : `<p class="tenue">No hay facturas emitidas para este paciente.</p>`}
+
+      <h3 style="margin:16px 0 10px 0; font-size:16px">Registro de Pagos y Recibos de Caja</h3>
+      ${pagos.length ? `
+        <table class="tabla-datos">
+          <thead><tr><th>N.º Recibo</th><th>Fecha</th><th>Monto</th><th>Método de Pago</th><th>Referencia / Aut.</th></tr></thead>
+          <tbody>
+            ${pagos.map((pg) => `
+              <tr>
+                <td><b>${esc(pg.numero_recibo)}</b></td>
+                <td>${fecha(pg.fecha_pago, true)}</td>
+                <td><b>Q${Number(pg.monto || 0).toFixed(2)}</b></td>
+                <td><span class="estado sutil">${texto(pg.metodo_pago)}</span></td>
+                <td>${esc(pg.referencia || "—")}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      ` : `<p class="tenue">No hay pagos registrados para este paciente.</p>`}
+    </div>`;
+}
+
+function pintarExpedienteSomatometria() {
+  const somas = estado.pediatricoPaciente?.somatometria || [];
+  return `
+    <div class="panel relleno">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px">
+        <div>
+          <h2 style="margin:0 0 4px 0">Control de Somatometría y Crecimiento</h2>
+          <p class="tenue" style="margin:0">Evaluaciones antropométricas de peso, talla, perímetro cefálico y percentiles OMS.</p>
+        </div>
+        <div>${btnAccion("nueva-somatometria-paciente", "+ Registrar somatometría")}</div>
+      </div>
+
+      ${somas.length ? `
+        <table class="tabla-datos">
+          <thead><tr><th>Fecha Control</th><th>Edad</th><th class="num">Peso (kg)</th><th class="num">Talla (cm)</th><th class="num">P. Cefálico</th><th class="num">IMC</th><th>Percentil OMS</th><th>Observaciones</th></tr></thead>
+          <tbody>
+            ${somas.map((s) => `
+              <tr>
+                <td><b>${fecha(s.fecha_atencion || s.fecha || hoyISO())}</b></td>
+                <td>${s.edad_meses_atencion != null ? `${s.edad_meses_atencion} meses` : "—"}</td>
+                <td class="num"><b>${Number(s.peso_kg).toFixed(2)}</b> kg</td>
+                <td class="num">${Number(s.talla_cm).toFixed(1)} cm</td>
+                <td class="num">${s.perimetro_cefalico_cm ? `${Number(s.perimetro_cefalico_cm).toFixed(1)} cm` : "—"}</td>
+                <td class="num">${s.imc_calculado ? Number(s.imc_calculado).toFixed(2) : "—"}</td>
+                <td><span class="estado activo">P${s.percentil_peso_edad ?? s.percentil_crecimiento ?? 50}</span></td>
+                <td class="tenue">${esc(s.observaciones || "Control ponderal adecuado")}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      ` : `<div class="vacio-tabla"><p>No hay registros de somatometría para este paciente.</p>${btnAccion("nueva-somatometria-paciente", "+ Registrar primera evaluación")}</div>`}
+    </div>`;
+}
+
+function pintarExpedienteVacunas() {
+  const vacs = estado.pediatricoPaciente?.vacunaciones || [];
+  return `
+    <div class="panel relleno">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px">
+        <div>
+          <h2 style="margin:0 0 4px 0">Carnet Oficial de Vacunación</h2>
+          <p class="tenue" style="margin:0">Registro de biológicos aplicados, dosis, lotes y refuerzos programados.</p>
+        </div>
+        <div>${btnAccion("aplicar-vacuna-paciente", "+ Aplicar vacuna")}</div>
+      </div>
+
+      ${vacs.length ? `
+        <table class="tabla-datos">
+          <thead><tr><th>Biológico</th><th>Dosis</th><th>N.º Lote</th><th>Fecha Aplicación</th><th>Vía / Sitio</th><th>Profesional</th><th>Próximo Refuerzo</th></tr></thead>
+          <tbody>
+            ${vacs.map((v) => `
+              <tr>
+                <td><b>${esc(v.nombre_vacuna)}</b></td>
+                <td>${esc(v.dosis || `Dosis #${v.numero_dosis || 1}`)}</td>
+                <td><span class="estado sutil">${esc(v.lote || v.numero_lote || "LOTE-01")}</span></td>
+                <td>${fecha(v.fecha_aplicacion)}</td>
+                <td class="tenue">${esc(v.via_administracion || "Intramuscular")}</td>
+                <td>${esc(v.profesional_aplico || v.profesional_nombre || "Enfermería")}</td>
+                <td>${v.proxima_fecha_refuerzo ? `<span class="estado alerta">${fecha(v.proxima_fecha_refuerzo)}</span>` : "—"}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      ` : `<div class="vacio-tabla"><p>No hay vacunas registradas en el carnet del paciente.</p>${btnAccion("aplicar-vacuna-paciente", "+ Registrar primera vacuna")}</div>`}
+    </div>`;
+}
+
+function pintarExpedienteHitos() {
+  const hitos = estado.pediatricoPaciente?.hitos_desarrollo || [];
+  const AREAS = {
+    motricidad_gruesa: "Motricidad Gruesa",
+    motricidad_fina: "Motricidad Fina / Adaptativa",
+    lenguaje: "Lenguaje y Comunicación",
+    personal_social: "Personal - Social"
+  };
+
+  return `
+    <div class="panel relleno">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px">
+        <div>
+          <h2 style="margin:0 0 4px 0">Hitos del Desarrollo Psicomotor (Denver II)</h2>
+          <p class="tenue" style="margin:0">Evaluación de maduración neurológica y psicomotriz por áreas funcionales.</p>
+        </div>
+        <div>${btnAccion("nuevo-hito-paciente", "+ Evaluar hito")}</div>
+      </div>
+
+      <div class="grid-hitos" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:14px; margin-bottom:20px">
+        ${Object.entries(AREAS).map(([k, nombre]) => {
+          const list = hitos.filter((h) => h.area_desarrollo === k);
+          return `
+            <div class="area-card" style="padding:14px; border:1px solid var(--linea); border-radius:8px; background:var(--blanco)">
+              <h3 style="font-size:15px; margin:0 0 10px 0; color:var(--inst)">${nombre}</h3>
+              ${list.length ? `
+                <ul style="list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:8px">
+                  ${list.map((h) => `
+                    <li style="padding:8px; border-radius:6px; background:var(--papel); font-size:13px">
+                      <div style="display:flex; justify-content:space-between; align-items:center">
+                        <b>${esc(h.hito_evaluado)}</b>
+                        <span class="estado ${h.cumple_hito ? "activo" : "baja"}">${h.cumple_hito ? "Logrado ✓" : "En proceso"}</span>
+                      </div>
+                      ${h.observaciones ? `<p class="tenue" style="margin:4px 0 0 0">${esc(h.observaciones)}</p>` : ""}
+                    </li>
+                  `).join("")}
+                </ul>
+              ` : `<p class="tenue" style="margin:0; font-size:13px">Sin evaluaciones en esta área.</p>`}
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </div>`;
+}
+
+function pintarExpedienteAlergias() {
+  const alergias = estado.pediatricoPaciente?.alergias || [];
+  const tieneGrave = alergias.some((a) => a.severidad === "grave" || a.riesgo_anafilaxia);
+
+  return `
+    <div class="panel relleno">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px">
+        <div>
+          <h2 style="margin:0 0 4px 0">Alergias Pediátricas</h2>
+          <p class="tenue" style="margin:0">Diagnóstico de alérgenos con evaluación de riesgo anafiláctico.</p>
+        </div>
+        <div>${btnAccion("nueva-alergia-paciente", "+ Registrar alergia")}</div>
+      </div>
+
+      ${tieneGrave ? `
+        <div class="alerta-anafilaxia-box" style="padding:12px 16px; border-radius:6px; background:#FDF2F2; border:1px solid var(--rojo); color:var(--rojo); margin-bottom:18px; display:flex; align-items:center; gap:10px">
+          <span style="font-size:20px; font-weight:bold">⚠</span>
+          <div>
+            <b>ALERTA CLÍNICA: Paciente con alergia severa o riesgo de shock anafiláctico.</b>
+            <p style="margin:2px 0 0 0; font-size:13px">Verifique medicamentos y alimentos antes de cualquier procedimiento clínico.</p>
+          </div>
+        </div>
+      ` : ""}
+
+      ${alergias.length ? `
+        <table class="tabla-datos">
+          <thead><tr><th>Alérgeno</th><th>Categoría</th><th>Severidad</th><th>Síntomas Observados</th><th>Fecha Diagnóstico</th></tr></thead>
+          <tbody>
+            ${alergias.map((a) => `
+              <tr>
+                <td><b>${esc(a.nombre_alergeno)}</b></td>
+                <td><span class="estado sutil">${texto(a.tipo_alergeno)}</span></td>
+                <td>
+                  <span class="estado ${a.severidad === "grave" || a.riesgo_anafilaxia ? "critico" : (a.severidad === "moderada" ? "alerta" : "sutil")}">
+                    ${a.severidad === "grave" || a.riesgo_anafilaxia ? "Grave (Anafilaxia)" : esc(a.severidad)}
+                  </span>
+                </td>
+                <td>${esc(a.sintomas_observados || "—")}</td>
+                <td class="tenue">${fecha(a.fecha_deteccion)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      ` : `<div class="vacio-tabla"><p>No se han registrado alergias para este paciente (sin alergias conocidas).</p>${btnAccion("nueva-alergia-paciente", "+ Registrar alergia")}</div>`}
+    </div>`;
+}
+
+// ------------------------------------------------------------- Páginas Pediátricas
+async function pintarPediatricoVacunas() {
+  cabecera({
+    titulo: "Control de Vacunas y Cadena de Frío",
+    acciones: btnAccion("nueva-vacuna-lote", "+ Nuevo lote de vacuna") + " " + btnAccion("aplicar-vacuna-general", "+ Registrar aplicación de vacuna")
+  });
+  $("#vista").innerHTML = `<p class="tenue relleno">Cargando control de biológicos…</p>`;
+
+  try {
+    const [cat, lotes, vacs] = await Promise.all([
+      api("/api/pediatric/vaccines").catch(() => []),
+      api("/api/pediatric/vaccine-batches").catch(() => []),
+      api("/api/pediatric/vaccinations").catch(() => []),
+    ]);
+    if (estado.pagina !== "pediatrico-vacunas") return;
+
+    const dosisDisp = lotes.reduce((s, l) => s + Number(l.dosis_disponibles || 0), 0);
+
+    $("#vista").innerHTML = `
+      <div class="cifras" style="margin-bottom:20px">
+        <div class="cifra-caja">
+          <span class="cifra-ico">${svg("vacuna")}</span>
+          <span class="cifra-texto"><span class="cifra">${cat.length}</span><span class="cifra-etq">Biológicos en catálogo</span></span>
+        </div>
+        <div class="cifra-caja">
+          <span class="cifra-ico">${svg("vacuna")}</span>
+          <span class="cifra-texto"><span class="cifra">${lotes.length}</span><span class="cifra-etq">Lotes en frío (2°C – 8°C)</span></span>
+        </div>
+        <div class="cifra-caja">
+          <span class="cifra-ico">${svg("frasco")}</span>
+          <span class="cifra-texto"><span class="cifra">${dosisDisp}</span><span class="cifra-etq">Dosis disponibles</span></span>
+        </div>
+        <div class="cifra-caja">
+          <span class="cifra-ico">${svg("vacuna")}</span>
+          <span class="cifra-texto"><span class="cifra">${vacs.length}</span><span class="cifra-etq">Vacunas aplicadas</span></span>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:24px">
+        <header class="panel-cab">
+          <h2>Inventario de Lotes y Cadena de Frío</h2>
+          <button type="button" class="btn sutil chico" data-accion="nueva-vacuna-lote">+ Nuevo lote</button>
+        </header>
+        ${lotes.length ? `
+          <table class="tabla-datos">
+            <thead><tr><th>N.º Lote</th><th>Vacuna</th><th>Cadena de Frío</th><th class="num">Dosis Disponibles</th><th>Vencimiento</th><th>Fabricante</th></tr></thead>
+            <tbody>
+              ${lotes.map((l) => `
+                <tr>
+                  <td><b>${esc(l.numero_lote)}</b></td>
+                  <td>${esc(l.nombre_vacuna || `Vacuna #${l.id_vacuna}`)}</td>
+                  <td><span class="temp-badge">${Number(l.temp_min_celsius).toFixed(1)}°C a ${Number(l.temp_max_celsius).toFixed(1)}°C</span></td>
+                  <td class="num"><b>${esc(l.dosis_disponibles)}</b></td>
+                  <td>${fecha(l.fecha_vencimiento)}</td>
+                  <td class="tenue">${esc(l.fabricante || "—")}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        ` : `<div class="vacio-tabla"><p>No hay lotes de vacunas registrados en inventario.</p></div>`}
+      </div>
+
+      <div class="panel">
+        <header class="panel-cab">
+          <h2>Registro Histórico de Aplicación de Vacunas</h2>
+          <button type="button" class="btn primario chico" data-accion="aplicar-vacuna-general">+ Aplicar vacuna</button>
+        </header>
+        ${vacs.length ? `
+          <table class="tabla-datos">
+            <thead><tr><th>Fecha</th><th>Paciente</th><th>Vacuna</th><th>Dosis</th><th>Lote</th><th>Vía</th><th>Profesional</th><th>Refuerzo</th></tr></thead>
+            <tbody>
+              ${vacs.map((v) => `
+                <tr>
+                  <td>${fecha(v.fecha_aplicacion)}</td>
+                  <td><button type="button" class="enlace-paciente" data-id="${v.id_paciente}" data-pestana-ir="pediatrico-vacunas"><b>${esc(v.paciente_nombre || nombreDe(v.id_paciente))}</b></button></td>
+                  <td>${esc(v.nombre_vacuna)}</td>
+                  <td>${esc(v.dosis || `Dosis #${v.numero_dosis || 1}`)}</td>
+                  <td><span class="estado sutil">${esc(v.numero_lote || v.lote || "—")}</span></td>
+                  <td class="tenue">${esc(v.via_administracion || "Intramuscular")}</td>
+                  <td>${esc(v.profesional_aplico || v.profesional_nombre || "Enfermería")}</td>
+                  <td>${v.proxima_fecha_refuerzo ? fecha(v.proxima_fecha_refuerzo) : "—"}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        ` : `<div class="vacio-tabla"><p>No se han registrado aplicaciones de biológicos.</p></div>`}
+      </div>`;
+  } catch (e) {
+    avisar(e.message, true);
+  }
+}
+
+async function pintarPediatricoCrecimiento() {
+  cabecera({
+    titulo: "Curvas de Crecimiento y Somatometría (OMS)",
+    acciones: btnAccion("nueva-somatometria", "+ Registrar somatometría")
+  });
+  $("#vista").innerHTML = `<p class="tenue relleno">Cargando datos antropométricos y curvas de la OMS…</p>`;
+
+  try {
+    const [percentiles, somas] = await Promise.all([
+      api("/api/pediatric/growth-percentiles").catch(() => []),
+      api("/api/pediatric/somatometry").catch(() => []),
+    ]);
+    if (estado.pagina !== "pediatrico-crecimiento") return;
+
+    $("#vista").innerHTML = `
+      <div class="panel" style="margin-bottom:24px">
+        <header class="panel-cab">
+          <h2>Evaluaciones Somatométricas Registradas</h2>
+          <button type="button" class="btn primario chico" data-accion="nueva-somatometria">+ Registrar somatometría</button>
+        </header>
+        ${somas.length ? `
+          <table class="tabla-datos">
+            <thead><tr><th>Fecha</th><th>Paciente</th><th>Edad</th><th class="num">Peso (kg)</th><th class="num">Talla (cm)</th><th class="num">P. Cefálico</th><th class="num">IMC</th><th>Percentil OMS</th></tr></thead>
+            <tbody>
+              ${somas.map((s) => `
+                <tr>
+                  <td>${fecha(s.fecha_atencion || s.fecha || hoyISO())}</td>
+                  <td><button type="button" class="enlace-paciente" data-id="${s.id_paciente}" data-pestana-ir="pediatrico-somatometria"><b>${esc(s.paciente_nombre || nombreDe(s.id_paciente))}</b></button></td>
+                  <td>${s.edad_meses_atencion != null ? `${s.edad_meses_atencion} meses` : "—"}</td>
+                  <td class="num"><b>${Number(s.peso_kg).toFixed(2)}</b> kg</td>
+                  <td class="num">${Number(s.talla_cm).toFixed(1)} cm</td>
+                  <td class="num">${s.perimetro_cefalico_cm ? `${Number(s.perimetro_cefalico_cm).toFixed(1)} cm` : "—"}</td>
+                  <td class="num"><b>${s.imc_calculado ? Number(s.imc_calculado).toFixed(2) : "—"}</b></td>
+                  <td><span class="estado activo">P${s.percentil_peso_edad ?? s.percentil_crecimiento ?? 50}</span></td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        ` : `<div class="vacio-tabla"><p>No hay mediciones somatométricas registradas.</p></div>`}
+      </div>
+
+      <div class="panel">
+        <header class="panel-cab">
+          <h2>Tablas de Referencia Normativa OMS (0 a 5 años)</h2>
+          <span class="tenue">Patrones de Crecimiento Infantil Organización Mundial de la Salud</span>
+        </header>
+        ${percentiles.length ? `
+          <table class="tabla-datos">
+            <thead><tr><th>Parámetro</th><th>Sexo</th><th class="num">Edad (meses)</th><th class="num">P3 (-2 DE)</th><th class="num">P15</th><th class="num">Mediana P50</th><th class="num">P85</th><th class="num">P97 (+2 DE)</th></tr></thead>
+            <tbody>
+              ${percentiles.slice(0, 15).map((p) => `
+                <tr>
+                  <td><b>${texto(p.parametro)}</b></td>
+                  <td>${p.sexo === "M" ? "Niños" : "Niñas"}</td>
+                  <td class="num">${p.edad_meses} m</td>
+                  <td class="num" style="color:var(--rojo)">${Number(p.p3).toFixed(2)}</td>
+                  <td class="num">${Number(p.p15).toFixed(2)}</td>
+                  <td class="num"><b>${Number(p.p50).toFixed(2)}</b></td>
+                  <td class="num">${Number(p.p85).toFixed(2)}</td>
+                  <td class="num" style="color:var(--ambar)">${Number(p.p97).toFixed(2)}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        ` : `<p class="tenue relleno">Cargando catálogo OMS…</p>`}
+      </div>`;
+  } catch (e) {
+    avisar(e.message, true);
+  }
+}
+
+async function pintarPediatricoDesarrollo() {
+  cabecera({
+    titulo: "Desarrollo Psicomotor (Denver II) y Alergias",
+    acciones: btnAccion("nuevo-hito", "+ Evaluar hito Denver") + " " + btnAccion("nueva-alergia", "+ Registrar alergia")
+  });
+  $("#vista").innerHTML = `<p class="tenue relleno">Cargando hitos psicomotores y catálogo de alergias…</p>`;
+
+  try {
+    const [hitos, alergias] = await Promise.all([
+      api("/api/pediatric/milestones").catch(() => []),
+      api("/api/pediatric/allergies").catch(() => []),
+    ]);
+    if (estado.pagina !== "pediatrico-desarrollo") return;
+
+    $("#vista").innerHTML = `
+      <div class="panel" style="margin-bottom:24px">
+        <header class="panel-cab">
+          <h2>Evaluaciones de Desarrollo Psicomotor Denver II</h2>
+          <button type="button" class="btn sutil chico" data-accion="nuevo-hito">+ Evaluar hito</button>
+        </header>
+        ${hitos.length ? `
+          <table class="tabla-datos">
+            <thead><tr><th>Paciente</th><th>Área del Desarrollo</th><th>Hito Evaluado</th><th>Resultado</th><th>Observaciones</th></tr></thead>
+            <tbody>
+              ${hitos.map((h) => `
+                <tr>
+                  <td><button type="button" class="enlace-paciente" data-id="${h.id_paciente}" data-pestana-ir="pediatrico-hitos"><b>${esc(h.paciente_nombre || nombreDe(h.id_paciente))}</b></button></td>
+                  <td><b>${texto(h.area_desarrollo)}</b></td>
+                  <td>${esc(h.hito_evaluado)}</td>
+                  <td><span class="estado ${h.cumple_hito ? "activo" : "baja"}">${h.cumple_hito ? "Logrado ✓" : "En proceso"}</span></td>
+                  <td class="tenue">${esc(h.observaciones || "—")}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        ` : `<div class="vacio-tabla"><p>No se han registrado evaluaciones de hitos psicomotores.</p></div>`}
+      </div>
+
+      <div class="panel">
+        <header class="panel-cab">
+          <h2>Registro de Alergias Pediátricas Activas</h2>
+          <button type="button" class="btn primario chico" data-accion="nueva-alergia">+ Registrar alergia</button>
+        </header>
+        ${alergias.length ? `
+          <table class="tabla-datos">
+            <thead><tr><th>Paciente</th><th>Alérgeno</th><th>Categoría</th><th>Severidad</th><th>Síntomas</th><th>Fecha Detección</th></tr></thead>
+            <tbody>
+              ${alergias.map((a) => `
+                <tr>
+                  <td><button type="button" class="enlace-paciente" data-id="${a.id_paciente}" data-pestana-ir="pediatrico-alergias"><b>${esc(a.paciente_nombre || nombreDe(a.id_paciente))}</b></button></td>
+                  <td><b>${esc(a.nombre_alergeno)}</b></td>
+                  <td><span class="estado sutil">${texto(a.tipo_alergeno)}</span></td>
+                  <td>
+                    <span class="estado ${a.severidad === "grave" || a.riesgo_anafilaxia ? "critico" : (a.severidad === "moderada" ? "alerta" : "sutil")}">
+                      ${a.severidad === "grave" || a.riesgo_anafilaxia ? "Grave (Anafilaxia)" : esc(a.severidad)}
+                    </span>
+                  </td>
+                  <td>${esc(a.sintomas_observados || "—")}</td>
+                  <td class="tenue">${fecha(a.fecha_deteccion)}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        ` : `<div class="vacio-tabla"><p>No hay registros de alergias pediátricas.</p></div>`}
+      </div>`;
+  } catch (e) {
+    avisar(e.message, true);
+  }
+}
+
+// ----------------------------------------------------------- Páginas Odontológicas
+async function pintarDentalOdontograma() {
+  cabecera({
+    titulo: "Odontograma Clínico General (FDI)",
+    acciones: btnAccion("nuevo-hallazgo", "+ Registrar hallazgo dental")
+  });
+  $("#vista").innerHTML = `<p class="tenue relleno">Cargando odontogramas y catálogo de hallazgos…</p>`;
+
+  try {
+    const pacientes = await todosLosPacientes();
+    if (estado.pagina !== "dental-odontograma") return;
+
+    if (!estado.pacienteOdontoSel && pacientes.length) {
+      estado.pacienteOdontoSel = pacientes[0].id_paciente;
+    }
+
+    const odonto = await api(`/api/dental/patients/${estado.pacienteOdontoSel}/odontogram`).catch(() => ({ hallazgos: [], piezas: {} }));
+    estado.odontogramaGeneral = odonto;
+
+    const piezasMap = odonto.piezas || {};
+    const dSVG = (p) => renderDienteSVG(p, piezasMap[String(p)] || [], p === piezaOdontoSeleccionada);
+
+    $("#vista").innerHTML = `
+      <div class="barra-filtros" style="margin-bottom:18px">
+        <label style="display:flex; align-items:center; gap:8px">
+          <span>Paciente:</span>
+          <select id="selPacienteOdonto" style="min-width:280px">
+            ${pacientes.map((p) => `<option value="${p.id_paciente}" ${p.id_paciente === estado.pacienteOdontoSel ? "selected" : ""}>${esc(p.apellidos)}, ${esc(p.nombres)} (${esc(p.dpi)})</option>`).join("")}
+          </select>
+        </label>
+        <button type="button" class="btn sutil chico" data-accion="ver-expediente-odonto">Abrir expediente del paciente</button>
+      </div>
+
+      <div class="panel relleno" style="margin-bottom:20px">
+        <div class="odontograma-box" style="margin-bottom:20px">
+          <h4 style="margin:0 0 6px 0; font-size:13px; text-transform:uppercase; letter-spacing:0.04em" class="tenue">Arcada Permanente Superior (18 – 28)</h4>
+          <div class="arcada" style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:14px">${PIEZAS_PERM_SUP.map(dSVG).join("")}</div>
+
+          <h4 style="margin:0 0 6px 0; font-size:13px; text-transform:uppercase; letter-spacing:0.04em" class="tenue">Arcada Permanente Inferior (48 – 38)</h4>
+          <div class="arcada" style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:18px">${PIEZAS_PERM_INF.map(dSVG).join("")}</div>
+
+          <h4 style="margin:0 0 6px 0; font-size:13px; text-transform:uppercase; letter-spacing:0.04em" class="tenue">Dentición Temporal / Decidua (55 – 85)</h4>
+          <div class="arcada" style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:10px">${PIEZAS_TEMP_SUP.map(dSVG).join("")}</div>
+          <div class="arcada" style="display:flex; gap:4px; flex-wrap:wrap; margin-bottom:16px">${PIEZAS_TEMP_INF.map(dSVG).join("")}</div>
+
+          <div class="leyenda-hallazgos" style="display:flex; gap:16px; flex-wrap:wrap; padding:10px 14px; background:var(--papel); border-radius:6px; font-size:13px">
+            <span><span style="display:inline-block; width:12px; height:12px; background:#B42318; border-radius:2px; vertical-align:middle; margin-right:4px"></span> Caries activa</span>
+            <span><span style="display:inline-block; width:12px; height:12px; background:#2F5E9E; border-radius:2px; vertical-align:middle; margin-right:4px"></span> Resina / Obturación</span>
+            <span><span style="display:inline-block; width:12px; height:12px; background:#7A4FB0; border-radius:2px; vertical-align:middle; margin-right:4px"></span> Endodoncia / Perno</span>
+            <span><span style="display:inline-block; width:12px; height:12px; background:#9A5B05; border-radius:2px; vertical-align:middle; margin-right:4px"></span> Sellante</span>
+            <span><span style="display:inline-block; width:12px; height:12px; background:#6E7F7C; border-radius:2px; vertical-align:middle; margin-right:4px"></span> Extraído / Ausente</span>
+          </div>
+        </div>
+
+        <div id="detallePiezaOdontograma" style="margin-bottom:20px">
+          <p class="tenue">Haga clic en una pieza dental o cara anatómica (O, V, L, M, D) para inspeccionar o registrar un hallazgo.</p>
+        </div>
+
+        <h3 style="margin:20px 0 10px 0; font-size:16px">Hallazgos Registrados para este Paciente</h3>
+        ${(odonto.hallazgos || []).length ? `
+          <table class="tabla-datos">
+            <thead><tr><th>Pieza FDI</th><th>Cara</th><th>Hallazgo</th><th>Estado</th><th>Severidad</th><th>Notas clínicas</th><th>Fecha</th></tr></thead>
+            <tbody>
+              ${odonto.hallazgos.map((h) => `
+                <tr>
+                  <td><b>Pieza ${h.codigo_fdi}</b></td>
+                  <td>${esc(h.cara || "General")}</td>
+                  <td><span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${esc(h.color_hex || "#B42318")}; margin-right:6px"></span>${esc(h.hallazgo)}</td>
+                  <td><span class="estado ${h.estado === "tratado" ? "activo" : (h.estado === "activo" ? "alerta" : "sutil")}">${esc(h.estado || "activo")}</span></td>
+                  <td>${esc(h.severidad || "moderada")}</td>
+                  <td>${esc(h.notas || "—")}</td>
+                  <td class="tenue">${fecha(h.fecha_registro)}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        ` : `<div class="vacio-tabla"><p>Este paciente no presenta patologías registradas en el odontograma.</p></div>`}
+      </div>`;
+
+    $("#selPacienteOdonto")?.addEventListener("change", (ev) => {
+      estado.pacienteOdontoSel = Number(ev.target.value);
+      pintarDentalOdontograma();
+    });
+  } catch (e) {
+    avisar(e.message, true);
+  }
+}
+
+async function pintarDentalPlanes() {
+  cabecera({
+    titulo: "Planes de Tratamiento Odontológico",
+    acciones: btnAccion("nuevo-plan-tratamiento", "+ Proponer plan de tratamiento")
+  });
+  $("#vista").innerHTML = `<p class="tenue relleno">Cargando planes de tratamiento…</p>`;
+
+  try {
+    const planes = await api("/api/dental/treatment-plans").catch(() => []);
+    if (estado.pagina !== "dental-planes") return;
+
+    $("#vista").innerHTML = `
+      <div class="panel">
+        <header class="panel-cab">
+          <h2>Planes Activos y Fases Terapéuticas</h2>
+          <button type="button" class="btn primario chico" data-accion="nuevo-plan-tratamiento">+ Proponer plan</button>
+        </header>
+        ${planes.length ? `
+          <div class="lista-planes" style="padding:16px; display:flex; flex-direction:column; gap:16px">
+            ${planes.map((pl) => `
+              <div class="tarjeta-plan" style="padding:16px; border:1px solid var(--linea); border-radius:8px; background:var(--blanco)">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px">
+                  <div>
+                    <h3 style="margin:0 0 4px 0; font-size:16px">${esc(pl.diagnostico_general || "Plan Dental")}</h3>
+                    <span class="tenue">Paciente: <button type="button" class="enlace-paciente" data-id="${pl.id_paciente}" data-pestana-ir="dental-planes"><b>${esc(pl.paciente_nombre || nombreDe(pl.id_paciente))}</b></button> · ${fecha(pl.fecha_propuesta)}</span>
+                  </div>
+                  <div style="text-align:right">
+                    <span class="estado ${pl.estado === "aprobado_paciente" ? "activo" : (pl.estado === "en_curso" ? "alerta" : "sutil")}">${esc(pl.estado || "propuesto")}</span>
+                    <div style="margin-top:4px; font-size:16px; font-weight:700">Q${Number(pl.costo_total_estimado || 0).toFixed(2)}</div>
+                  </div>
+                </div>
+
+                <div class="grid-etapas" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:10px; margin-top:10px">
+                  ${(pl.etapas || []).map((et) => `
+                    <div class="etapa-card" style="padding:10px; border-radius:6px; border:1px solid var(--linea); background:${et.estado === "completada" ? "#E8F5E9" : (et.estado === "en_curso" ? "#FFF8E1" : "var(--papel)")}">
+                      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px">
+                        <b>Fase ${et.numero_etapa}: ${esc(et.nombre_etapa)}</b>
+                        <span class="estado ${et.estado === "completada" ? "activo" : (et.estado === "en_curso" ? "alerta" : "sutil")}">${esc(et.estado)}</span>
+                      </div>
+                      <p style="font-size:13px; margin:0 0 6px 0; color:var(--tinta-2)">${esc(et.procedimientos_planificados || "Sin detalle")}</p>
+                      <div style="display:flex; justify-content:space-between; align-items:center">
+                        <small class="tenue">Q${Number(et.costo_estimado || 0).toFixed(2)}</small>
+                        ${et.estado !== "completada" ? `
+                          <div style="display:flex; gap:6px">
+                            ${et.estado === "pendiente" ? `<button type="button" class="btn sutil chico" data-avanzar-etapa="${et.id_etapa}" data-plan-id="${pl.id_plan}" data-estado="en_curso">Iniciar</button>` : ""}
+                            <button type="button" class="btn primario chico" data-avanzar-etapa="${et.id_etapa}" data-plan-id="${pl.id_plan}" data-estado="completada">Completar</button>
+                          </div>
+                        ` : '<span style="color:var(--verde); font-weight:600; font-size:12px">✓ Completada</span>'}
+                      </div>
+                    </div>
+                  `).join("")}
+                </div>
+              </div>
+            `).join("")}
+          </div>
+        ` : `<div class="vacio-tabla"><p>No se han registrado planes de tratamiento odontológico.</p></div>`}
+      </div>`;
+  } catch (e) {
+    avisar(e.message, true);
+  }
+}
+
+async function pintarDentalAranceles() {
+  cabecera({
+    titulo: "Aranceles e Insumos Odontológicos",
+    acciones: btnAccion("nuevo-procedimiento-arancel", "+ Nuevo procedimiento")
+  });
+  $("#vista").innerHTML = `<p class="tenue relleno">Cargando catálogo de aranceles e insumos…</p>`;
+
+  try {
+    const [procs, insumos] = await Promise.all([
+      api("/api/dental/procedures").catch(() => []),
+      api("/api/dental/supplies").catch(() => []),
+    ]);
+    if (estado.pagina !== "dental-aranceles") return;
+
+    $("#vista").innerHTML = `
+      <div class="panel" style="margin-bottom:24px">
+        <header class="panel-cab">
+          <h2>Aranceles y Catálogo de Procedimientos Dentales</h2>
+          <button type="button" class="btn primario chico" data-accion="nuevo-procedimiento-arancel">+ Nuevo procedimiento</button>
+        </header>
+        ${procs.length ? `
+          <table class="tabla-datos">
+            <thead><tr><th>Código</th><th>Procedimiento</th><th>Especialidad</th><th class="num">Costo Base</th><th class="num">Duración (min)</th></tr></thead>
+            <tbody>
+              ${procs.map((pr) => `
+                <tr>
+                  <td><b>${esc(pr.codigo || `DENT-${pr.id_procedimiento}`)}</b></td>
+                  <td>${esc(pr.nombre_procedimiento)}</td>
+                  <td><span class="estado sutil">${texto(pr.categoria || "Operatoria")}</span></td>
+                  <td class="num"><b>Q${Number(pr.costo || pr.costo_base || 0).toFixed(2)}</b></td>
+                  <td class="num">${esc(pr.duracion_minutos || pr.duracion_promedio_min || 30)} min</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        ` : `<div class="vacio-tabla"><p>No hay procedimientos registrados en el arancel.</p></div>`}
+      </div>
+
+      <div class="panel">
+        <header class="panel-cab">
+          <h2>Inventario de Insumos y Biomateriales Dentales</h2>
+          <span class="tenue">Resinas, amalgamas, anestésicos, conos y selladores</span>
+        </header>
+        ${insumos.length ? `
+          <table class="tabla-datos">
+            <thead><tr><th>Insumo / Biomaterial</th><th>Categoría</th><th class="num">Stock Actual</th><th class="num">Stock Mínimo</th><th>Unidad</th><th>Estado</th></tr></thead>
+            <tbody>
+              ${insumos.map((i) => {
+                const bajo = Number(i.stock_actual) <= Number(i.stock_minimo);
+                return `
+                  <tr>
+                    <td><b>${esc(i.nombre_insumo || i.nombre)}</b></td>
+                    <td>${texto(i.categoria || "Materiales")}</td>
+                    <td class="num"><b>${esc(i.stock_actual)}</b></td>
+                    <td class="num">${esc(i.stock_minimo)}</td>
+                    <td class="tenue">${esc(i.unidad_medida || "unidad")}</td>
+                    <td><span class="estado ${bajo ? "critico" : "activo"}">${bajo ? "Stock bajo" : "Adecuado"}</span></td>
+                  </tr>
+                `;
+              }).join("")}
+            </tbody>
+          </table>
+        ` : `<div class="vacio-tabla"><p>No hay insumos registrados en inventario.</p></div>`}
+      </div>`;
+  } catch (e) {
+    avisar(e.message, true);
+  }
+}
+
+async function pintarDentalCobros() {
+  cabecera({
+    titulo: "Facturación, Pagos y Abonos Odontológicos",
+    acciones: btnAccion("nuevo-abono", "+ Registrar abono / pago")
+  });
+  $("#vista").innerHTML = `<p class="tenue relleno">Cargando estado financiero odontológico…</p>`;
+
+  try {
+    const res = await api("/api/dental/billing").catch(() => ({ facturas: [], pagos: [] }));
+    if (estado.pagina !== "dental-cobros") return;
+
+    const fac = res.facturas || [];
+    const pagos = res.pagos || [];
+    const totalFacturado = fac.reduce((s, f) => s + Number(f.monto_total || 0), 0);
+    const totalPagado = fac.reduce((s, f) => s + Number(f.monto_pagado || 0), 0);
+    const saldoPendiente = totalFacturado - totalPagado;
+
+    $("#vista").innerHTML = `
+      <div class="cifras" style="margin-bottom:20px">
+        <div class="cifra-caja">
+          <span class="cifra-ico">${svg("cobros")}</span>
+          <span class="cifra-texto"><span class="cifra">Q${totalFacturado.toFixed(2)}</span><span class="cifra-etq">Total Presupuestado</span></span>
+        </div>
+        <div class="cifra-caja">
+          <span class="cifra-ico">${svg("cobros")}</span>
+          <span class="cifra-texto"><span class="cifra">Q${totalPagado.toFixed(2)}</span><span class="cifra-etq">Total Cobrado</span></span>
+        </div>
+        <div class="cifra-caja ${saldoPendiente > 0 ? "cifra-alerta" : ""}">
+          <span class="cifra-ico">${svg("cobros")}</span>
+          <span class="cifra-texto"><span class="cifra">Q${saldoPendiente.toFixed(2)}</span><span class="cifra-etq">Saldo por Cobrar</span></span>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:24px">
+        <header class="panel-cab">
+          <h2>Facturas y Cuentas de Cobro</h2>
+          <button type="button" class="btn primario chico" data-accion="nuevo-abono">+ Registrar abono</button>
+        </header>
+        ${fac.length ? `
+          <table class="tabla-datos">
+            <thead><tr><th>N.º Factura</th><th>Paciente</th><th>Fecha</th><th class="num">Monto Total</th><th class="num">Abonado</th><th class="num">Saldo Pendiente</th><th>Estado</th></tr></thead>
+            <tbody>
+              ${fac.map((f) => `
+                <tr>
+                  <td><b>${esc(f.numero_factura)}</b></td>
+                  <td><button type="button" class="enlace-paciente" data-id="${f.id_paciente}" data-pestana-ir="dental-cobros"><b>${esc(f.paciente_nombre || nombreDe(f.id_paciente))}</b></button></td>
+                  <td>${fecha(f.fecha_emision)}</td>
+                  <td class="num">Q${Number(f.monto_total || 0).toFixed(2)}</td>
+                  <td class="num" style="color:var(--verde)">Q${Number(f.monto_pagado || 0).toFixed(2)}</td>
+                  <td class="num" style="color:${(f.saldo_pendiente || 0) > 0 ? "var(--rojo)" : "inherit"}; font-weight:700">Q${Number(f.saldo_pendiente || 0).toFixed(2)}</td>
+                  <td><span class="estado ${f.estado === "pagada" ? "activo" : (f.estado === "parcial" ? "alerta" : "baja")}">${esc(f.estado)}</span></td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        ` : `<div class="vacio-tabla"><p>No hay facturas emitidas.</p></div>`}
+      </div>
+
+      <div class="panel">
+        <header class="panel-cab">
+          <h2>Registro de Abonos y Recibos de Caja</h2>
+          <span class="tenue">Transacciones cobradas por efectivo, tarjeta o transferencia</span>
+        </header>
+        ${pagos.length ? `
+          <table class="tabla-datos">
+            <thead><tr><th>N.º Recibo</th><th>Fecha y Hora</th><th class="num">Monto Abonado</th><th>Método de Pago</th><th>Referencia / Aut.</th></tr></thead>
+            <tbody>
+              ${pagos.map((pg) => `
+                <tr>
+                  <td><b>${esc(pg.numero_recibo)}</b></td>
+                  <td>${fecha(pg.fecha_pago, true)}</td>
+                  <td class="num"><b>Q${Number(pg.monto || 0).toFixed(2)}</b></td>
+                  <td><span class="estado sutil">${texto(pg.metodo_pago)}</span></td>
+                  <td>${esc(pg.referencia || "—")}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        ` : `<div class="vacio-tabla"><p>No hay pagos registrados.</p></div>`}
+      </div>`;
+  } catch (e) {
+    avisar(e.message, true);
+  }
+}
+
+// ------------------------------------------------------------- Formularios Modales
+async function formNuevoLoteVacuna() {
+  const cat = await api("/api/pediatric/vaccines").catch(() => []);
+  const manana = new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10);
+  const html = `
+    <div class="rejilla">
+      <label class="completo"><span class="requerido">Vacuna / Biológico</span>
+        <select name="id_vacuna" required>
+          <option value="">Seleccione biológico…</option>
+          ${cat.map((v) => `<option value="${v.id_vacuna}">${esc(v.nombre_vacuna)} (${esc(v.via_administracion)})</option>`).join("")}
+        </select>
+      </label>
+      ${campo("numero_lote", "Número de lote", { req: true, extra: 'placeholder="Ej. LOT-2026-BCG"' })}
+      ${campo("fecha_vencimiento", "Fecha de vencimiento", { tipo: "date", req: true, valor: manana })}
+      ${campo("dosis_disponibles", "Dosis disponibles", { tipo: "number", req: true, valor: "50" })}
+      ${campo("temp_min_celsius", "Temp. Mínima (°C)", { tipo: "number", req: true, valor: "2.0", extra: 'step="0.1"' })}
+      ${campo("temp_max_celsius", "Temp. Máxima (°C)", { tipo: "number", req: true, valor: "8.0", extra: 'step="0.1"' })}
+      ${campo("fabricante", "Laboratorio fabricante", { valor: "Sanofi Pasteur" })}
+    </div>`;
+
+  abrirModal("Registrar Lote de Vacuna en Cadena de Frío", html, "Guardar Lote", async (fd) => {
+    const d = datosForm(fd);
+    d.id_vacuna = Number(d.id_vacuna);
+    d.dosis_disponibles = Number(d.dosis_disponibles);
+    d.dosis_recibidas = d.dosis_disponibles;
+    d.temp_min_celsius = Number(d.temp_min_celsius);
+    d.temp_max_celsius = Number(d.temp_max_celsius);
+    await api("/api/pediatric/vaccine-batches", { method: "POST", body: d });
+    avisar(`Lote ${d.numero_lote} registrado correctamente en cadena de frío`);
+    if (estado.pagina === "pediatrico-vacunas") pintarPediatricoVacunas();
+  });
+}
+
+async function formAplicarVacuna(idPaciente = null) {
+  const pacientes = idPaciente ? [] : (await todosLosPacientes()).filter((p) => !ESTADOS_BAJA.includes(p.estado));
+  const lotes = await api("/api/pediatric/vaccine-batches").catch(() => []);
+  const html = `
+    <div class="rejilla">
+      ${idPaciente ? `<p class="completo">Paciente: <b>${nombreDe(idPaciente)}</b></p>` : `
+        <label class="completo"><span class="requerido">Paciente infantil</span>
+          <select name="id_paciente" required>
+            <option value="">Seleccione paciente…</option>
+            ${pacientes.map((p) => `<option value="${p.id_paciente}">${esc(p.apellidos)}, ${esc(p.nombres)} — ${esc(p.dpi)}</option>`).join("")}
+          </select>
+        </label>`}
+      <label class="completo"><span class="requerido">Lote de Vacuna (Cadena de Frío)</span>
+        <select name="id_lote" required>
+          <option value="">Seleccione lote…</option>
+          ${lotes.map((l) => `<option value="${l.id_lote}">${esc(l.nombre_vacuna)} · Lote ${esc(l.numero_lote)} (Disp: ${l.dosis_disponibles})</option>`).join("")}
+        </select>
+      </label>
+      <label><span class="requerido">Número de dosis</span>
+        <select name="numero_dosis" required>
+          <option value="1">1.ª Dosis</option>
+          <option value="2">2.ª Dosis</option>
+          <option value="3">3.ª Dosis</option>
+          <option value="4">Refuerzo 1</option>
+          <option value="5">Refuerzo 2</option>
+        </select>
+      </label>
+      <label><span class="requerido">Vía de administración</span>
+        <select name="via_administracion" required>
+          <option value="Intramuscular">Intramuscular</option>
+          <option value="Subcutánea">Subcutánea</option>
+          <option value="Oral">Oral</option>
+          <option value="Intradérmica">Intradérmica</option>
+        </select>
+      </label>
+      ${campo("profesional_aplico", "Profesional aplicador", { req: true, valor: estado.usuario?.nombre_completo || "Enfermería" })}
+      ${campo("proxima_fecha_refuerzo", "Próximo refuerzo (opcional)", { tipo: "date" })}
+    </div>`;
+
+  abrirModal("Registrar Aplicación de Vacuna", html, "Registrar Aplicación", async (fd) => {
+    const d = datosForm(fd);
+    const pid = idPaciente || Number(d.id_paciente);
+    d.id_lote = Number(d.id_lote);
+    d.numero_dosis = Number(d.numero_dosis);
+    d.dosis = `${d.numero_dosis}.ª dosis`;
+    await api(`/api/pediatric/patients/${pid}/vaccinations`, { method: "POST", body: d });
+    avisar("Vacuna aplicada y registrada en el carnet infantil");
+    if (estado.pagina === "paciente") abrirPaciente(pid, "pediatrico-vacunas");
+    else if (estado.pagina === "pediatrico-vacunas") pintarPediatricoVacunas();
+  });
+}
+
+async function formSomatometria(idPaciente = null) {
+  const pacientes = idPaciente ? [] : (await todosLosPacientes()).filter((p) => !ESTADOS_BAJA.includes(p.estado));
+  const html = `
+    <div class="rejilla">
+      ${idPaciente ? `<p class="completo">Paciente: <b>${nombreDe(idPaciente)}</b></p>` : `
+        <label class="completo"><span class="requerido">Paciente infantil</span>
+          <select name="id_paciente" required>
+            <option value="">Seleccione paciente…</option>
+            ${pacientes.map((p) => `<option value="${p.id_paciente}">${esc(p.apellidos)}, ${esc(p.nombres)} — ${esc(p.dpi)}</option>`).join("")}
+          </select>
+        </label>`}
+      ${campo("peso_kg", "Peso (kg)", { tipo: "number", req: true, extra: 'step="0.01" min="0.3" max="150" placeholder="12.5"' })}
+      ${campo("talla_cm", "Talla (cm)", { tipo: "number", req: true, extra: 'step="0.1" min="20" max="200" placeholder="85.0"' })}
+      ${campo("perimetro_cefalico_cm", "Perímetro cefálico (cm)", { tipo: "number", extra: 'step="0.1" min="20" max="70" placeholder="47.0"' })}
+      ${campo("edad_meses_atencion", "Edad en meses", { tipo: "number", extra: 'min="0" max="216" placeholder="24"' })}
+      ${campo("observaciones", "Observaciones clínicas", { clase: "completo", extra: 'placeholder="Curva de crecimiento adecuada"' })}
+    </div>`;
+
+  abrirModal("Registrar Control de Somatometría", html, "Guardar Medición", async (fd) => {
+    const d = datosForm(fd);
+    const pid = idPaciente || Number(d.id_paciente);
+    d.peso_kg = Number(d.peso_kg);
+    d.talla_cm = Number(d.talla_cm);
+    if (d.perimetro_cefalico_cm) d.perimetro_cefalico_cm = Number(d.perimetro_cefalico_cm);
+    if (d.edad_meses_atencion) d.edad_meses_atencion = Number(d.edad_meses_atencion);
+    await api(`/api/pediatric/patients/${pid}/somatometry`, { method: "POST", body: d });
+    avisar("Somatometría registrada y percentiles calculados");
+    if (estado.pagina === "paciente") abrirPaciente(pid, "pediatrico-somatometria");
+    else if (estado.pagina === "pediatrico-crecimiento") pintarPediatricoCrecimiento();
+  });
+}
+
+async function formHito(idPaciente = null) {
+  const pacientes = idPaciente ? [] : (await todosLosPacientes()).filter((p) => !ESTADOS_BAJA.includes(p.estado));
+  const html = `
+    <div class="rejilla">
+      ${idPaciente ? `<p class="completo">Paciente: <b>${nombreDe(idPaciente)}</b></p>` : `
+        <label class="completo"><span class="requerido">Paciente</span>
+          <select name="id_paciente" required>
+            <option value="">Seleccione paciente…</option>
+            ${pacientes.map((p) => `<option value="${p.id_paciente}">${esc(p.apellidos)}, ${esc(p.nombres)}</option>`).join("")}
+          </select>
+        </label>`}
+      <label class="completo"><span class="requerido">Área del Desarrollo</span>
+        <select name="area_desarrollo" required>
+          <option value="motricidad_gruesa">Motricidad Gruesa</option>
+          <option value="motricidad_fina">Motricidad Fina / Adaptativa</option>
+          <option value="lenguaje">Lenguaje y Comunicación</option>
+          <option value="personal_social">Personal - Social</option>
+        </select>
+      </label>
+      ${campo("hito_evaluado", "Hito psicomotor evaluado", { req: true, clase: "completo", extra: 'placeholder="Ej. Sostiene la cabeza firmemente al sentarse"' })}
+      <label><span class="requerido">Resultado</span>
+        <select name="cumple_hito" required>
+          <option value="1">Logrado (Normal para la edad) ✓</option>
+          <option value="0">En desarrollo / En proceso</option>
+        </select>
+      </label>
+      ${campo("observaciones", "Observaciones", { clase: "completo" })}
+    </div>`;
+
+  abrirModal("Evaluar Hito Psicomotor (Denver II)", html, "Guardar Evaluación", async (fd) => {
+    const d = datosForm(fd);
+    const pid = idPaciente || Number(d.id_paciente);
+    d.cumple_hito = d.cumple_hito === "1";
+    await api(`/api/pediatric/patients/${pid}/milestones`, { method: "POST", body: d });
+    avisar("Hito psicomotor registrado");
+    if (estado.pagina === "paciente") abrirPaciente(pid, "pediatrico-hitos");
+    else if (estado.pagina === "pediatrico-desarrollo") pintarPediatricoDesarrollo();
+  });
+}
+
+async function formAlergia(idPaciente = null) {
+  const pacientes = idPaciente ? [] : (await todosLosPacientes()).filter((p) => !ESTADOS_BAJA.includes(p.estado));
+  const cat = await api("/api/pediatric/allergens").catch(() => []);
+  const html = `
+    <div class="rejilla">
+      ${idPaciente ? `<p class="completo">Paciente: <b>${nombreDe(idPaciente)}</b></p>` : `
+        <label class="completo"><span class="requerido">Paciente</span>
+          <select name="id_paciente" required>
+            <option value="">Seleccione paciente…</option>
+            ${pacientes.map((p) => `<option value="${p.id_paciente}">${esc(p.apellidos)}, ${esc(p.nombres)}</option>`).join("")}
+          </select>
+        </label>`}
+      <label class="completo"><span class="requerido">Alérgeno</span>
+        <select name="id_alergeno" required>
+          <option value="">Seleccione alérgeno…</option>
+          ${cat.map((a) => `<option value="${a.id_alergeno}">${esc(a.nombre_alergeno)} (${texto(a.tipo_alergeno)})${a.riesgo_anafilaxia ? " ⚠ Anafiláctico" : ""}</option>`).join("")}
+        </select>
+      </label>
+      <label><span class="requerido">Severidad</span>
+        <select name="severidad" required>
+          <option value="leve">Leve (eritema / prurito leve)</option>
+          <option value="moderada">Moderada (urticaria extensa / angioedema)</option>
+          <option value="grave">Grave / Anafilaxia (broncoespasmo / hipotensión)</option>
+        </select>
+      </label>
+      ${campo("fecha_deteccion", "Fecha de detección", { tipo: "date", req: true, valor: hoyISO() })}
+      ${campo("sintomas_observados", "Síntomas observados", { clase: "completo", extra: 'placeholder="Urticaria facial y dificultad respiratoria"' })}
+    </div>`;
+
+  abrirModal("Registrar Diagnóstico de Alergia Infantil", html, "Registrar Alergia", async (fd) => {
+    const d = datosForm(fd);
+    const pid = idPaciente || Number(d.id_paciente);
+    d.id_alergeno = Number(d.id_alergeno);
+    await api(`/api/pediatric/patients/${pid}/allergies`, { method: "POST", body: d });
+    avisar("Alergia pediátrica registrada en el expediente");
+    if (estado.pagina === "paciente") abrirPaciente(pid, "pediatrico-alergias");
+    else if (estado.pagina === "pediatrico-desarrollo") pintarPediatricoDesarrollo();
+  });
+}
+
+function formPerinatal(pid) {
+  const peri = estado.pediatricoPaciente?.antecedente_perinatal || {};
+  const html = `
+    <div class="rejilla">
+      ${campo("semanas_gestacion", "Semanas de gestación", { tipo: "number", valor: peri.semanas_gestacion || 39, extra: 'min="20" max="45"' })}
+      ${campo("peso_nacer_kg", "Peso al nacer (kg)", { tipo: "number", valor: peri.peso_nacer_kg || 3.2, extra: 'step="0.01" min="0.3" max="7"' })}
+      ${campo("talla_nacer_cm", "Talla al nacer (cm)", { tipo: "number", valor: peri.talla_nacer_cm || 50.0, extra: 'step="0.1" min="20" max="65"' })}
+      ${campo("perimetro_cefalico_nacer_cm", "P. Cefálico al nacer (cm)", { tipo: "number", valor: peri.perimetro_cefalico_nacer_cm || 34.5, extra: 'step="0.1" min="20" max="50"' })}
+      <label><span class="requerido">Vía de parto</span>
+        <select name="tipo_parto" required>
+          ${opciones([["Eutócico vaginal", "Eutócico vaginal"], ["Cesárea electiva", "Cesárea electiva"], ["Cesárea de urgencia", "Cesárea de urgencia"], ["Parto instrumentado", "Parto instrumentado"]], peri.tipo_parto || "Eutócico vaginal")}
+        </select>
+      </label>
+      ${campo("apgar_1min", "Apgar al 1 min (0–10)", { tipo: "number", valor: peri.apgar_1min != null ? peri.apgar_1min : 9, extra: 'min="0" max="10"' })}
+      ${campo("apgar_5min", "Apgar a los 5 min (0–10)", { tipo: "number", valor: peri.apgar_5min != null ? peri.apgar_5min : 10, extra: 'min="0" max="10"' })}
+      ${campo("complicaciones_neonatales", "Complicaciones neonatales", { clase: "completo", valor: peri.complicaciones_neonatales || "Sin complicaciones" })}
+    </div>`;
+
+  abrirModal("Actualizar Antecedentes Perinatales", html, "Guardar Antecedentes", async (fd) => {
+    const d = datosForm(fd);
+    d.semanas_gestacion = Number(d.semanas_gestacion);
+    d.peso_nacer_kg = Number(d.peso_nacer_kg);
+    d.talla_nacer_cm = Number(d.talla_nacer_cm);
+    d.apgar_1min = Number(d.apgar_1min);
+    d.apgar_5min = Number(d.apgar_5min);
+    await api(`/api/pediatric/patients/${pid}/perinatal`, { method: "PUT", body: d });
+    avisar("Antecedentes perinatales actualizados");
+    abrirPaciente(pid, "datos");
+  });
+}
+
+function formTutor(pid) {
+  const tutor = estado.pediatricoPaciente?.tutores?.[0] || {};
+  const html = `
+    <div class="rejilla">
+      ${campo("nombres", "Nombres del tutor", { req: true, valor: tutor.nombres || "" })}
+      ${campo("apellidos", "Apellidos del tutor", { valor: tutor.apellidos || "" })}
+      ${campo("parentesco", "Parentesco", { req: true, valor: tutor.parentesco || "Madre", extra: 'placeholder="Madre, Padre, Abuela..."' })}
+      ${campo("dpi", "DPI del tutor", { req: true, valor: tutor.dpi || "" })}
+      ${campo("telefono_principal", "Teléfono de contacto", { req: true, valor: tutor.telefono_principal || "" })}
+      ${campo("direccion", "Dirección de residencia", { clase: "completo", valor: tutor.direccion || "" })}
+    </div>`;
+
+  abrirModal("Actualizar Tutor Legal y Custodia", html, "Guardar Tutor", async (fd) => {
+    const d = datosForm(fd);
+    await api(`/api/pediatric/patients/${pid}/guardian`, { method: "PUT", body: d });
+    avisar("Tutor legal actualizado correctamente");
+    abrirPaciente(pid, "datos");
+  });
+}
+
+function formAnamnesisSistemica(pid) {
+  const s = estado.dentalPaciente?.antecedentes_sistemicos || {};
+  const html = `
+    <div class="rejilla">
+      <p class="completo tenue" style="margin:0 0 10px 0">Marque las condiciones médicas preexistentes para activar las precauciones clínicas en los procedimientos odontológicos:</p>
+      <label><input type="checkbox" name="hipertension" value="1" ${s.hipertension ? "checked" : ""}> Hipertensión arterial</label>
+      <label><input type="checkbox" name="diabetes" value="1" ${s.diabetes ? "checked" : ""}> Diabetes mellitus</label>
+      <label><input type="checkbox" name="enfermedad_cardiaca" value="1" ${s.enfermedad_cardiaca ? "checked" : ""}> Cardiopatía / Soplo</label>
+      <label><input type="checkbox" name="trastornos_hemorragicos" value="1" ${s.trastornos_hemorragicos ? "checked" : ""}> Trastornos de coagulación</label>
+      <label><input type="checkbox" name="alergia_anestesia_local" value="1" ${s.alergia_anestesia_local ? "checked" : ""}> Alergia a anestesia local</label>
+      <label><input type="checkbox" name="alergia_latex" value="1" ${s.alergia_latex ? "checked" : ""}> Alergia al látex</label>
+      <label><input type="checkbox" name="embarazo" value="1" ${s.embarazo ? "checked" : ""}> Paciente embarazada</label>
+      ${campo("meses_embarazo", "Meses de gestación", { tipo: "number", valor: s.meses_embarazo || 0, extra: 'min="0" max="9"' })}
+      <label class="completo">Medicamentos actuales que consume
+        <textarea name="medicamentos_actuales" placeholder="Antihipertensivos, hipoglucemiantes, anticoagulantes...">${esc(s.medicamentos_actuales || "")}</textarea>
+      </label>
+      <label class="completo">Observaciones médicas y antecedentes hospitalarios
+        <textarea name="observaciones_medicas" placeholder="Observaciones para el acto odontológico">${esc(s.observaciones_medicas || "")}</textarea>
+      </label>
+    </div>`;
+
+  abrirModal("Anamnesis Médica y Riesgo Sistémico Odontológico", html, "Guardar Antecedentes", async (fd) => {
+    const d = {
+      hipertension: fd.get("hipertension") === "1",
+      diabetes: fd.get("diabetes") === "1",
+      enfermedad_cardiaca: fd.get("enfermedad_cardiaca") === "1",
+      trastornos_hemorragicos: fd.get("trastornos_hemorragicos") === "1",
+      alergia_anestesia_local: fd.get("alergia_anestesia_local") === "1",
+      alergia_latex: fd.get("alergia_latex") === "1",
+      embarazo: fd.get("embarazo") === "1",
+      meses_embarazo: Number(fd.get("meses_embarazo") || 0),
+      medicamentos_actuales: String(fd.get("medicamentos_actuales") || "").trim(),
+      observaciones_medicas: String(fd.get("observaciones_medicas") || "").trim(),
+    };
+    await api(`/api/dental/patients/${pid}/systemic`, { method: "PUT", body: d });
+    avisar("Anamnesis médica actualizada con éxito");
+    abrirPaciente(pid, "datos");
+  });
+}
+
+async function formHallazgoDental(idPaciente = null, piezaPre = null, caraPre = null) {
+  const pid = idPaciente || estado.pacienteOdontoSel || estado.idSeleccionado;
+  const cat = await api("/api/dental/findings-catalog").catch(() => []);
+  const html = `
+    <div class="rejilla">
+      <p class="completo">Paciente: <b>${nombreDe(pid)}</b></p>
+      ${campo("codigo_fdi", "Pieza dental FDI (11–48, 51–85)", { tipo: "number", req: true, valor: piezaPre || "16", extra: 'min="11" max="85"' })}
+      <label><span class="requerido">Cara anatómica</span>
+        <select name="cara" required>
+          ${opciones([["O", "Oclusal / Incisal"], ["V", "Vestibular"], ["L", "Lingual / Palatina"], ["M", "Mesial"], ["D", "Distal"], ["G", "General (Toda la pieza)"]], caraPre || "O")}
+        </select>
+      </label>
+      <label class="completo"><span class="requerido">Hallazgo clínico</span>
+        <select name="hallazgo" required id="selHallazgoOdonto">
+          ${cat.map((h) => `<option value="${esc(h.nombre_hallazgo)}" data-color="${esc(h.color_sugerido)}">${esc(h.nombre_hallazgo)}</option>`).join("")}
+        </select>
+      </label>
+      <label><span class="requerido">Color de representación</span>
+        <input type="color" name="color_hex" value="${cat[0]?.color_sugerido || "#B42318"}" id="colorHallazgoOdonto">
+      </label>
+      <label><span class="requerido">Estado patológico</span>
+        <select name="estado" required>
+          <option value="activo">Activo (Requiere tratamiento)</option>
+          <option value="tratado">Tratado / Restaurado</option>
+          <option value="en_observacion">En observación</option>
+        </select>
+      </label>
+      ${campo("notas", "Notas clínicas", { clase: "completo", extra: 'placeholder="Cavitación profunda con compromiso dentinario"' })}
+    </div>`;
+
+  abrirModal("Registrar Hallazgo en Odontograma", html, "Guardar Hallazgo", async (fd) => {
+    const d = datosForm(fd);
+    d.codigo_fdi = Number(d.codigo_fdi);
+    await api(`/api/dental/patients/${pid}/odontogram/findings`, { method: "POST", body: d });
+    avisar(`Hallazgo registrado en pieza FDI ${d.codigo_fdi}`);
+    if (estado.pagina === "paciente") abrirPaciente(pid, "dental-odontograma");
+    else if (estado.pagina === "dental-odontograma") pintarDentalOdontograma();
+  });
+
+  const selH = $("#selHallazgoOdonto");
+  if (selH) {
+    selH.addEventListener("change", () => {
+      const col = selH.selectedOptions[0]?.dataset.color;
+      if (col && $("#colorHallazgoOdonto")) $("#colorHallazgoOdonto").value = col;
+    });
+  }
+}
+
+async function formPlanTratamiento(idPaciente = null) {
+  const pacientes = idPaciente ? [] : (await todosLosPacientes()).filter((p) => !ESTADOS_BAJA.includes(p.estado));
+  const html = `
+    <div class="rejilla">
+      ${idPaciente ? `<p class="completo">Paciente: <b>${nombreDe(idPaciente)}</b></p>` : `
+        <label class="completo"><span class="requerido">Paciente</span>
+          <select name="id_paciente" required>
+            <option value="">Seleccione paciente…</option>
+            ${pacientes.map((p) => `<option value="${p.id_paciente}">${esc(p.apellidos)}, ${esc(p.nombres)}</option>`).join("")}
+          </select>
+        </label>`}
+      ${campo("diagnostico_general", "Diagnóstico general", { req: true, clase: "completo", extra: 'placeholder="Caries múltiple y gingivitis marginal crónica"' })}
+      ${campo("costo_total_estimado", "Costo total estimado (Q)", { tipo: "number", req: true, extra: 'step="0.01" placeholder="1850.00"' })}
+      <fieldset class="completo paso"><legend>Primera Etapa del Plan</legend>
+        <div class="rejilla">
+          ${campo("nombre_etapa", "Nombre de la fase", { req: true, valor: "Fase 1: Higiene y Detartraje" })}
+          ${campo("costo_estimado", "Costo de esta fase (Q)", { tipo: "number", req: true, valor: "350.00", extra: 'step="0.01"' })}
+          ${campo("procedimientos_planificados", "Procedimientos planificados", { clase: "completo", valor: "Profilaxis dental completa, raspaje supra y subgingival" })}
+        </div>
+      </fieldset>
+    </div>`;
+
+  abrirModal("Formular Plan de Tratamiento Odontológico", html, "Crear Plan", async (fd) => {
+    const d = datosForm(fd);
+    const pid = idPaciente || Number(d.id_paciente);
+    const payload = {
+      id_paciente: pid,
+      diagnostico_general: d.diagnostico_general,
+      costo_total_estimado: Number(d.costo_total_estimado),
+      etapas: [{
+        numero_etapa: 1,
+        nombre_etapa: d.nombre_etapa,
+        procedimientos_planificados: d.procedimientos_planificados,
+        costo_estimado: Number(d.costo_estimado),
+        estado: "pendiente"
+      }]
+    };
+    await api("/api/dental/treatment-plans", { method: "POST", body: payload });
+    avisar("Plan de tratamiento propuesto");
+    if (estado.pagina === "paciente") abrirPaciente(pid, "dental-planes");
+    else if (estado.pagina === "dental-planes") pintarDentalPlanes();
+  });
+}
+
+async function cambiarEstadoEtapaTratamiento(planId, etapaId, nuevoEstado) {
+  try {
+    await api(`/api/dental/treatment-plans/${planId}/stages/${etapaId}`, { method: "PUT", body: { estado: nuevoEstado } });
+    avisar(`Fase marcada como "${nuevoEstado}"`);
+    if (estado.pagina === "paciente") abrirPaciente(estado.idSeleccionado, "dental-planes");
+    else if (estado.pagina === "dental-planes") pintarDentalPlanes();
+  } catch (e) {
+    avisar(e.message, true);
+  }
+}
+
+function formProcedimientoArancel() {
+  const html = `
+    <div class="rejilla">
+      ${campo("codigo", "Código de arancel", { req: true, extra: 'placeholder="OP-10"' })}
+      ${campo("nombre_procedimiento", "Nombre del procedimiento", { req: true, clase: "doble", extra: 'placeholder="Restauración con resina compuesta fotocurable"' })}
+      <label><span class="requerido">Especialidad</span>
+        <select name="categoria" required>
+          <option value="Operatoria">Operatoria Dental</option>
+          <option value="Endodoncia">Endodoncia</option>
+          <option value="Periodoncia">Periodoncia</option>
+          <option value="Cirugía">Cirugía Bucal</option>
+          <option value="Odontopediatría">Odontopediatría</option>
+          <option value="Ortodoncia">Ortodoncia</option>
+          <option value="Rehabilitación">Rehabilitación Oral</option>
+        </select>
+      </label>
+      ${campo("costo", "Costo base (Q)", { tipo: "number", req: true, extra: 'step="0.01" placeholder="250.00"' })}
+      ${campo("duracion_minutos", "Duración estimada (min)", { tipo: "number", valor: "45", extra: 'step="5"' })}
+    </div>`;
+
+  abrirModal("Nuevo Procedimiento al Arancel Odontológico", html, "Guardar Procedimiento", async (fd) => {
+    const d = datosForm(fd);
+    d.costo = Number(d.costo);
+    d.duracion_minutos = Number(d.duracion_minutos);
+    await api("/api/dental/procedures", { method: "POST", body: d });
+    avisar("Procedimiento añadido al arancel");
+    if (estado.pagina === "dental-aranceles") pintarDentalAranceles();
+  });
+}
+
+async function formAbonoDental(idPaciente = null) {
+  const res = await api("/api/dental/billing").catch(() => ({ facturas: [] }));
+  let facturas = res.facturas || [];
+  if (idPaciente) facturas = facturas.filter((f) => f.id_paciente === idPaciente);
+  const facturasPendientes = facturas.filter((f) => (f.saldo_pendiente || 0) > 0);
+
+  if (!facturasPendientes.length) {
+    avisar("No hay facturas con saldo pendiente para registrar abonos.", true);
+    return;
+  }
+
+  const html = `
+    <div class="rejilla">
+      <label class="completo"><span class="requerido">Factura / Cuenta a abonar</span>
+        <select name="id_factura" required id="selFacturaAbono">
+          ${facturasPendientes.map((f) => `
+            <option value="${f.id_factura}" data-saldo="${f.saldo_pendiente}">
+              Factura ${esc(f.numero_factura)} · ${esc(f.paciente_nombre || nombreDe(f.id_paciente))} (Saldo pendiente: Q${Number(f.saldo_pendiente).toFixed(2)})
+            </option>
+          `).join("")}
+        </select>
+      </label>
+      ${campo("numero_recibo", "N.º Recibo de caja", { req: true, extra: 'placeholder="REC-2026-001"' })}
+      ${campo("monto", "Monto a abonar (Q)", { tipo: "number", req: true, valor: Number(facturasPendientes[0]?.saldo_pendiente || 100).toFixed(2), extra: 'step="0.01" min="0.01"' })}
+      <label><span class="requerido">Método de pago</span>
+        <select name="metodo_pago" required>
+          <option value="efectivo">Efectivo</option>
+          <option value="tarjeta_credito">Tarjeta de Crédito</option>
+          <option value="tarjeta_debito">Tarjeta de Débito</option>
+          <option value="transferencia_bancaria">Transferencia Bancaria</option>
+        </select>
+      </label>
+      ${campo("referencia", "N.º de autorización / comprobante", { extra: 'placeholder="AUT-94821"' })}
+    </div>`;
+
+  abrirModal("Registrar Abono Odontológico", html, "Registrar Cobro", async (fd) => {
+    const d = datosForm(fd);
+    d.id_factura = Number(d.id_factura);
+    d.monto = Number(d.monto);
+    await api("/api/dental/payments", { method: "POST", body: d });
+    avisar(`Abono de Q${d.monto.toFixed(2)} registrado con éxito`);
+    if (estado.pagina === "paciente") abrirPaciente(estado.idSeleccionado, "dental-cobros");
+    else if (estado.pagina === "dental-cobros") pintarDentalCobros();
+  });
+}
 
 // -------------------------------------------------------------------- Inicio
 (async function inicio() {

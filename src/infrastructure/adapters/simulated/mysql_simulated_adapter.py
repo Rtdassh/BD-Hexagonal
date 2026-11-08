@@ -21,12 +21,14 @@ from ....domain.entities import (
     Appointment,
     Diagnosis,
     Prescription,
+    Professional,
     SomatometryRecord,
     VaccinationRecord
 )
+from ....domain.ports import PediatricOperationsPort
 
 
-class SimulatedMySQLAdapter(BaseClinicalAdapter):
+class SimulatedMySQLAdapter(BaseClinicalAdapter, PediatricOperationsPort):
     def __init__(self, config: Config, simulated_engine: Optional[SimulatedMySQLEngine] = None):
         self.config = config
         self.simulated = simulated_engine or SimulatedMySQLEngine()
@@ -325,9 +327,121 @@ class SimulatedMySQLAdapter(BaseClinicalAdapter):
         return {
             "institucion": "Centro Médico Pediátrico",
             "motor": "MySQL",
-            "carnet_vacunacion": vacunas,
-            "curva_crecimiento": curva_crecimiento
+            "control_crecimiento": curva_crecimiento,
+            "curva_crecimiento": curva_crecimiento,
+            "esquema_vacunacion": vacunas,
+            "carnet_vacunacion": vacunas
         }
+
+    # ------------------------------------------------------------------------
+    # Implementación de PediatricOperationsPort
+    # ------------------------------------------------------------------------
+    def get_pediatric_details(self, patient_id: int) -> Dict[str, Any]:
+        return self.simulated.get_pediatric_details(patient_id)
+
+    def update_perinatal(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        return self.simulated.update_perinatal(patient_id, data)
+
+    def update_guardian(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        return self.simulated.update_guardian(patient_id, data)
+
+    def add_somatometry(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        return self.simulated.add_somatometry(patient_id, data)
+
+    def list_somatometry(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        return self.simulated.list_somatometry(patient_id)
+
+    def list_vaccines_catalog(self) -> List[Dict[str, Any]]:
+        return self.simulated.list_vaccines_catalog()
+
+    def list_vaccine_batches(self) -> List[Dict[str, Any]]:
+        return self.simulated.list_vaccine_batches()
+
+    def create_vaccine_batch(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        return self.simulated.create_vaccine_batch(data)
+
+    def add_vaccination(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        return self.simulated.add_vaccination(patient_id, data)
+
+    def list_vaccinations(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        return self.simulated.list_vaccinations(patient_id)
+
+    def list_development_milestones(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        return self.simulated.list_development_milestones(patient_id)
+
+    def add_development_milestone(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        return self.simulated.add_development_milestone(patient_id, data)
+
+    def list_patient_allergies(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        return self.simulated.list_patient_allergies(patient_id)
+
+    def add_patient_allergy(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        return self.simulated.add_patient_allergy(patient_id, data)
+
+    def list_allergens_catalog(self) -> List[Dict[str, Any]]:
+        return self.simulated.list_allergens_catalog()
+
+    def list_growth_percentiles(self, sexo: Optional[str] = None, parametro: Optional[str] = None) -> List[Dict[str, Any]]:
+        return self.simulated.list_growth_percentiles(sexo, parametro)
+
+    # Personal médico
+    def list_professionals(self) -> List[Professional]:
+        return [
+            Professional(
+                id_profesional=p["id_pediatra"],
+                nombre_completo=p["nombre_completo"],
+                numero_colegiado=p["numero_colegiado"],
+                especialidad=p.get("especialidad", "Pediatría general"),
+                telefono=p.get("telefono", ""),
+                correo_electronico=p.get("correo_electronico", ""),
+                estado=p.get("estado", "activo")
+            )
+            for p in self.simulated.tables["pediatra"]
+        ]
+
+    def create_professional(self, data: Dict[str, Any]) -> Professional:
+        self.requerido(data, "nombre_completo", "numero_colegiado")
+        col = data["numero_colegiado"].strip()
+        for p in self.simulated.tables["pediatra"]:
+            if p["numero_colegiado"] == col:
+                raise ValueError(f"Ya existe un pediatra con colegiado {col}")
+        new_id = self.simulated._next_id("pediatra")
+        rec = {
+            "id_pediatra": new_id,
+            "nombre_completo": data["nombre_completo"].strip(),
+            "numero_colegiado": col,
+            "especialidad": data.get("especialidad") or "Pediatría general",
+            "telefono": data.get("telefono") or "",
+            "correo_electronico": data.get("correo_electronico") or "",
+            "estado": data.get("estado", "activo")
+        }
+        self.simulated.tables["pediatra"].append(rec)
+        return Professional(
+            id_profesional=new_id,
+            nombre_completo=rec["nombre_completo"],
+            numero_colegiado=rec["numero_colegiado"],
+            especialidad=rec["especialidad"],
+            telefono=rec["telefono"],
+            correo_electronico=rec["correo_electronico"],
+            estado=rec["estado"]
+        )
+
+    def update_professional(self, professional_id: int, data: Dict[str, Any]) -> Professional:
+        for p in self.simulated.tables["pediatra"]:
+            if p["id_pediatra"] == int(professional_id):
+                for k in ("nombre_completo", "especialidad", "telefono", "correo_electronico", "estado"):
+                    if data.get(k) not in (None, ""):
+                        p[k] = data[k]
+                return Professional(
+                    id_profesional=p["id_pediatra"],
+                    nombre_completo=p["nombre_completo"],
+                    numero_colegiado=p["numero_colegiado"],
+                    especialidad=p.get("especialidad", ""),
+                    telefono=p.get("telefono", ""),
+                    correo_electronico=p.get("correo_electronico", ""),
+                    estado=p.get("estado", "activo")
+                )
+        raise ValueError(f"Pediatra {professional_id} no encontrado")
 
     # Helpers
     def _to_patient_domain(self, d: Dict[str, Any]) -> Patient:

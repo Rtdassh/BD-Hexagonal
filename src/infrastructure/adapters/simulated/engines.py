@@ -7,6 +7,7 @@ of PostgreSQL, MySQL, MongoDB, and Firebase.
 """
 
 import copy
+import re
 from datetime import datetime, date, timezone
 from typing import Dict, List, Any, Optional
 
@@ -406,7 +407,124 @@ class SimulatedMySQLEngine:
                     "indicaciones": "Administrar con el desayuno durante 1 mes para suplementación preventiva",
                     "fecha_emision": "2026-02-15"
                 }
-            ]
+            ],
+            # Tablas expandidas del Modelo Relacional 3FN (+20 tablas)
+            "tutor_legal": [
+                {
+                    "id_tutor": 1,
+                    "dpi": "1987543210101",
+                    "nombres": "Andrea",
+                    "apellidos": "Castillo de Ríos",
+                    "telefono_principal": "4211-0022",
+                    "direccion": "Zona 3, Quetzaltenango"
+                }
+            ],
+            "tutor_paciente": [
+                {"id_tutor_paciente": 1, "id_tutor": 1, "id_paciente": 1, "parentesco": "Madre", "es_tutor_principal": True}
+            ],
+            "antecedente_perinatal": [
+                {
+                    "id_antecedente": 1,
+                    "id_paciente": 1,
+                    "semanas_gestacion": 39,
+                    "peso_nacer_kg": 3.25,
+                    "talla_nacer_cm": 49.50,
+                    "perimetro_cefalico_nacer_cm": 34.50,
+                    "tipo_parto": "Eutócico vaginal",
+                    "apgar_1min": 9,
+                    "apgar_5min": 10
+                }
+            ],
+            "especialidad_pediatrica": [
+                {"id_especialidad": 1, "nombre_especialidad": "Pediatría general"},
+                {"id_especialidad": 2, "nombre_especialidad": "Neonatología"}
+            ],
+            "pediatra_especialidad": [
+                {"id_pediatra_especialidad": 1, "id_pediatra": 1, "id_especialidad": 1, "fecha_certificacion": "2020-01-15"}
+            ],
+            "horario_atencion": [
+                {"id_horario": 1, "id_pediatra": 1, "dia_semana": "Lunes", "hora_inicio": "08:00", "hora_fin": "12:00", "consultorio_numero": "C-101"}
+            ],
+            "antropometria_somatometria": [
+                {
+                    "id_somatometria": 1,
+                    "id_consulta": 1,
+                    "id_paciente": 1,
+                    "edad_meses_atencion": 24,
+                    "peso_kg": 12.40,
+                    "talla_cm": 86.50,
+                    "perimetro_cefalico_cm": 48.20,
+                    "imc_calculado": 16.57,
+                    "percentil_peso_edad": 50.0,
+                    "percentil_talla_edad": 50.0,
+                    "percentil_pc_edad": 50.0
+                }
+            ],
+            "normativa_percentil_oms": [
+                {"id_normativa": 1, "sexo": "M", "edad_meses": 0, "parametro_antropometrico": "peso_edad", "p3": 2.5, "p15": 2.9, "p50": 3.3, "p85": 3.9, "p97": 4.4},
+                {"id_normativa": 2, "sexo": "M", "edad_meses": 6, "parametro_antropometrico": "peso_edad", "p3": 6.4, "p15": 7.1, "p50": 7.9, "p85": 8.8, "p97": 9.8},
+                {"id_normativa": 3, "sexo": "M", "edad_meses": 12, "parametro_antropometrico": "peso_edad", "p3": 7.7, "p15": 8.6, "p50": 9.6, "p85": 10.8, "p97": 12.0},
+                {"id_normativa": 4, "sexo": "M", "edad_meses": 24, "parametro_antropometrico": "peso_edad", "p3": 9.7, "p15": 10.8, "p50": 12.2, "p85": 13.6, "p97": 15.3},
+                {"id_normativa": 5, "sexo": "M", "edad_meses": 36, "parametro_antropometrico": "peso_edad", "p3": 11.3, "p15": 12.7, "p50": 14.3, "p85": 16.2, "p97": 18.3},
+                {"id_normativa": 6, "sexo": "F", "edad_meses": 24, "parametro_antropometrico": "peso_edad", "p3": 9.0, "p15": 10.2, "p50": 11.5, "p85": 13.0, "p97": 14.8},
+                {"id_normativa": 7, "sexo": "M", "edad_meses": 24, "parametro_antropometrico": "talla_edad", "p3": 81.0, "p15": 84.1, "p50": 87.8, "p85": 90.9, "p97": 93.9},
+                {"id_normativa": 8, "sexo": "M", "edad_meses": 24, "parametro_antropometrico": "perimetro_cefalico", "p3": 46.2, "p15": 47.3, "p50": 48.3, "p85": 49.5, "p97": 50.5}
+            ],
+            "evaluacion_desarrollo": [
+                {"id_evaluacion": 1, "id_consulta": 1, "id_paciente": 1, "area_desarrollo": "Lenguaje", "hito_evaluado": "Frases de 2 palabras con sentido", "cumple_hito": True, "observaciones": "Comunica deseos claramente"},
+                {"id_evaluacion": 2, "id_consulta": 1, "id_paciente": 1, "area_desarrollo": "Motricidad Fina", "hito_evaluado": "Construye torre de 6 cubos", "cumple_hito": True, "observaciones": "Buena prensión palmar y pinza"},
+                {"id_evaluacion": 3, "id_consulta": 1, "id_paciente": 1, "area_desarrollo": "Motricidad Gruesa", "hito_evaluado": "Corre con estabilidad y patea pelota", "cumple_hito": True, "observaciones": "Marcha firme"},
+                {"id_evaluacion": 4, "id_consulta": 1, "id_paciente": 1, "area_desarrollo": "Personal-Social", "hito_evaluado": "Usa cuchara y avisa necesidades", "cumple_hito": True, "observaciones": "Adecuada interacción con la madre"}
+            ],
+            "catalogo_cie10_pediatrico": [
+                {"codigo_cie10": "Z00.1", "descripcion_diagnostico": "Control de salud de rutina del niño sano", "categoria_morbilidad": "Preventiva"},
+                {"codigo_cie10": "Z23", "descripcion_diagnostico": "Necesidad de inmunización", "categoria_morbilidad": "Preventiva"},
+                {"codigo_cie10": "J06.9", "descripcion_diagnostico": "Infección aguda de vías respiratorias superiores", "categoria_morbilidad": "Respiratoria"},
+                {"codigo_cie10": "A09", "descripcion_diagnostico": "Gastroenteritis y diarrea de presunto origen infeccioso", "categoria_morbilidad": "Gastrointestinal"},
+                {"codigo_cie10": "E44.1", "descripcion_diagnostico": "Desnutrición proteicocalórica leve", "categoria_morbilidad": "Nutricional"}
+            ],
+            "diagnostico_consulta": [
+                {"id_diagnostico_consulta": 1, "id_consulta": 1, "codigo_cie10": "Z00.1", "tipo_diagnostico": "principal"}
+            ],
+            "vacuna_catalogo": [
+                {"id_vacuna": 1, "nombre_vacuna": "Triple Viral (SPR - Sarampión, Paperas, Rubeola)", "codigo_biologico": "BIO-SPR-01", "via_administracion": "Subcutánea", "edad_meses_sugerida": 12, "dosis_recomendada_ml": 0.5},
+                {"id_vacuna": 2, "nombre_vacuna": "Pentavalente Acelular (DPT + HepB + Hib)", "codigo_biologico": "BIO-PENT-02", "via_administracion": "Intramuscular", "edad_meses_sugerida": 2, "dosis_recomendada_ml": 0.5},
+                {"id_vacuna": 3, "nombre_vacuna": "Neumococo Conjugada 13-valente", "codigo_biologico": "BIO-NEU-03", "via_administracion": "Intramuscular", "edad_meses_sugerida": 2, "dosis_recomendada_ml": 0.5},
+                {"id_vacuna": 4, "nombre_vacuna": "Rotavirus Monovalente Oral", "codigo_biologico": "BIO-ROTA-04", "via_administracion": "Oral", "edad_meses_sugerida": 2, "dosis_recomendada_ml": 1.5},
+                {"id_vacuna": 5, "nombre_vacuna": "BCG (Tuberculosis)", "codigo_biologico": "BIO-BCG-05", "via_administracion": "Intradérmica", "edad_meses_sugerida": 0, "dosis_recomendada_ml": 0.05},
+                {"id_vacuna": 6, "nombre_vacuna": "Hepatitis B Pediátrica", "codigo_biologico": "BIO-HEPB-06", "via_administracion": "Intramuscular", "edad_meses_sugerida": 0, "dosis_recomendada_ml": 0.5},
+                {"id_vacuna": 7, "nombre_vacuna": "DPT Refuerzo Pediátrico", "codigo_biologico": "BIO-DPT-07", "via_administracion": "Intramuscular", "edad_meses_sugerida": 18, "dosis_recomendada_ml": 0.5}
+            ],
+            "lote_vacuna": [
+                {"id_lote": 1, "id_vacuna": 1, "numero_lote": "SPR-2026-99A", "fabricante": "Serum Institute", "fecha_fabricacion": "2025-10-01", "fecha_vencimiento": "2027-10-01", "stock_disponible": 45, "temp_min_celsius": 2.0, "temp_max_celsius": 8.0},
+                {"id_lote": 2, "id_vacuna": 2, "numero_lote": "PENT-2026-03", "fabricante": "Sanofi Pasteur", "fecha_fabricacion": "2025-11-15", "fecha_vencimiento": "2027-11-15", "stock_disponible": 60, "temp_min_celsius": 2.0, "temp_max_celsius": 8.0},
+                {"id_lote": 3, "id_vacuna": 3, "numero_lote": "NEU-2026-11", "fabricante": "Pfizer Pediátrica", "fecha_fabricacion": "2025-09-20", "fecha_vencimiento": "2027-09-20", "stock_disponible": 30, "temp_min_celsius": 2.0, "temp_max_celsius": 8.0},
+                {"id_lote": 4, "id_vacuna": 5, "numero_lote": "BCG-2026-01", "fabricante": "Statens Serum Institut", "fecha_fabricacion": "2025-08-10", "fecha_vencimiento": "2027-08-10", "stock_disponible": 25, "temp_min_celsius": 2.0, "temp_max_celsius": 8.0}
+            ],
+            "registro_vacunacion": [
+                {"id_registro_vac": 1, "id_vacunacion": 1, "id_paciente": 1, "id_consulta": 1, "id_lote": 1, "numero_dosis": 2, "fecha_aplicacion": "2026-02-15", "profesional_aplico": "Enfermería Pediátrica", "proxima_fecha_refuerzo": "2028-02-15", "reaccion_adversa": "Ninguna observada"}
+            ],
+            "catalogo_alergeno": [
+                {"id_alergeno": 1, "nombre_alergeno": "Amoxicilina / Penicilinas", "tipo_alergeno": "Medicamento", "riesgo_anafilaxia": True},
+                {"id_alergeno": 2, "nombre_alergeno": "Proteína de Leche de Vaca (APLV)", "tipo_alergeno": "Alimento", "riesgo_anafilaxia": True},
+                {"id_alergeno": 3, "nombre_alergeno": "Huevo (Albúmina)", "tipo_alergeno": "Alimento", "riesgo_anafilaxia": False},
+                {"id_alergeno": 4, "nombre_alergeno": "Ácaros del Polvo Doméstico", "tipo_alergeno": "Ambiental", "riesgo_anafilaxia": False},
+                {"id_alergeno": 5, "nombre_alergeno": "Látex Natural", "tipo_alergeno": "Contacto", "riesgo_anafilaxia": True},
+                {"id_alergeno": 6, "nombre_alergeno": "Maní y Frutos Secos", "tipo_alergeno": "Alimento", "riesgo_anafilaxia": True}
+            ],
+            "alergia_paciente": [
+                {"id_alergia_paciente": 1, "id_paciente": 1, "id_alergeno": 1, "fecha_deteccion": "2025-06-10", "severidad": "Severa / Anafiláctica", "sintomas_observados": "Exantema generalizado y broncoespasmo leve tras administración previa"}
+            ],
+            "medicamento_pediatrico": [
+                {"id_medicamento": 1, "nombre_generico": "Paracetamol Pediátrico", "presentacion": "Gotas orales", "concentracion_mg_ml": 100.0, "dosis_min_mg_kg_dia": 10.0, "dosis_max_mg_kg_dia": 15.0},
+                {"id_medicamento": 2, "nombre_generico": "Ibuprofeno Suspensión", "presentacion": "Suspensión 100mg/5ml", "concentracion_mg_ml": 20.0, "dosis_min_mg_kg_dia": 5.0, "dosis_max_mg_kg_dia": 10.0},
+                {"id_medicamento": 3, "nombre_generico": "Amoxicilina Suspensión", "presentacion": "Suspensión 250mg/5ml", "concentracion_mg_ml": 50.0, "dosis_min_mg_kg_dia": 25.0, "dosis_max_mg_kg_dia": 50.0},
+                {"id_medicamento": 4, "nombre_generico": "Sales de Rehidratación Oral (SRO)", "presentacion": "Sobre para 1 litro", "concentracion_mg_ml": 1.0, "dosis_min_mg_kg_dia": 10.0, "dosis_max_mg_kg_dia": 20.0}
+            ],
+            "detalle_receta_pediatrica": [
+                {"id_detalle_receta": 1, "id_receta": 1, "id_medicamento": 1, "dosis_mg_kg": 5.0, "dosis_calculada_ml": 2.5, "duracion_dias": 30}
+            ],
+            "auditoria_acceso_menor": []
         }
         self.sequences = {tbl: len(rows) for tbl, rows in self.tables.items()}
 
@@ -450,6 +568,36 @@ class SimulatedMySQLEngine:
             "estado": "activo",
             "motivo_baja": None
         })
+
+        # Sincronización automática a las tablas 3FN normalizadas (+20 tablas)
+        id_tutor = self._next_id("tutor_legal")
+        self.tables["tutor_legal"].append({
+            "id_tutor": id_tutor,
+            "dpi": record["dpi_tutor"],
+            "nombres": record["nombre_tutor"],
+            "apellidos": "Responsable",
+            "telefono_principal": record["telefono_tutor"],
+            "direccion": record["direccion"]
+        })
+        self.tables["tutor_paciente"].append({
+            "id_tutor_paciente": self._next_id("tutor_paciente"),
+            "id_tutor": id_tutor,
+            "id_paciente": new_id,
+            "parentesco": record["parentesco_tutor"],
+            "es_tutor_principal": True
+        })
+        self.tables["antecedente_perinatal"].append({
+            "id_antecedente": self._next_id("antecedente_perinatal"),
+            "id_paciente": new_id,
+            "semanas_gestacion": record["semanas_gestacion"],
+            "peso_nacer_kg": record["peso_nacer_kg"],
+            "talla_nacer_cm": record["talla_nacer_cm"],
+            "perimetro_cefalico_nacer_cm": 34.50,
+            "tipo_parto": "Eutócico vaginal",
+            "apgar_1min": 9,
+            "apgar_5min": 10
+        })
+
         return copy.deepcopy(record)
 
     def execute_transaction_consultation(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -538,6 +686,42 @@ class SimulatedMySQLEngine:
                 if h["id_paciente"] == paciente_id:
                     h["fecha_ultima_actualizacion"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+            # Sincronización automática a tablas 3FN (antropometría, diagnóstico y detalle de receta)
+            id_som = self._next_id("antropometria_somatometria")
+            imc = round(peso_kg / ((talla_cm / 100) ** 2), 2)
+            self.tables["antropometria_somatometria"].append({
+                "id_somatometria": id_som,
+                "id_consulta": id_consulta,
+                "id_paciente": paciente_id,
+                "edad_meses_atencion": 24,
+                "peso_kg": peso_kg,
+                "talla_cm": talla_cm,
+                "perimetro_cefalico_cm": perimetro or 48.0,
+                "imc_calculado": imc,
+                "percentil_peso_edad": percentil,
+                "percentil_talla_edad": percentil,
+                "percentil_pc_edad": percentil
+            })
+
+            id_dc = self._next_id("diagnostico_consulta")
+            self.tables["diagnostico_consulta"].append({
+                "id_diagnostico_consulta": id_dc,
+                "id_consulta": id_consulta,
+                "codigo_cie10": consulta["diagnostico_cie10"],
+                "tipo_diagnostico": "principal"
+            })
+
+            if receta:
+                id_dr = self._next_id("detalle_receta_pediatrica")
+                self.tables["detalle_receta_pediatrica"].append({
+                    "id_detalle_receta": id_dr,
+                    "id_receta": receta["id_receta"],
+                    "id_medicamento": 1,
+                    "dosis_mg_kg": receta["dosis_mg_kg"],
+                    "dosis_calculada_ml": receta["dosis_calculada_ml"],
+                    "duracion_dias": receta["duracion_dias"]
+                })
+
             return {
                 "id_consulta": id_consulta,
                 "id_cita": id_cita,
@@ -548,6 +732,377 @@ class SimulatedMySQLEngine:
         except Exception as e:
             self.tables = snapshot
             raise RuntimeError(f"MySQL InnoDB Transaction ROLLBACK. Error: {str(e)}")
+
+    # ------------------------------------------------------------------------
+    # Módulo Centro Pediátrico: Operaciones Clínicas Especializadas
+    # ------------------------------------------------------------------------
+    def get_pediatric_details(self, patient_id: int) -> Dict[str, Any]:
+        p = next((x for x in self.tables["paciente_pediatrico"] if x["id_paciente"] == patient_id), None)
+        if not p:
+            raise ValueError(f"Paciente {patient_id} no encontrado en Centro Pediátrico")
+
+        # Perinatal
+        peri = next((x for x in self.tables["antecedente_perinatal"] if x["id_paciente"] == patient_id), None)
+        if not peri:
+            peri = {
+                "id_antecedente": 0,
+                "id_paciente": patient_id,
+                "semanas_gestacion": p.get("semanas_gestacion") or 39,
+                "peso_nacer_kg": p.get("peso_nacer_kg") or 3.2,
+                "talla_nacer_cm": p.get("talla_nacer_cm") or 50.0,
+                "perimetro_cefalico_nacer_cm": 34.5,
+                "tipo_parto": "Eutócico vaginal",
+                "apgar_1min": 9,
+                "apgar_5min": 10,
+                "complicaciones_neonatales": "Sin complicaciones registradas"
+            }
+
+        # Tutor
+        tp = next((x for x in self.tables["tutor_paciente"] if x["id_paciente"] == patient_id), None)
+        tutor = None
+        if tp:
+            tutor = next((x for x in self.tables["tutor_legal"] if x["id_tutor"] == tp["id_tutor"]), None)
+        if not tutor:
+            tutor = {
+                "id_tutor": 0,
+                "dpi": p.get("dpi_tutor") or "0000000000101",
+                "nombres": p.get("nombre_tutor") or "Tutor Legal",
+                "apellidos": "",
+                "telefono_principal": p.get("telefono_tutor") or "",
+                "direccion": p.get("direccion") or "",
+                "parentesco": p.get("parentesco_tutor") or "Madre",
+                "es_tutor_principal": True
+            }
+        else:
+            tutor = {**tutor, "parentesco": tp.get("parentesco", p.get("parentesco_tutor", "Tutor")), "es_tutor_principal": tp.get("es_tutor_principal", True)}
+
+        # Somatometría
+        somatometrias = [
+            copy.deepcopy(s) for s in self.tables["antropometria_somatometria"] if s["id_paciente"] == patient_id
+        ]
+        somatometrias.sort(key=lambda s: s.get("id_somatometria", 0), reverse=True)
+
+        # Vacunas aplicadas
+        vacunas = [
+            copy.deepcopy(v) for v in self.tables["vacunacion"] if v["id_paciente"] == patient_id
+        ]
+
+        # Hitos psicomotores (Denver II)
+        hitos = [
+            copy.deepcopy(h) for h in self.tables["evaluacion_desarrollo"] if h["id_paciente"] == patient_id
+        ]
+
+        # Alergias
+        alergias_raw = [
+            a for a in self.tables["alergia_paciente"] if a["id_paciente"] == patient_id
+        ]
+        alergias = []
+        for a in alergias_raw:
+            cat = next((c for c in self.tables["catalogo_alergeno"] if c["id_alergeno"] == a["id_alergeno"]), None)
+            alergias.append({
+                "id_alergia_paciente": a["id_alergia_paciente"],
+                "id_alergeno": a["id_alergeno"],
+                "nombre_alergeno": cat["nombre_alergeno"] if cat else f"Alérgeno #{a['id_alergeno']}",
+                "tipo_alergeno": cat["tipo_alergeno"] if cat else "General",
+                "riesgo_anafilaxia": cat["riesgo_anafilaxia"] if cat else False,
+                "fecha_deteccion": a["fecha_deteccion"],
+                "severidad": a["severidad"],
+                "sintomas_observados": a.get("sintomas_observados", "")
+            })
+
+        return {
+            "paciente": copy.deepcopy(p),
+            "perinatal": peri,
+            "antecedente_perinatal": peri,
+            "tutor": tutor,
+            "tutores": [tutor] if tutor else [],
+            "somatometrias": somatometrias,
+            "somatometria": somatometrias,
+            "vacunas": vacunas,
+            "vacunaciones": vacunas,
+            "hitos": hitos,
+            "hitos_desarrollo": hitos,
+            "alergias": alergias
+        }
+
+    def update_perinatal(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        peri = next((x for x in self.tables["antecedente_perinatal"] if x["id_paciente"] == patient_id), None)
+        if not peri:
+            peri = {
+                "id_antecedente": self._next_id("antecedente_perinatal"),
+                "id_paciente": patient_id
+            }
+            self.tables["antecedente_perinatal"].append(peri)
+
+        peri["semanas_gestacion"] = int(data.get("semanas_gestacion", peri.get("semanas_gestacion", 39)))
+        peri["peso_nacer_kg"] = float(data.get("peso_nacer_kg", peri.get("peso_nacer_kg", 3.2)))
+        peri["talla_nacer_cm"] = float(data.get("talla_nacer_cm", peri.get("talla_nacer_cm", 50.0)))
+        peri["perimetro_cefalico_nacer_cm"] = float(data.get("perimetro_cefalico_nacer_cm", peri.get("perimetro_cefalico_nacer_cm", 34.5)))
+        peri["tipo_parto"] = data.get("tipo_parto", peri.get("tipo_parto", "Eutócico vaginal"))
+        peri["apgar_1min"] = int(data.get("apgar_1min", peri.get("apgar_1min", 9)))
+        peri["apgar_5min"] = int(data.get("apgar_5min", peri.get("apgar_5min", 10)))
+        peri["complicaciones_neonatales"] = data.get("complicaciones_neonatales", peri.get("complicaciones_neonatales", ""))
+
+        # Reflejar en paciente
+        p = next((x for x in self.tables["paciente_pediatrico"] if x["id_paciente"] == patient_id), None)
+        if p:
+            p["semanas_gestacion"] = peri["semanas_gestacion"]
+            p["peso_nacer_kg"] = peri["peso_nacer_kg"]
+            p["talla_nacer_cm"] = peri["talla_nacer_cm"]
+
+        return copy.deepcopy(peri)
+
+    def update_guardian(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        p = next((x for x in self.tables["paciente_pediatrico"] if x["id_paciente"] == patient_id), None)
+        if not p:
+            raise ValueError(f"Paciente {patient_id} no encontrado")
+
+        p["nombre_tutor"] = data.get("nombres") or data.get("nombre_tutor", p.get("nombre_tutor"))
+        p["parentesco_tutor"] = data.get("parentesco", p.get("parentesco_tutor"))
+        p["dpi_tutor"] = data.get("dpi", p.get("dpi_tutor"))
+        p["telefono_tutor"] = data.get("telefono_principal") or data.get("telefono", p.get("telefono_tutor"))
+
+        tp = next((x for x in self.tables["tutor_paciente"] if x["id_paciente"] == patient_id), None)
+        if tp:
+            tp["parentesco"] = p["parentesco_tutor"]
+            tutor = next((x for x in self.tables["tutor_legal"] if x["id_tutor"] == tp["id_tutor"]), None)
+            if tutor:
+                tutor["dpi"] = p["dpi_tutor"]
+                tutor["nombres"] = p["nombre_tutor"]
+                tutor["telefono_principal"] = p["telefono_tutor"]
+                if data.get("direccion"):
+                    tutor["direccion"] = data["direccion"]
+        return {"ok": True, "paciente_id": patient_id, "nombre_tutor": p["nombre_tutor"]}
+
+    def add_somatometry(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        p = next((x for x in self.tables["paciente_pediatrico"] if x["id_paciente"] == patient_id), None)
+        if not p:
+            raise ValueError(f"Paciente {patient_id} no encontrado")
+
+        peso_kg = float(data["peso_kg"])
+        talla_cm = float(data["talla_cm"])
+        perimetro = float(data.get("perimetro_cefalico_cm", 48.0))
+        edad_meses = int(data.get("edad_meses", 24))
+        imc = round(peso_kg / ((talla_cm / 100) ** 2), 2)
+        percentil = float(data.get("percentil_crecimiento", 50.0))
+
+        id_som = self._next_id("antropometria_somatometria")
+        rec = {
+            "id_somatometria": id_som,
+            "id_consulta": data.get("id_consulta", 0),
+            "id_paciente": patient_id,
+            "fecha": data.get("fecha", date.today().isoformat()),
+            "edad_meses_atencion": edad_meses,
+            "peso_kg": peso_kg,
+            "talla_cm": talla_cm,
+            "perimetro_cefalico_cm": perimetro,
+            "imc_calculado": imc,
+            "percentil_peso_edad": percentil,
+            "percentil_talla_edad": percentil,
+            "percentil_pc_edad": percentil
+        }
+        self.tables["antropometria_somatometria"].append(rec)
+        return copy.deepcopy(rec)
+
+    def list_vaccines_catalog(self) -> List[Dict[str, Any]]:
+        return copy.deepcopy(self.tables["vacuna_catalogo"])
+
+    def list_vaccine_batches(self) -> List[Dict[str, Any]]:
+        res = []
+        for l in self.tables["lote_vacuna"]:
+            v = next((x for x in self.tables["vacuna_catalogo"] if x["id_vacuna"] == l["id_vacuna"]), None)
+            res.append({
+                **l,
+                "nombre_vacuna": v["nombre_vacuna"] if v else f"Vacuna #{l['id_vacuna']}",
+                "via_administracion": v["via_administracion"] if v else "Intramuscular"
+            })
+        return res
+
+    def create_vaccine_batch(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        new_id = self._next_id("lote_vacuna")
+        lote = {
+            "id_lote": new_id,
+            "id_vacuna": int(data["id_vacuna"]),
+            "numero_lote": data["numero_lote"].strip().upper(),
+            "fabricante": data["fabricante"].strip(),
+            "fecha_fabricacion": str(data["fecha_fabricacion"]),
+            "fecha_vencimiento": str(data["fecha_vencimiento"]),
+            "stock_disponible": int(data["stock_disponible"]),
+            "temp_min_celsius": float(data.get("temp_min_celsius", 2.0)),
+            "temp_max_celsius": float(data.get("temp_max_celsius", 8.0))
+        }
+        self.tables["lote_vacuna"].append(lote)
+        v = next((x for x in self.tables["vacuna_catalogo"] if x["id_vacuna"] == lote["id_vacuna"]), None)
+        return {**lote, "nombre_vacuna": v["nombre_vacuna"] if v else "Biológico"}
+
+    def add_vaccination(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        p = next((x for x in self.tables["paciente_pediatrico"] if x["id_paciente"] == patient_id), None)
+        if not p:
+            raise ValueError(f"Paciente {patient_id} no encontrado")
+
+        new_id = self._next_id("vacunacion")
+        nombre_vac = data.get("nombre_vacuna")
+        id_lote = data.get("id_lote")
+        lote_num = data.get("lote") or "LOTE-2026"
+
+        if id_lote:
+            lote_obj = next((l for l in self.tables["lote_vacuna"] if l["id_lote"] == int(id_lote)), None)
+            if lote_obj:
+                lote_num = lote_obj["numero_lote"]
+                if lote_obj["stock_disponible"] > 0:
+                    lote_obj["stock_disponible"] -= 1
+                v = next((x for x in self.tables["vacuna_catalogo"] if x["id_vacuna"] == lote_obj["id_vacuna"]), None)
+                if v and not nombre_vac:
+                    nombre_vac = v["nombre_vacuna"]
+
+        nombre_vac = nombre_vac or "Vacuna Pediátrica"
+        rec = {
+            "id_vacunacion": new_id,
+            "id_paciente": patient_id,
+            "id_consulta": int(data.get("id_consulta", 0)),
+            "nombre_vacuna": nombre_vac,
+            "dosis": data.get("dosis", "Dosis recomendada"),
+            "lote": lote_num,
+            "fecha_aplicacion": data.get("fecha_aplicacion", date.today().isoformat()),
+            "proxima_fecha_refuerzo": data.get("proxima_fecha_refuerzo")
+        }
+        self.tables["vacunacion"].append(rec)
+
+        id_reg = self._next_id("registro_vacunacion")
+        self.tables["registro_vacunacion"].append({
+            "id_registro_vac": id_reg,
+            "id_vacunacion": new_id,
+            "id_paciente": patient_id,
+            "id_consulta": rec["id_consulta"],
+            "id_lote": int(id_lote) if id_lote else None,
+            "numero_dosis": int(data.get("numero_dosis", 1)),
+            "fecha_aplicacion": rec["fecha_aplicacion"],
+            "profesional_aplico": data.get("profesional_aplico", "Enfermería Pediátrica"),
+            "proxima_fecha_refuerzo": rec["proxima_fecha_refuerzo"],
+            "reaccion_adversa": data.get("reaccion_adversa", "Sin reacciones adversas")
+        })
+
+        return copy.deepcopy(rec)
+
+    def list_somatometry(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        rows = self.tables["antropometria_somatometria"]
+        if patient_id is not None:
+            rows = [s for s in rows if s["id_paciente"] == patient_id]
+        res = []
+        for s in rows:
+            p = next((x for x in self.tables["paciente_pediatrico"] if x["id_paciente"] == s["id_paciente"]), None)
+            res.append({
+                **copy.deepcopy(s),
+                "paciente_nombre": f"{p['nombres']} {p['apellidos']}" if p else f"Paciente #{s['id_paciente']}"
+            })
+        res.sort(key=lambda x: x.get("id_somatometria", 0), reverse=True)
+        return res
+
+    def list_vaccinations(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        rows = self.tables["vacunacion"]
+        if patient_id is not None:
+            rows = [v for v in rows if v["id_paciente"] == patient_id]
+        res = []
+        for v in rows:
+            p = next((x for x in self.tables["paciente_pediatrico"] if x["id_paciente"] == v["id_paciente"]), None)
+            res.append({
+                **copy.deepcopy(v),
+                "paciente_nombre": f"{p['nombres']} {p['apellidos']}" if p else f"Paciente #{v['id_paciente']}"
+            })
+        res.sort(key=lambda x: str(x.get("fecha_aplicacion", "")), reverse=True)
+        return res
+
+    def list_development_milestones(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        rows = self.tables["evaluacion_desarrollo"]
+        if patient_id is not None:
+            rows = [h for h in rows if h["id_paciente"] == patient_id]
+        res = []
+        for h in rows:
+            p = next((x for x in self.tables["paciente_pediatrico"] if x["id_paciente"] == h["id_paciente"]), None)
+            res.append({
+                **copy.deepcopy(h),
+                "paciente_nombre": f"{p['nombres']} {p['apellidos']}" if p else f"Paciente #{h['id_paciente']}"
+            })
+        return res
+
+    def add_development_milestone(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        p = next((x for x in self.tables["paciente_pediatrico"] if x["id_paciente"] == patient_id), None)
+        if not p:
+            raise ValueError(f"Paciente {patient_id} no encontrado")
+
+        new_id = self._next_id("evaluacion_desarrollo")
+        rec = {
+            "id_evaluacion": new_id,
+            "id_consulta": int(data.get("id_consulta", 0)),
+            "id_paciente": patient_id,
+            "area_desarrollo": data["area_desarrollo"],
+            "hito_evaluado": data["hito_evaluado"].strip(),
+            "cumple_hito": bool(data.get("cumple_hito", True)),
+            "observaciones": data.get("observaciones", "")
+        }
+        self.tables["evaluacion_desarrollo"].append(rec)
+        return copy.deepcopy(rec)
+
+    def list_patient_allergies(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        raw = self.tables["alergia_paciente"]
+        if patient_id is not None:
+            raw = [a for a in raw if a["id_paciente"] == patient_id]
+        res = []
+        for a in raw:
+            cat = next((c for c in self.tables["catalogo_alergeno"] if c["id_alergeno"] == a["id_alergeno"]), None)
+            p = next((x for x in self.tables["paciente_pediatrico"] if x["id_paciente"] == a["id_paciente"]), None)
+            res.append({
+                "id_alergia_paciente": a["id_alergia_paciente"],
+                "id_paciente": a["id_paciente"],
+                "paciente_nombre": f"{p['nombres']} {p['apellidos']}" if p else f"Paciente #{a['id_paciente']}",
+                "id_alergeno": a["id_alergeno"],
+                "nombre_alergeno": cat["nombre_alergeno"] if cat else f"Alérgeno #{a['id_alergeno']}",
+                "tipo_alergeno": cat["tipo_alergeno"] if cat else "General",
+                "riesgo_anafilaxia": cat["riesgo_anafilaxia"] if cat else False,
+                "fecha_deteccion": a["fecha_deteccion"],
+                "severidad": a["severidad"],
+                "sintomas_observados": a.get("sintomas_observados", "")
+            })
+        return res
+
+    def add_patient_allergy(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        p = next((x for x in self.tables["paciente_pediatrico"] if x["id_paciente"] == patient_id), None)
+        if not p:
+            raise ValueError(f"Paciente {patient_id} no encontrado")
+
+        id_alergeno = int(data["id_alergeno"])
+        # Verificar duplicado
+        for a in self.tables["alergia_paciente"]:
+            if a["id_paciente"] == patient_id and a["id_alergeno"] == id_alergeno:
+                raise ValueError("El paciente ya tiene registrada esta alergia")
+
+        new_id = self._next_id("alergia_paciente")
+        rec = {
+            "id_alergia_paciente": new_id,
+            "id_paciente": patient_id,
+            "id_alergeno": id_alergeno,
+            "fecha_deteccion": data.get("fecha_deteccion", date.today().isoformat()),
+            "severidad": data.get("severidad", "Moderada"),
+            "sintomas_observados": data.get("sintomas_observados", "")
+        }
+        self.tables["alergia_paciente"].append(rec)
+        cat = next((c for c in self.tables["catalogo_alergeno"] if c["id_alergeno"] == id_alergeno), None)
+        return {
+            **rec,
+            "nombre_alergeno": cat["nombre_alergeno"] if cat else "Alérgeno",
+            "riesgo_anafilaxia": cat["riesgo_anafilaxia"] if cat else False
+        }
+
+    def list_allergens_catalog(self) -> List[Dict[str, Any]]:
+        return copy.deepcopy(self.tables["catalogo_alergeno"])
+
+    def list_growth_percentiles(self, sexo: Optional[str] = None, parametro: Optional[str] = None) -> List[Dict[str, Any]]:
+        rows = self.tables["normativa_percentil_oms"]
+        if sexo:
+            rows = [r for r in rows if r["sexo"] == sexo.upper()]
+        if parametro:
+            rows = [r for r in rows if r["parametro_antropometrico"] == parametro]
+        return copy.deepcopy(rows)
 
 
 # ============================================================================
@@ -905,6 +1460,94 @@ class SimulatedFirebaseEngine:
                     "estado": "activo",
                     "motivo_baja": None
                 }
+            ],
+            # Colecciones y tablas del Modelo Relacional / Documental Expandido (+20)
+            "piezas_dentales": [
+                {"codigo_fdi": 11, "nombre": "Incisivo Central Superior Derecho", "cuadrante": 1},
+                {"codigo_fdi": 16, "nombre": "Primer Molar Superior Derecho", "cuadrante": 1},
+                {"codigo_fdi": 21, "nombre": "Incisivo Central Superior Izquierdo", "cuadrante": 2},
+                {"codigo_fdi": 36, "nombre": "Primer Molar Inferior Izquierdo", "cuadrante": 3},
+                {"codigo_fdi": 46, "nombre": "Primer Molar Inferior Derecho", "cuadrante": 4}
+            ],
+            "odontogramas": [
+                {
+                    "id_odontograma": 1,
+                    "id_paciente": 1,
+                    "fecha": "2026-01-15",
+                    "hallazgos": [
+                        {"pieza_fdi": 46, "cara": "O", "hallazgo": "Caries activa", "color_hex": "#E53935"},
+                        {"pieza_fdi": 16, "cara": "O", "hallazgo": "Restauración resina", "color_hex": "#43A047"}
+                    ]
+                }
+            ],
+            "odontogramas_detalles": [
+                {"id_detalle": 1, "id_paciente": 1, "codigo_fdi": 46, "cara": "O", "hallazgo": "Caries activa", "color_hex": "#E53935", "notas": "Caries oclusal Grado II profunda", "fecha": "2026-03-01"},
+                {"id_detalle": 2, "id_paciente": 1, "codigo_fdi": 16, "cara": "O", "hallazgo": "Restauración resina", "color_hex": "#43A047", "notas": "Resina en buen estado", "fecha": "2026-03-01"},
+                {"id_detalle": 3, "id_paciente": 1, "codigo_fdi": 21, "cara": "O/I", "hallazgo": "Fractura dental", "color_hex": "#FB8C00", "notas": "Borde incisal con fractura leve", "fecha": "2026-03-01"},
+                {"id_detalle": 4, "id_paciente": 1, "codigo_fdi": 36, "cara": "O", "hallazgo": "Sellante de fisuras", "color_hex": "#00ACC1", "notas": "Sellante preventivo intacto", "fecha": "2026-03-01"}
+            ],
+            "antecedentes_medicos_dentales": [
+                {
+                    "id_antecedente": 1,
+                    "id_paciente": 1,
+                    "padece_diabetes": False,
+                    "padece_hipertension": True,
+                    "padece_coagulopatia": False,
+                    "es_alergico_anestesia": True,
+                    "es_alergico_latex": False,
+                    "esta_embarazada": False,
+                    "medicamentos_actuales": "Losartán 50mg/día",
+                    "observaciones_medicas": "Alerta clínica: Paciente hipertensa controlada y reacción adversa previa a lidocaína (usar mepivacaína)."
+                }
+            ],
+            "planes_tratamiento": [
+                {
+                    "id_plan": 1,
+                    "id_paciente": 1,
+                    "id_odontologo": 1,
+                    "titulo": "Rehabilitación oclusal y profilaxis",
+                    "costo_total_estimado": 1200.0,
+                    "estado_aprobacion": "en_curso",
+                    "fecha_propuesta": "2026-02-25",
+                    "etapas": [
+                        {"id_etapa": 1, "numero_etapa": 1, "descripcion_fase": "Profilaxis y limpieza ultrasónica", "costo_fase": 250.0, "estado_fase": "completada"},
+                        {"id_etapa": 2, "numero_etapa": 2, "descripcion_fase": "Restauración con resina pieza 46", "costo_fase": 350.0, "estado_fase": "completada"},
+                        {"id_etapa": 3, "numero_etapa": 3, "descripcion_fase": "Reconstrucción estética borde incisal pieza 21", "costo_fase": 600.0, "estado_fase": "en_curso"}
+                    ]
+                }
+            ],
+            "facturas_cobro": [
+                {
+                    "id_factura": 1,
+                    "id_paciente": 1,
+                    "id_plan": 1,
+                    "fecha_emision": "2026-03-01",
+                    "monto_total": 1200.0,
+                    "monto_pagado": 600.0,
+                    "saldo_pendiente": 600.0,
+                    "estado_factura": "parcial"
+                }
+            ],
+            "pagos_abono": [
+                {"id_pago": 1, "id_factura": 1, "id_paciente": 1, "fecha_pago": "2026-03-01 10:15", "monto_abonado": 350.0, "metodo_pago": "Efectivo", "numero_recibo": "REC-2026-0041", "secretaria": "Claudia Fuentes"},
+                {"id_pago": 2, "id_factura": 1, "id_paciente": 1, "fecha_pago": "2026-03-05 11:30", "monto_abonado": 250.0, "metodo_pago": "Tarjeta de Crédito/Débito", "numero_recibo": "REC-2026-0089", "secretaria": "Claudia Fuentes"}
+            ],
+            "catalogo_hallazgos": [
+                {"id_hallazgo": 1, "codigo": "caries", "nombre": "Caries activa", "color_hex": "#E53935"},
+                {"id_hallazgo": 2, "codigo": "resina", "nombre": "Restauración resina", "color_hex": "#43A047"},
+                {"id_hallazgo": 3, "codigo": "amalgama", "nombre": "Obturación amalgama", "color_hex": "#1E88E5"},
+                {"id_hallazgo": 4, "codigo": "corona", "nombre": "Corona protésica", "color_hex": "#FDD835"},
+                {"id_hallazgo": 5, "codigo": "endodoncia", "nombre": "Conducto / Endodoncia", "color_hex": "#8E24AA"},
+                {"id_hallazgo": 6, "codigo": "ausente", "nombre": "Pieza ausente / extracción", "color_hex": "#757575"},
+                {"id_hallazgo": 7, "codigo": "sellante", "nombre": "Sellante de fisuras", "color_hex": "#00ACC1"},
+                {"id_hallazgo": 8, "codigo": "fractura", "nombre": "Fractura dental", "color_hex": "#FB8C00"}
+            ],
+            "insumos_dentales": [
+                {"id_insumo": 1, "nombre": "Resina Fotocurable A2", "unidad": "Jeringa 4g", "stock": 25, "stock_minimo": 5, "costo_unitario": 120.0},
+                {"id_insumo": 2, "nombre": "Anestubo Lidocaína 2% con Epinefrina", "unidad": "Caja 50 un.", "stock": 180, "stock_minimo": 20, "costo_unitario": 4.5},
+                {"id_insumo": 3, "nombre": "Anestubo Mepivacaína 3% (Sin vasoconstrictor)", "unidad": "Caja 50 un.", "stock": 60, "stock_minimo": 10, "costo_unitario": 5.2},
+                {"id_insumo": 4, "nombre": "Conos de Gutapercha Endodóntica", "unidad": "Caja", "stock": 40, "stock_minimo": 8, "costo_unitario": 65.0},
+                {"id_insumo": 5, "nombre": "Diques de Goma para Aislamiento", "unidad": "Caja 36 un.", "stock": 50, "stock_minimo": 10, "costo_unitario": 80.0}
             ]
         }
         self.sequences = {col: len(docs) for col, docs in self.collections.items()}
@@ -996,3 +1639,303 @@ class SimulatedFirebaseEngine:
             "id_cita": id_cita,
             "procedimiento": proc_doc
         }
+
+    # ------------------------------------------------------------------------
+    # Módulo Clínica Odontológica: Operaciones Especializadas
+    # ------------------------------------------------------------------------
+    def get_dental_details(self, patient_id: int) -> Dict[str, Any]:
+        p = next((x for x in self.collections["pacientes"] if x["id_paciente"] == patient_id), None)
+        if not p:
+            raise ValueError(f"Paciente {patient_id} no encontrado en Clínica Odontológica")
+
+        # Anamnesis sistémica médica
+        antecedente = next((x for x in self.collections["antecedentes_medicos_dentales"] if x["id_paciente"] == patient_id), None)
+        if not antecedente:
+            antecedente = {
+                "id_antecedente": 0,
+                "id_paciente": patient_id,
+                "padece_diabetes": False,
+                "padece_hipertension": False,
+                "padece_coagulopatia": False,
+                "es_alergico_anestesia": False,
+                "es_alergico_latex": False,
+                "esta_embarazada": False,
+                "medicamentos_actuales": "",
+                "observaciones_medicas": "Sin antecedentes sistémicos patológicos."
+            }
+
+        # Odontograma detallado
+        hallazgos = [
+            copy.deepcopy(h) for h in self.collections["odontogramas_detalles"] if h["id_paciente"] == patient_id
+        ]
+
+        # Procedimientos realizados
+        procs = [
+            copy.deepcopy(pr) for pr in self.collections["consultas_procedimientos"] if pr["id_paciente"] == patient_id
+        ]
+
+        # Piezas tratadas (FDI codes con hallazgos o procedimientos)
+        piezas_tratadas = set()
+        for h in hallazgos:
+            piezas_tratadas.add(str(h["codigo_fdi"]))
+        for pr in procs:
+            pd = str(pr.get("pieza_dental", ""))
+            # Extraer los primeros 2 dígitos si los hay
+            m = re.search(r"\b(\d{2})\b", pd)
+            if m:
+                piezas_tratadas.add(m.group(1))
+
+        # Planes de tratamiento
+        planes = [
+            copy.deepcopy(pl) for pl in self.collections["planes_tratamiento"] if pl["id_paciente"] == patient_id
+        ]
+
+        # Facturas y cobros
+        facturas = [
+            copy.deepcopy(f) for f in self.collections["facturas_cobro"] if f["id_paciente"] == patient_id
+        ]
+        pagos = [
+            copy.deepcopy(pg) for pg in self.collections["pagos_abono"] if pg["id_paciente"] == patient_id
+        ]
+        total_facturado = sum(f.get("monto_total", 0.0) for f in facturas)
+        total_pagado = sum(pg.get("monto_abonado", 0.0) for pg in pagos)
+        saldo_pendiente = max(0.0, total_facturado - total_pagado)
+
+        return {
+            "paciente": copy.deepcopy(p),
+            "antecedentes": antecedente,
+            "antecedentes_sistemicos": antecedente,
+            "odontograma": {"hallazgos": hallazgos, "piezas": {str(h["codigo_fdi"]): [h] for h in hallazgos}},
+            "hallazgos_odontograma": hallazgos,
+            "piezas_tratadas": sorted(list(piezas_tratadas)),
+            "procedimientos": procs,
+            "planes_tratamiento": planes,
+            "facturacion": {
+                "facturas": facturas,
+                "pagos": pagos,
+                "total_facturado": total_facturado,
+                "total_pagado": total_pagado,
+                "saldo_pendiente": saldo_pendiente
+            }
+        }
+
+    def update_systemic_background(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        ant = next((x for x in self.collections["antecedentes_medicos_dentales"] if x["id_paciente"] == patient_id), None)
+        if not ant:
+            ant = {
+                "id_antecedente": self._next_id("antecedentes_medicos_dentales"),
+                "id_paciente": patient_id
+            }
+            self.collections["antecedentes_medicos_dentales"].append(ant)
+
+        ant["padece_diabetes"] = ant["diabetes"] = bool(data.get("padece_diabetes", data.get("diabetes", ant.get("padece_diabetes", False))))
+        ant["padece_hipertension"] = ant["hipertension"] = bool(data.get("padece_hipertension", data.get("hipertension", ant.get("padece_hipertension", False))))
+        ant["padece_coagulopatia"] = ant["trastornos_hemorragicos"] = bool(data.get("padece_coagulopatia", data.get("trastornos_hemorragicos", ant.get("padece_coagulopatia", False))))
+        ant["es_alergico_anestesia"] = ant["alergia_anestesia_local"] = bool(data.get("es_alergico_anestesia", data.get("alergia_anestesia_local", ant.get("es_alergico_anestesia", False))))
+        ant["es_alergico_latex"] = ant["alergia_latex"] = bool(data.get("es_alergico_latex", data.get("alergia_latex", ant.get("es_alergico_latex", False))))
+        ant["esta_embarazada"] = ant["embarazo"] = bool(data.get("esta_embarazada", data.get("embarazo", ant.get("esta_embarazada", False))))
+        ant["medicamentos_actuales"] = data.get("medicamentos_actuales", ant.get("medicamentos_actuales", ""))
+        ant["observaciones_medicas"] = data.get("observaciones_medicas", ant.get("observaciones_medicas", ""))
+        ant["observaciones_medicas"] = data.get("observaciones_medicas", ant.get("observaciones_medicas", ""))
+
+        return copy.deepcopy(ant)
+
+    def get_odontogram(self, patient_id: Optional[int] = None) -> Dict[str, Any]:
+        raw = self.collections["odontogramas_detalles"]
+        if patient_id is not None:
+            hallazgos = [copy.deepcopy(h) for h in raw if h["id_paciente"] == patient_id]
+        else:
+            hallazgos = [copy.deepcopy(h) for h in raw]
+        # Decorar con nombre de paciente si está disponible
+        for h in hallazgos:
+            pid = h.get("id_paciente")
+            p = next((x for x in self.collections["pacientes"] if x["id_paciente"] == pid), None)
+            if p:
+                h["paciente_nombre"] = f"{p['nombres']} {p['apellidos']}"
+        # Agrupar por pieza FDI
+        piezas_map: Dict[str, List[Dict[str, Any]]] = {}
+        for h in hallazgos:
+            piezas_map.setdefault(str(h["codigo_fdi"]), []).append(h)
+        return {
+            "id_paciente": patient_id,
+            "hallazgos": hallazgos,
+            "piezas": piezas_map
+        }
+
+    def save_odontogram_finding(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        fdi = int(data["codigo_fdi"])
+        cara = str(data.get("cara", "O")).upper()
+        hallazgo = str(data["hallazgo"]).strip()
+        color_hex = str(data.get("color_hex", "#E53935"))
+        notas = str(data.get("notas", ""))
+
+        # Buscar si ya existe para esa cara y diente
+        existente = next((h for h in self.collections["odontogramas_detalles"]
+                          if h["id_paciente"] == patient_id and h["codigo_fdi"] == fdi and h["cara"] == cara), None)
+        if existente:
+            existente["hallazgo"] = hallazgo
+            existente["color_hex"] = color_hex
+            existente["notas"] = notas
+            existente["fecha"] = date.today().isoformat()
+            return copy.deepcopy(existente)
+
+        new_id = self._next_id("odontogramas_detalles")
+        item = {
+            "id_detalle": new_id,
+            "id_paciente": patient_id,
+            "codigo_fdi": fdi,
+            "cara": cara,
+            "hallazgo": hallazgo,
+            "color_hex": color_hex,
+            "notas": notas,
+            "fecha": date.today().isoformat()
+        }
+        self.collections["odontogramas_detalles"].append(item)
+        return copy.deepcopy(item)
+
+    def list_treatment_plans(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        res = []
+        for pl in self.collections["planes_tratamiento"]:
+            if patient_id is None or pl["id_paciente"] == patient_id:
+                p = next((x for x in self.collections["pacientes"] if x["id_paciente"] == pl["id_paciente"]), None)
+                res.append({
+                    **pl,
+                    "paciente_nombre": p.get("nombre_completo") or f"{p.get('nombres','')} {p.get('apellidos','')}" if p else "Paciente"
+                })
+        return res
+
+    def create_treatment_plan(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        new_id = self._next_id("planes_tratamiento")
+        etapas_raw = data.get("etapas") or []
+        etapas = []
+        for i, e in enumerate(etapas_raw, 1):
+            etapas.append({
+                "id_etapa": i,
+                "numero_etapa": i,
+                "descripcion_fase": e.get("descripcion_fase") or e.get("descripcion", f"Fase {i}"),
+                "costo_fase": float(e.get("costo_fase", e.get("costo", 0.0))),
+                "estado_fase": e.get("estado_fase", "pendiente")
+            })
+        if not etapas:
+            etapas = [{"id_etapa": 1, "numero_etapa": 1, "descripcion_fase": "Fase inicial de tratamiento", "costo_fase": float(data.get("costo_total_estimado", 0.0)), "estado_fase": "pendiente"}]
+
+        costo_total = float(data.get("costo_total_estimado", sum(e["costo_fase"] for e in etapas)))
+        plan = {
+            "id_plan": new_id,
+            "id_paciente": int(data["id_paciente"]),
+            "id_odontologo": int(data.get("id_odontologo", 1)),
+            "titulo": data.get("titulo", "Plan de Rehabilitación Dental"),
+            "costo_total_estimado": costo_total,
+            "estado_aprobacion": data.get("estado_aprobacion", "pendiente"),
+            "fecha_propuesta": data.get("fecha_propuesta", date.today().isoformat()),
+            "etapas": etapas
+        }
+        self.collections["planes_tratamiento"].append(plan)
+
+        # Crear factura inicial asociada al plan
+        id_fac = self._next_id("facturas_cobro")
+        self.collections["facturas_cobro"].append({
+            "id_factura": id_fac,
+            "id_paciente": plan["id_paciente"],
+            "id_plan": new_id,
+            "fecha_emision": date.today().isoformat(),
+            "monto_total": costo_total,
+            "monto_pagado": 0.0,
+            "saldo_pendiente": costo_total,
+            "estado_factura": "pendiente"
+        })
+
+        return copy.deepcopy(plan)
+
+    def update_treatment_plan_stage(self, plan_id: int, etapa_id: int, estado: str) -> Dict[str, Any]:
+        plan = next((p for p in self.collections["planes_tratamiento"] if p["id_plan"] == plan_id), None)
+        if not plan:
+            raise ValueError(f"Plan de tratamiento {plan_id} no encontrado")
+
+        etapa = next((e for e in plan["etapas"] if e["id_etapa"] == etapa_id), None)
+        if not etapa:
+            raise ValueError(f"Etapa {etapa_id} no encontrada en el plan")
+
+        etapa["estado_fase"] = estado
+        # Si todas las etapas están completadas, finalizar el plan
+        if all(e["estado_fase"] == "completada" for e in plan["etapas"]):
+            plan["estado_aprobacion"] = "finalizado"
+        elif any(e["estado_fase"] == "completada" for e in plan["etapas"]):
+            plan["estado_aprobacion"] = "en_curso"
+
+        return copy.deepcopy(plan)
+
+    def list_dental_procedures_catalog(self) -> List[Dict[str, Any]]:
+        return copy.deepcopy(self.collections["procedimientos_catalogo"])
+
+    def create_dental_procedure(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        new_id = self._next_id("procedimientos_catalogo")
+        proc = {
+            "id_procedimiento": new_id,
+            "nombre_procedimiento": data["nombre_procedimiento"].strip(),
+            "categoria": data.get("categoria", "Operatoria Dental"),
+            "descripcion": data.get("descripcion", ""),
+            "duracion_estimada_min": int(data.get("duracion_estimada_min", 45)),
+            "costo": float(data["costo"])
+        }
+        self.collections["procedimientos_catalogo"].append(proc)
+        return copy.deepcopy(proc)
+
+    def list_billing_and_payments(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        facturas = self.collections["facturas_cobro"]
+        if patient_id is not None:
+            facturas = [f for f in facturas if f["id_paciente"] == patient_id]
+
+        res = []
+        for f in facturas:
+            p = next((x for x in self.collections["pacientes"] if x["id_paciente"] == f["id_paciente"]), None)
+            pl = next((x for x in self.collections["planes_tratamiento"] if x["id_plan"] == f.get("id_plan")), None)
+            pagos = [pg for pg in self.collections["pagos_abono"] if pg["id_factura"] == f["id_factura"]]
+            res.append({
+                **f,
+                "paciente_nombre": p.get("nombre_completo") or f"{p.get('nombres','')} {p.get('apellidos','')}" if p else "Paciente",
+                "plan_titulo": pl.get("titulo") if pl else "Consulta/Procedimiento directo",
+                "abonos": copy.deepcopy(pagos)
+            })
+        return res
+
+    def register_payment(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        id_factura = int(data["id_factura"])
+        monto = float(data["monto_abonado"])
+        fac = next((f for f in self.collections["facturas_cobro"] if f["id_factura"] == id_factura), None)
+        if not fac:
+            raise ValueError(f"Factura {id_factura} no encontrada")
+
+        new_id = self._next_id("pagos_abono")
+        pago = {
+            "id_pago": new_id,
+            "id_factura": id_factura,
+            "id_paciente": fac["id_paciente"],
+            "fecha_pago": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "monto_abonado": monto,
+            "metodo_pago": data.get("metodo_pago", "Efectivo"),
+            "numero_recibo": data["numero_recibo"].strip().upper(),
+            "secretaria": data.get("secretaria", "Secretaría de Recepción")
+        }
+        self.collections["pagos_abono"].append(pago)
+
+        fac["monto_pagado"] = round(fac["monto_pagado"] + monto, 2)
+        fac["saldo_pendiente"] = max(0.0, round(fac["monto_total"] - fac["monto_pagado"], 2))
+        if fac["saldo_pendiente"] == 0:
+            fac["estado_factura"] = "cancelada"
+        else:
+            fac["estado_factura"] = "parcial"
+
+        return {
+            **copy.deepcopy(pago),
+            "monto": monto,
+            "monto_abonado": monto,
+            "pago": copy.deepcopy(pago),
+            "factura": copy.deepcopy(fac)
+        }
+
+    def list_dental_findings_catalog(self) -> List[Dict[str, Any]]:
+        return copy.deepcopy(self.collections["catalogo_hallazgos"])
+
+    def list_dental_supplies(self) -> List[Dict[str, Any]]:
+        return copy.deepcopy(self.collections["insumos_dentales"])

@@ -260,6 +260,167 @@ class HospitalOperationsPort(ABC):
         pass
 
 
+class PediatricOperationsPort(ABC):
+    """
+    Puerto EXCLUSIVO del Centro Médico Pediátrico: tutores legales, antecedentes perinatales,
+    somatometría detallada, curvas de crecimiento OMS, hitos del desarrollo (Denver II),
+    control de biológicos / lotes con cadena de frío y catálogo de alergias infantiles.
+    """
+
+    @abstractmethod
+    def get_pediatric_details(self, patient_id: int) -> Dict[str, Any]:
+        """Obtiene la ficha pediátrica integral (perinatal, tutor, somatometría, vacunas, hitos, alergias)."""
+        pass
+
+    @abstractmethod
+    def update_perinatal(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Actualiza antecedentes perinatales del menor (Apgar, semanas, parto, complicaciones)."""
+        pass
+
+    @abstractmethod
+    def update_guardian(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Actualiza los datos del tutor legal y relación de custodia."""
+        pass
+
+    @abstractmethod
+    def add_somatometry(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Registra una evaluación somatométrica (peso, talla, perímetro cefálico, IMC y percentil)."""
+        pass
+
+    @abstractmethod
+    def list_somatometry(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Historial de evaluaciones somatométricas de uno o todos los pacientes infantiles."""
+        pass
+
+    @abstractmethod
+    def list_vaccines_catalog(self) -> List[Dict[str, Any]]:
+        """Catálogo oficial de vacunas e inmunizaciones pediátricas."""
+        pass
+
+    @abstractmethod
+    def list_vaccine_batches(self) -> List[Dict[str, Any]]:
+        """Lotes de biológicos con trazabilidad, stock y rango de cadena de frío."""
+        pass
+
+    @abstractmethod
+    def create_vaccine_batch(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Registra un nuevo lote de vacuna con temperatura y fecha de vencimiento."""
+        pass
+
+    @abstractmethod
+    def add_vaccination(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Registra la aplicación de una dosis de biológico a un paciente infantil."""
+        pass
+
+    @abstractmethod
+    def list_vaccinations(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Historial de aplicaciones de vacunas en la institución pediátrica."""
+        pass
+
+    @abstractmethod
+    def list_development_milestones(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Hitos del desarrollo psicomotor evaluados según escala Denver II / OMS."""
+        pass
+
+    @abstractmethod
+    def add_development_milestone(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Registra la evaluación de un hito psicomotor en motricidad, lenguaje o social."""
+        pass
+
+    @abstractmethod
+    def list_patient_allergies(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Alergias diagnosticadas en el paciente pediátrico con severidad y riesgo."""
+        pass
+
+    @abstractmethod
+    def add_patient_allergy(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Registra una alergia infantil (medicamento, alimento, ambiental)."""
+        pass
+
+    @abstractmethod
+    def list_allergens_catalog(self) -> List[Dict[str, Any]]:
+        """Catálogo estandarizado de alérgenos pediátricos."""
+        pass
+
+    @abstractmethod
+    def list_growth_percentiles(self, sexo: Optional[str] = None, parametro: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Curvas y tablas de percentiles oficiales de la OMS para comparación."""
+        pass
+
+
+class DentalOperationsPort(ABC):
+    """
+    Puerto EXCLUSIVO de la Clínica Odontológica: odontograma digital de 5 caras por pieza FDI,
+    hallazgos patológicos, anamnesis sistémica médica, planes y etapas de tratamiento,
+    procedimientos arancelarios, insumos y cobros con abonos por secretaría.
+    """
+
+    @abstractmethod
+    def get_dental_details(self, patient_id: int) -> Dict[str, Any]:
+        """Obtiene la ficha odontológica completa (anamnesis médica, odontograma, planes, cobros)."""
+        pass
+
+    @abstractmethod
+    def update_systemic_background(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Actualiza antecedentes médicos generales (diabetes, hipertensión, alergia a anestesia/látex, embarazo)."""
+        pass
+
+    @abstractmethod
+    def get_odontogram(self, patient_id: Optional[int] = None) -> Dict[str, Any]:
+        """Devuelve el odontograma digital estructurado por piezas FDI (11-48, 51-85) y caras (V, M, D, O, L/P)."""
+        pass
+
+    @abstractmethod
+    def save_odontogram_finding(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Registra un hallazgo patológico o diagnóstico en una cara y pieza dental específica."""
+        pass
+
+    @abstractmethod
+    def list_treatment_plans(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Lista presupuestos y planes globales de rehabilitación dental con sus etapas."""
+        pass
+
+    @abstractmethod
+    def create_treatment_plan(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Crea un nuevo plan de tratamiento con desglose de fases programadas."""
+        pass
+
+    @abstractmethod
+    def update_treatment_plan_stage(self, plan_id: int, etapa_id: int, estado: str) -> Dict[str, Any]:
+        """Actualiza el estado de una fase del plan (pendiente, en_curso, completada)."""
+        pass
+
+    @abstractmethod
+    def list_dental_procedures_catalog(self) -> List[Dict[str, Any]]:
+        """Catálogo arancelario de procedimientos odontológicos clasificados."""
+        pass
+
+    @abstractmethod
+    def create_dental_procedure(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Registra un nuevo procedimiento con arancel, duración y código en el catálogo."""
+        pass
+
+    @abstractmethod
+    def list_billing_and_payments(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Historial de facturas y abonos cobrados en secretaría."""
+        pass
+
+    @abstractmethod
+    def register_payment(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Registra un abono o cancelación de cuenta con recibo y método de pago."""
+        pass
+
+    @abstractmethod
+    def list_dental_findings_catalog(self) -> List[Dict[str, Any]]:
+        """Catálogo de hallazgos dentales con simbología de color oficial para el odontograma."""
+        pass
+
+    @abstractmethod
+    def list_dental_supplies(self) -> List[Dict[str, Any]]:
+        """Catálogo e inventario de insumos clínicos odontológicos y stock."""
+        pass
+
+
 class AuthPort(ABC):
     """
     Port for user authentication and institution discovery.

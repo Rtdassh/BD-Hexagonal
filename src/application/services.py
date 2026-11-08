@@ -18,7 +18,7 @@ from ..domain.entities import (
     UserRole,
 )
 from ..domain import validaciones as V
-from ..domain.ports import AuthPort, HospitalOperationsPort
+from ..domain.ports import AuthPort, HospitalOperationsPort, PediatricOperationsPort, DentalOperationsPort
 from .router import EngineRouter
 
 ROLES_CLINICOS = {UserRole.MEDICO, UserRole.PEDIATRA, UserRole.LABORATORISTA, UserRole.ODONTOLOGO, UserRole.ADMIN}
@@ -210,6 +210,163 @@ class HospitalService:
     def omitir_dosis(self, user, id_dosis, id_enfermero, motivo):
         _exigir_admin(user)
         return self._hospital(user).omit_dose(id_dosis, id_enfermero, V.motivo(motivo, "El motivo"))
+
+
+class PediatricService:
+    """
+    Casos de uso exclusivos del Centro Médico Pediátrico: tutores legales,
+    antecedentes perinatales, antropometría / somatometría detallada, percentiles OMS,
+    hitos de desarrollo Denver II, control de vacunas y lotes con cadena de frío, y alergias.
+    """
+
+    def __init__(self, router: EngineRouter):
+        self.router = router
+
+    def _pediatrico(self, user: User) -> PediatricOperationsPort:
+        adapter = self.router.get_adapter_for_user(user)
+        if not isinstance(adapter, PediatricOperationsPort):
+            raise ValueError("Operación clínica exclusiva del Centro Médico Pediátrico")
+        return adapter
+
+    def detalles(self, user: User, patient_id: int):
+        _exigir_clinico(user, "consultar el expediente pediátrico integral")
+        return self._pediatrico(user).get_pediatric_details(patient_id)
+
+    def actualizar_perinatal(self, user: User, patient_id: int, data: Dict[str, Any]):
+        _exigir_clinico(user, "actualizar antecedentes perinatales")
+        data = V.validar_antecedente_perinatal(dict(data))
+        return self._pediatrico(user).update_perinatal(patient_id, data)
+
+    def actualizar_tutor(self, user: User, patient_id: int, data: Dict[str, Any]):
+        return self._pediatrico(user).update_guardian(patient_id, dict(data))
+
+    def registrar_somatometria(self, user: User, patient_id: int, data: Dict[str, Any]):
+        _exigir_clinico(user, "registrar mediciones de somatometría")
+        data = V.validar_somatometria_pediatrica(dict(data))
+        return self._pediatrico(user).add_somatometry(patient_id, data)
+
+    def somatometria(self, user: User, patient_id: Optional[int] = None):
+        _exigir_clinico(user, "consultar historial de somatometría")
+        return self._pediatrico(user).list_somatometry(patient_id)
+
+    def vacunas_catalogo(self, user: User):
+        return self._pediatrico(user).list_vaccines_catalog()
+
+    def lotes_vacunas(self, user: User):
+        return self._pediatrico(user).list_vaccine_batches()
+
+    def crear_lote_vacuna(self, user: User, data: Dict[str, Any]):
+        _exigir_admin(user)
+        data = V.validar_lote_vacuna(dict(data))
+        return self._pediatrico(user).create_vaccine_batch(data)
+
+    def aplicar_vacuna(self, user: User, patient_id: int, data: Dict[str, Any]):
+        _exigir_clinico(user, "registrar la aplicación de biológicos")
+        return self._pediatrico(user).add_vaccination(patient_id, dict(data))
+
+    def vacunaciones(self, user: User, patient_id: Optional[int] = None):
+        _exigir_clinico(user, "consultar registros de vacunación")
+        return self._pediatrico(user).list_vaccinations(patient_id)
+
+    def hitos_desarrollo(self, user: User, patient_id: Optional[int] = None):
+        _exigir_clinico(user, "consultar evaluaciones del desarrollo infantil")
+        return self._pediatrico(user).list_development_milestones(patient_id)
+
+    def evaluar_hito(self, user: User, patient_id: int, data: Dict[str, Any]):
+        _exigir_clinico(user, "evaluar hitos psicomotores")
+        if not data.get("hito_evaluado"):
+            raise ValueError("El hito psicomotor a evaluar es obligatorio")
+        return self._pediatrico(user).add_development_milestone(patient_id, dict(data))
+
+    def alergias(self, user: User, patient_id: Optional[int] = None):
+        _exigir_clinico(user, "consultar alergias pediátricas")
+        return self._pediatrico(user).list_patient_allergies(patient_id)
+
+    def registrar_alergia(self, user: User, patient_id: int, data: Dict[str, Any]):
+        _exigir_clinico(user, "registrar diagnósticos de alergia infantil")
+        if not data.get("id_alergeno"):
+            raise ValueError("Debe seleccionar un alérgeno del catálogo")
+        return self._pediatrico(user).add_patient_allergy(patient_id, dict(data))
+
+    def alergenos_catalogo(self, user: User):
+        return self._pediatrico(user).list_allergens_catalog()
+
+    def percentiles_oms(self, user: User, sexo: Optional[str] = None, parametro: Optional[str] = None):
+        return self._pediatrico(user).list_growth_percentiles(sexo, parametro)
+
+
+class DentalService:
+    """
+    Casos de uso exclusivos de la Clínica Odontológica: anamnesis sistémica médica,
+    odontograma tridimensional (5 caras FDI), planes y etapas de tratamiento,
+    aranceles de procedimientos, cobros, facturación y pagos/abonos.
+    """
+
+    def __init__(self, router: EngineRouter):
+        self.router = router
+
+    def _odontologia(self, user: User) -> DentalOperationsPort:
+        adapter = self.router.get_adapter_for_user(user)
+        if not isinstance(adapter, DentalOperationsPort):
+            raise ValueError("Operación clínica exclusiva de la Clínica Odontológica")
+        return adapter
+
+    def detalles(self, user: User, patient_id: int):
+        _exigir_clinico(user, "consultar el expediente odontológico completo")
+        return self._odontologia(user).get_dental_details(patient_id)
+
+    def actualizar_sistemico(self, user: User, patient_id: int, data: Dict[str, Any]):
+        _exigir_clinico(user, "actualizar antecedentes médicos sistémicos")
+        data = V.validar_antecedente_sistemico_dental(dict(data))
+        return self._odontologia(user).update_systemic_background(patient_id, data)
+
+    def odontograma(self, user: User, patient_id: Optional[int] = None):
+        _exigir_clinico(user, "consultar el odontograma del paciente")
+        return self._odontologia(user).get_odontogram(patient_id)
+
+    def registrar_hallazgo(self, user: User, patient_id: int, data: Dict[str, Any]):
+        _exigir_clinico(user, "registrar hallazgos patológicos en el odontograma")
+        data = V.validar_hallazgo_odontograma(dict(data))
+        return self._odontologia(user).save_odontogram_finding(patient_id, data)
+
+    def planes(self, user: User, patient_id: Optional[int] = None):
+        return self._odontologia(user).list_treatment_plans(patient_id)
+
+    def crear_plan(self, user: User, data: Dict[str, Any]):
+        _exigir_clinico(user, "formular planes de tratamiento dental")
+        data = V.validar_plan_tratamiento(dict(data))
+        return self._odontologia(user).create_treatment_plan(data)
+
+    def actualizar_etapa_plan(self, user: User, plan_id: int, etapa_id: int, estado: str):
+        _exigir_clinico(user, "actualizar el avance de etapas del plan")
+        if estado not in ("pendiente", "en_curso", "completada"):
+            raise ValueError("Estado de fase inválido: pendiente, en_curso o completada")
+        return self._odontologia(user).update_treatment_plan_stage(plan_id, etapa_id, estado)
+
+    def procedimientos(self, user: User):
+        return self._odontologia(user).list_dental_procedures_catalog()
+
+    def crear_procedimiento(self, user: User, data: Dict[str, Any]):
+        _exigir_admin(user)
+        if not data.get("nombre_procedimiento"):
+            raise ValueError("El nombre del procedimiento es obligatorio")
+        if float(data.get("costo", 0)) < 0:
+            raise ValueError("El costo base no puede ser negativo")
+        return self._odontologia(user).create_dental_procedure(dict(data))
+
+    def facturacion(self, user: User, patient_id: Optional[int] = None):
+        return self._odontologia(user).list_billing_and_payments(patient_id)
+
+    def registrar_pago(self, user: User, data: Dict[str, Any]):
+        data = V.validar_pago_dental(dict(data))
+        data["secretaria"] = user.nombre_completo
+        return self._odontologia(user).register_payment(data)
+
+    def hallazgos_catalogo(self, user: User):
+        return self._odontologia(user).list_dental_findings_catalog()
+
+    def insumos(self, user: User):
+        return self._odontologia(user).list_dental_supplies()
 
 
 class PatientService:

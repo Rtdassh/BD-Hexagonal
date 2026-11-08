@@ -20,11 +20,13 @@ from ....domain.entities import (
     Consultation,
     Appointment,
     Diagnosis,
-    DentalProcedureRecord
+    DentalProcedureRecord,
+    Professional
 )
+from ....domain.ports import DentalOperationsPort
 
 
-class SimulatedFirebaseAdapter(BaseClinicalAdapter):
+class SimulatedFirebaseAdapter(BaseClinicalAdapter, DentalOperationsPort):
     def __init__(self, config: Config, simulated_engine: Optional[SimulatedFirebaseEngine] = None):
         self.config = config
         self.simulated = simulated_engine or SimulatedFirebaseEngine()
@@ -249,12 +251,114 @@ class SimulatedFirebaseAdapter(BaseClinicalAdapter):
     def get_specialized_records(self, patient_id: int) -> Dict[str, Any]:
         procs = [p for p in self.simulated.collections["consultas_procedimientos"] if p["id_paciente"] == patient_id]
         cat = self.simulated.collections["procedimientos_catalogo"]
+        odg = self.simulated.get_odontogram(patient_id)
         return {
-            "institucion": "Clínica Odontológica Pequeña",
+            "institucion": "Clínica Odontológica",
             "motor": "Firebase Cloud Firestore",
+            "odontograma": odg["piezas"],
             "procedimientos_realizados": procs,
             "catalogo_procedimientos": cat
         }
+
+    # ------------------------------------------------------------------------
+    # Implementación de DentalOperationsPort
+    # ------------------------------------------------------------------------
+    def get_dental_details(self, patient_id: int) -> Dict[str, Any]:
+        return self.simulated.get_dental_details(patient_id)
+
+    def update_systemic_background(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        return self.simulated.update_systemic_background(patient_id, data)
+
+    def get_odontogram(self, patient_id: Optional[int] = None) -> Dict[str, Any]:
+        return self.simulated.get_odontogram(patient_id)
+
+    def save_odontogram_finding(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        return self.simulated.save_odontogram_finding(patient_id, data)
+
+    def list_treatment_plans(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        return self.simulated.list_treatment_plans(patient_id)
+
+    def create_treatment_plan(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        return self.simulated.create_treatment_plan(data)
+
+    def update_treatment_plan_stage(self, plan_id: int, etapa_id: int, estado: str) -> Dict[str, Any]:
+        return self.simulated.update_treatment_plan_stage(plan_id, etapa_id, estado)
+
+    def list_dental_procedures_catalog(self) -> List[Dict[str, Any]]:
+        return self.simulated.list_dental_procedures_catalog()
+
+    def create_dental_procedure(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        return self.simulated.create_dental_procedure(data)
+
+    def list_billing_and_payments(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        return self.simulated.list_billing_and_payments(patient_id)
+
+    def register_payment(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        return self.simulated.register_payment(data)
+
+    def list_dental_findings_catalog(self) -> List[Dict[str, Any]]:
+        return self.simulated.list_dental_findings_catalog()
+
+    def list_dental_supplies(self) -> List[Dict[str, Any]]:
+        return self.simulated.list_dental_supplies()
+
+    def list_professionals(self) -> List[Professional]:
+        return [
+            Professional(
+                id_profesional=o["id_odontologo"],
+                nombre_completo=o["nombre_completo"],
+                numero_colegiado=o["numero_colegiado"],
+                especialidad=o.get("especialidad", "Odontología general"),
+                telefono=o.get("telefono", ""),
+                correo_electronico=o.get("correo_electronico", ""),
+                estado=o.get("estado", "activo")
+            )
+            for o in self.simulated.collections["odontologos"]
+        ]
+
+    def create_professional(self, data: Dict[str, Any]) -> Professional:
+        self.requerido(data, "nombre_completo", "numero_colegiado")
+        col = data["numero_colegiado"].strip()
+        for o in self.simulated.collections["odontologos"]:
+            if o["numero_colegiado"] == col:
+                raise ValueError(f"Ya existe un odontólogo con colegiado {col}")
+        new_id = self.simulated._next_id("odontologos")
+        rec = {
+            "id_odontologo": new_id,
+            "nombre_completo": data["nombre_completo"].strip(),
+            "numero_colegiado": col,
+            "especialidad": data.get("especialidad") or "Odontología general",
+            "telefono": data.get("telefono") or "",
+            "correo_electronico": data.get("correo_electronico") or "",
+            "estado": data.get("estado", "activo")
+        }
+        self.simulated.collections["odontologos"].append(rec)
+        return Professional(
+            id_profesional=new_id,
+            nombre_completo=rec["nombre_completo"],
+            numero_colegiado=rec["numero_colegiado"],
+            especialidad=rec["especialidad"],
+            telefono=rec["telefono"],
+            correo_electronico=rec["correo_electronico"],
+            estado=rec["estado"]
+        )
+
+    def update_professional(self, professional_id: int, data: Dict[str, Any]) -> Professional:
+        for o in self.simulated.collections["odontologos"]:
+            if o["id_odontologo"] == int(professional_id):
+                for k in ("nombre_completo", "especialidad", "telefono", "correo_electronico", "estado"):
+                    if data.get(k) not in (None, ""):
+                        o[k] = data[k]
+                return Professional(
+                    id_profesional=o["id_odontologo"],
+                    nombre_completo=o["nombre_completo"],
+                    numero_colegiado=o["numero_colegiado"],
+                    especialidad=o.get("especialidad", ""),
+                    telefono=o.get("telefono", ""),
+                    correo_electronico=o.get("correo_electronico", ""),
+                    estado=o.get("estado", "activo")
+                )
+        raise ValueError(f"Odontólogo {professional_id} no encontrado")
 
     # Helpers
     def _to_patient_domain(self, d: Dict[str, Any]) -> Patient:

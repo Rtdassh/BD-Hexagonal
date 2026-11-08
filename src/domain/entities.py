@@ -131,6 +131,9 @@ class Patient:
     semanas_gestacion: Optional[int] = None
     peso_nacer_kg: Optional[float] = None
     talla_nacer_cm: Optional[float] = None
+    # Entidades normalizadas 3FN (opcionales para compatibilidad)
+    tutor: Optional["LegalGuardian"] = None
+    perinatal: Optional["PerinatalRecord"] = None
 
     @property
     def nombre_completo(self) -> str:
@@ -239,6 +242,78 @@ class DentalProcedureRecord:
     fecha_realizacion: str
     costo: float
     estado: str = "completado"
+
+
+@dataclass
+class LegalGuardian:
+    id_tutor: int
+    dpi: str
+    nombres: str
+    apellidos: str
+    telefono_principal: str
+    direccion: str
+    telefono_secundario: Optional[str] = None
+    correo: Optional[str] = None
+    parentesco: str = "Tutor Legal"
+
+
+@dataclass
+class PerinatalRecord:
+    id_antecedente: int
+    id_paciente: int
+    semanas_gestacion: int
+    peso_nacer_kg: float
+    talla_nacer_cm: float
+    perimetro_cefalico_nacer_cm: float = 34.5
+    tipo_parto: str = "Eutócico vaginal"
+    apgar_1min: int = 9
+    apgar_5min: int = 10
+    complicaciones: Optional[str] = None
+
+
+@dataclass
+class DevelopmentMilestone:
+    id_evaluacion: int
+    area_desarrollo: str
+    hito_evaluado: str
+    cumple_hito: bool = True
+    observaciones: Optional[str] = None
+
+
+@dataclass
+class AllergyRecord:
+    id_alergia: int
+    alergeno: str
+    tipo_alergeno: str
+    severidad: str
+    fecha_deteccion: str
+
+
+@dataclass
+class DentalTooth:
+    codigo_fdi: int
+    cuadrante: int
+    nombre_anatomico: str
+    tipo_diente: str
+
+
+@dataclass
+class OdontogramDetail:
+    id_detalle: int
+    codigo_fdi: int
+    cara: str
+    hallazgo: str
+    color_hex: str = "#FF0000"
+    notas: Optional[str] = None
+
+
+@dataclass
+class DentalTreatmentPlan:
+    id_plan: int
+    id_paciente: int
+    costo_total_estimado: float
+    estado_aprobacion: str = "pendiente"
+    etapas: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

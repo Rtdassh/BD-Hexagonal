@@ -40,6 +40,7 @@ from ...domain.entities import (
     UnifiedClinicalRecord,
     UserRole,
 )
+from ...domain.ports import DentalOperationsPort
 
 CAMPOS_EDITABLES = {
     "nombres", "apellidos", "fecha_nacimiento", "sexo", "direccion", "telefono", "correo_electronico",
@@ -72,11 +73,19 @@ def crear_cliente_firestore(config: Config):
     raise RuntimeError("Firebase no configurado: defina FIRESTORE_EMULATOR_HOST o FIREBASE_CREDENTIALS_PATH")
 
 
-class FirebaseAdapter(BaseClinicalAdapter):
+class FirebaseAdapter(BaseClinicalAdapter, DentalOperationsPort):
     is_live = True
 
     def __init__(self, config: Config, client=None):
         self.config = config
+        if config.FIRESTORE_EMULATOR_HOST and client is None:
+            import socket
+            try:
+                host, port = config.FIRESTORE_EMULATOR_HOST.split(":")
+                with socket.create_connection((host, int(port)), timeout=2):
+                    pass
+            except Exception as e:
+                raise ConnectionRefusedError(f"Emulador de Firestore no responde en {config.FIRESTORE_EMULATOR_HOST}: {e}") from e
         self.db = client if client is not None else crear_cliente_firestore(config)
         # Verificar que el servidor responde (falla rápido si no está disponible).
         self.db.collection("contadores").document("pacientes").get(timeout=5)
@@ -538,3 +547,228 @@ class FirebaseAdapter(BaseClinicalAdapter):
             contacto_emergencia_nombre=ce.get("nombre", ""), contacto_emergencia_telefono=ce.get("telefono", ""),
             fecha_registro=d.get("fecha_registro", ""), estado=d.get("estado", "activo"),
         )
+
+    # ------------------------------------------------------------------
+    # Implementación de DentalOperationsPort (Cloud Firestore)
+    # ------------------------------------------------------------------
+    def get_dental_details(self, patient_id: int) -> Dict[str, Any]:
+        p = self.get_patient(patient_id)
+        if not p:
+            raise ValueError(f"Paciente {patient_id} no encontrado en Firestore")
+        ref = self._paciente_ref(patient_id)
+        ant_snap = ref.collection("antecedente_sistemico").document("principal").get()
+        ant = ant_snap.to_dict() if ant_snap.exists else {
+            "padece_diabetes": False, "padece_hipertension": False, "padece_coagulopatia": False,
+            "es_alergico_anestesia": False, "es_alergico_latex": False, "esta_embarazada": False,
+            "medicamentos_actuales": "", "observaciones_medicas": "Sin antecedentes patológicos."
+        }
+
+        hallazgos = [s.to_dict() for s in ref.collection("odontograma").stream()]
+        piezas_tratadas = {str(h["codigo_fdi"]) for h in hallazgos if "codigo_fdi" in h}
+
+        procs = []
+        for s in ref.collection("consultas").stream():
+            c = s.to_dict()
+            for pr in c.get("procedimientos") or []:
+                procs.append({**pr, "fecha_hora_atencion": c.get("fecha_hora_atencion")})
+                if pr.get("pieza_dental"):
+                    piezas_tratadas.add(str(pr["pieza_dental"]).split()[0])
+
+        planes = [s.to_dict() for s in self.db.collection("planes_tratamiento").where("id_paciente", "==", patient_id).stream()]
+        facturas = [s.to_dict() for s in self.db.collection("facturas").where("id_paciente", "==", patient_id).stream()]
+        pagos = [s.to_dict() for s in self.db.collection("pagos").where("id_paciente", "==", patient_id).stream()]
+
+        tot_fac = sum(f.get("monto_total", 0.0) for f in facturas)
+        tot_pag = sum(pg.get("monto_abonado", 0.0) for pg in pagos)
+
+        return {
+            "paciente": p,
+            "antecedentes": ant,
+            "hallazgos_odontograma": hallazgos,
+            "piezas_tratadas": sorted(list(piezas_tratadas)),
+            "procedimientos": procs,
+            "planes_tratamiento": planes,
+            "facturacion": {
+                "facturas": facturas,
+                "pagos": pagos,
+                "total_facturado": tot_fac,
+                "total_pagado": tot_pag,
+                "saldo_pendiente": max(0.0, tot_fac - tot_pag)
+            }
+        }
+
+    def update_systemic_background(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        ref = self._paciente_ref(patient_id).collection("antecedente_sistemico").document("principal")
+        ant = {
+            "padece_diabetes": bool(data.get("padece_diabetes", False)),
+            "padece_hipertension": bool(data.get("padece_hipertension", False)),
+            "padece_coagulopatia": bool(data.get("padece_coagulopatia", False)),
+            "es_alergico_anestesia": bool(data.get("es_alergico_anestesia", False)),
+            "es_alergico_latex": bool(data.get("es_alergico_latex", False)),
+            "esta_embarazada": bool(data.get("esta_embarazada", False)),
+            "medicamentos_actuales": data.get("medicamentos_actuales", ""),
+            "observaciones_medicas": data.get("observaciones_medicas", "")
+        }
+        ref.set(ant)
+        return ant
+
+    def get_odontogram(self, patient_id: Optional[int] = None) -> Dict[str, Any]:
+        if patient_id is not None:
+            ref = self._paciente_ref(patient_id)
+            hallazgos = [s.to_dict() for s in ref.collection("odontograma").stream()]
+        else:
+            try:
+                hallazgos = [s.to_dict() for s in self.db.collection_group("odontograma").stream()]
+            except Exception:
+                hallazgos = []
+        piezas = {}
+        for h in hallazgos:
+            piezas.setdefault(str(h.get("codigo_fdi")), []).append(h)
+        return {"id_paciente": patient_id, "hallazgos": hallazgos, "piezas": piezas}
+
+    def save_odontogram_finding(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        ref = self._paciente_ref(patient_id).collection("odontograma")
+        doc_id = f"{data['codigo_fdi']}_{data.get('cara', 'O')}"
+        item = {
+            "id_detalle": doc_id,
+            "id_paciente": patient_id,
+            "codigo_fdi": int(data["codigo_fdi"]),
+            "cara": str(data.get("cara", "O")).upper(),
+            "hallazgo": str(data["hallazgo"]).strip(),
+            "color_hex": str(data.get("color_hex", "#E53935")),
+            "notas": str(data.get("notas", "")),
+            "fecha": _ahora()[:10]
+        }
+        ref.document(doc_id).set(item)
+        return item
+
+    def list_treatment_plans(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        q = self.db.collection("planes_tratamiento")
+        if patient_id:
+            q = q.where("id_paciente", "==", patient_id)
+        return [s.to_dict() for s in q.stream()]
+
+    def create_treatment_plan(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        new_id = self._siguiente_id("planes_tratamiento")
+        etapas_raw = data.get("etapas") or []
+        etapas = []
+        for i, e in enumerate(etapas_raw, 1):
+            etapas.append({
+                "id_etapa": i, "numero_etapa": i,
+                "descripcion_fase": e.get("descripcion_fase", f"Fase {i}"),
+                "costo_fase": float(e.get("costo_fase", 0.0)),
+                "estado_fase": e.get("estado_fase", "pendiente")
+            })
+        costo_total = float(data.get("costo_total_estimado", sum(e["costo_fase"] for e in etapas)))
+        plan = {
+            "id_plan": new_id,
+            "id_paciente": int(data["id_paciente"]),
+            "id_odontologo": int(data.get("id_odontologo", 1)),
+            "titulo": data.get("titulo", "Plan Odontológico"),
+            "costo_total_estimado": costo_total,
+            "estado_aprobacion": "pendiente",
+            "fecha_propuesta": _ahora()[:10],
+            "etapas": etapas
+        }
+        self.db.collection("planes_tratamiento").document(str(new_id)).set(plan)
+        # Crear factura inicial
+        id_fac = self._siguiente_id("facturas")
+        self.db.collection("facturas").document(str(id_fac)).set({
+            "id_factura": id_fac, "id_paciente": plan["id_paciente"], "id_plan": new_id,
+            "fecha_emision": _ahora()[:10], "monto_total": costo_total, "monto_pagado": 0.0,
+            "saldo_pendiente": costo_total, "estado_factura": "pendiente"
+        })
+        return plan
+
+    def update_treatment_plan_stage(self, plan_id: int, etapa_id: int, estado: str) -> Dict[str, Any]:
+        ref = self.db.collection("planes_tratamiento").document(str(int(plan_id)))
+        snap = ref.get()
+        if not snap.exists:
+            raise ValueError(f"Plan {plan_id} no encontrado")
+        p = snap.to_dict()
+        for e in p.get("etapas") or []:
+            if e["id_etapa"] == etapa_id:
+                e["estado_fase"] = estado
+        if all(e["estado_fase"] == "completada" for e in p.get("etapas", [])):
+            p["estado_aprobacion"] = "finalizado"
+        elif any(e["estado_fase"] == "completada" for e in p.get("etapas", [])):
+            p["estado_aprobacion"] = "en_curso"
+        ref.set(p)
+        return p
+
+    def list_dental_procedures_catalog(self) -> List[Dict[str, Any]]:
+        return sorted((s.to_dict() for s in self.db.collection("procedimientos_catalogo").stream()),
+                      key=lambda p: p["id_procedimiento"])
+
+    def create_dental_procedure(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        new_id = self._siguiente_id("procedimientos_catalogo")
+        proc = {
+            "id_procedimiento": new_id,
+            "nombre_procedimiento": data["nombre_procedimiento"].strip(),
+            "descripcion": data.get("descripcion", ""),
+            "duracion_estimada_min": int(data.get("duracion_estimada_min", 45)),
+            "costo": float(data["costo"])
+        }
+        self.db.collection("procedimientos_catalogo").document(str(new_id)).set(proc)
+        return proc
+
+    def list_billing_and_payments(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        q = self.db.collection("facturas")
+        if patient_id:
+            q = q.where("id_paciente", "==", patient_id)
+        facturas = [s.to_dict() for s in q.stream()]
+        res = []
+        for f in facturas:
+            pagos = [s.to_dict() for s in self.db.collection("pagos").where("id_factura", "==", f["id_factura"]).stream()]
+            res.append({**f, "abonos": pagos})
+        return res
+
+    def register_payment(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        id_fac = int(data["id_factura"])
+        monto = float(data["monto_abonado"])
+        fref = self.db.collection("facturas").document(str(id_fac))
+        fsnap = fref.get()
+        if not fsnap.exists:
+            raise ValueError(f"Factura {id_fac} no encontrada")
+        f = fsnap.to_dict()
+
+        new_id = self._siguiente_id("pagos")
+        pago = {
+            "id_pago": new_id, "id_factura": id_fac, "id_paciente": f["id_paciente"],
+            "fecha_pago": _ahora(), "monto_abonado": monto,
+            "metodo_pago": data.get("metodo_pago", "Efectivo"),
+            "numero_recibo": data["numero_recibo"].strip().upper(),
+            "secretaria": data.get("secretaria", "Recepción")
+        }
+        self.db.collection("pagos").document(str(new_id)).set(pago)
+
+        f["monto_pagado"] = round(f["monto_pagado"] + monto, 2)
+        f["saldo_pendiente"] = max(0.0, round(f["monto_total"] - f["monto_pagado"], 2))
+        f["estado_factura"] = "cancelada" if f["saldo_pendiente"] == 0 else "parcial"
+        fref.set(f)
+        return {
+            **pago,
+            "monto": monto,
+            "monto_abonado": monto,
+            "pago": pago,
+            "factura": f
+        }
+
+    def list_dental_findings_catalog(self) -> List[Dict[str, Any]]:
+        return [
+            {"id_hallazgo": 1, "codigo": "caries", "nombre": "Caries activa", "color_hex": "#E53935"},
+            {"id_hallazgo": 2, "codigo": "resina", "nombre": "Restauración resina", "color_hex": "#43A047"},
+            {"id_hallazgo": 3, "codigo": "amalgama", "nombre": "Obturación amalgama", "color_hex": "#1E88E5"},
+            {"id_hallazgo": 4, "codigo": "corona", "nombre": "Corona protésica", "color_hex": "#FDD835"},
+            {"id_hallazgo": 5, "codigo": "endodoncia", "nombre": "Conducto / Endodoncia", "color_hex": "#8E24AA"},
+            {"id_hallazgo": 6, "codigo": "ausente", "nombre": "Pieza ausente / extracción", "color_hex": "#757575"},
+            {"id_hallazgo": 7, "codigo": "sellante", "nombre": "Sellante de fisuras", "color_hex": "#00ACC1"},
+            {"id_hallazgo": 8, "codigo": "fractura", "nombre": "Fractura dental", "color_hex": "#FB8C00"}
+        ]
+
+    def list_dental_supplies(self) -> List[Dict[str, Any]]:
+        return [
+            {"id_insumo": 1, "nombre": "Resina Fotocurable A2", "unidad": "Jeringa 4g", "stock": 25, "stock_minimo": 5},
+            {"id_insumo": 2, "nombre": "Anestubo Lidocaína 2% con Epinefrina", "unidad": "Caja 50 un.", "stock": 180, "stock_minimo": 20},
+            {"id_insumo": 3, "nombre": "Anestubo Mepivacaína 3% (Sin vasoconstrictor)", "unidad": "Caja 50 un.", "stock": 60, "stock_minimo": 10}
+        ]
