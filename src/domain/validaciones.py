@@ -329,6 +329,24 @@ def validar_habitacion(data: Dict[str, Any], nueva: bool = True) -> Dict[str, An
     return data
 
 
+def validar_orden_laboratorio(data: Dict[str, Any]) -> Dict[str, Any]:
+    if not data.get("examenes"):
+        raise ValueError("Elija al menos un examen")
+    if len(data["examenes"]) > 15:
+        raise ValueError("Una orden admite como máximo 15 exámenes")
+    texto(data, "medico_solicitante", "Médico solicitante", 100, 3)
+    if data.get("prioridad") and data["prioridad"] not in ("normal", "urgente"):
+        raise ValueError("Prioridad inválida: normal o urgente")
+    texto(data, "diagnostico_presuntivo", "Diagnóstico presuntivo", 200, 3)
+    if data.get("codigo_cie10"):
+        data["codigo_cie10"] = str(data["codigo_cie10"]).strip().upper()
+    texto(data, "codigo_cie10", "Código CIE-10", 8, 0, False, CIE10, "use letra + 2 números y decimal opcional (ej. E11.9)")
+    texto(data, "observaciones", "Observaciones", 300)
+    if data.get("fecha_toma"):
+        fecha_hora(data, "fecha_toma", "La toma de muestra", tolerancia_min=5, max_dias=90)
+    return data
+
+
 # ----------------------------------------------------------------------------
 # Validaciones específicas Centro Médico Pediátrico
 # ----------------------------------------------------------------------------

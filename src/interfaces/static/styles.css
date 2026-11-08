@@ -935,6 +935,65 @@ input[aria-invalid]:focus, textarea[aria-invalid]:focus { outline-color: rgba(18
 .barra-busqueda #busCitasLimpiar { margin-bottom: 4px; }
 .hab-cab b { white-space: nowrap; } .hab-cab { gap: 8px; } .hab-meta small { text-align: right; }
 
+/* ===================== Laboratorio: órdenes ===================== */
+.estado.info { background: #E3EEFB; color: #1F4E8C; }
+.estado.morado { background: #EEE7F8; color: #5B3A8E; }
+.fila-clic { cursor: pointer; }
+.chips-examen { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.chip-examen { font-size: 0.75rem; font-weight: 700; padding: 2px 7px; border-radius: 999px; background: #EEF2F4; color: var(--tinta-2); border: 1px solid transparent; }
+.chip-examen.e-en_analisis { background: #E3EEFB; color: #1F4E8C; }
+.chip-examen.e-preliminar { background: #EEE7F8; color: #5B3A8E; }
+.chip-examen.e-validado, .chip-examen.e-entregado { background: var(--acento-claro); color: var(--acento-osc); }
+
+/* Nueva orden */
+.lista-examenes { display: grid; gap: 8px; }
+.examen-op { display: flex !important; align-items: flex-start; gap: 12px; padding: 10px 12px; border: 1px solid var(--linea-suave); border-radius: 10px; cursor: pointer; font-weight: 400 !important; }
+.examen-op:hover { border-color: color-mix(in srgb, var(--inst) 40%, #C9D2DA); }
+.examen-op:has(input:checked) { border-color: var(--acento); background: var(--acento-claro); }
+.examen-op input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--acento); flex: none; }
+.examen-op > span:not(.precio) { flex: 1; display: grid; gap: 2px; }
+.examen-op .precio { font-weight: 700; white-space: nowrap; }
+.prep { display: inline-block; color: #8A5A00; font-weight: 700; font-size: 0.8125rem; }
+.prep::before { content: "Preparación: "; font-weight: 400; color: var(--tenue); }
+.prep-cita::after { content: " · conviene agendar"; font-weight: 400; color: var(--tenue); }
+.total-orden { margin: 10px 2px 0; color: var(--tinta-2); }
+.aviso-prep { background: #FFF6E5; border: 1px solid #F3D9A4; color: #6B4700; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+.cumple-prep { margin-bottom: 14px; }
+
+/* Resultados */
+.tabla-resultados td { vertical-align: middle; }
+.valor-con-unidad { display: flex; align-items: center; gap: 8px; }
+.valor-con-unidad input { width: 120px; }
+.validar-examen { border: 1px solid var(--linea-suave); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; display: grid; gap: 8px; }
+.validar-examen h3 { font-size: 1rem; display: flex; justify-content: space-between; gap: 10px; }
+
+/* Panel de la orden */
+.pasos-orden { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; counter-reset: paso; }
+.pasos-orden li { font-size: 0.6875rem; font-weight: 700; color: var(--tenue); text-align: center; padding-top: 22px; position: relative; line-height: 1.2; }
+.pasos-orden li::before { counter-increment: paso; content: counter(paso); position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  width: 18px; height: 18px; border-radius: 50%; background: #E3E9ED; color: var(--tenue); font-size: 0.6875rem; display: grid; place-items: center; }
+.pasos-orden li.hecho { color: var(--tinta-2); }
+.pasos-orden li.hecho::before { content: "✓"; background: var(--acento); color: #fff; }
+.pasos-orden li.actual { color: var(--acento-osc); }
+.pasos-orden li.actual::before { background: var(--acento-claro); color: var(--acento-osc); box-shadow: 0 0 0 2px var(--acento); }
+.historial-orden { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.historial-orden li { display: grid; grid-template-columns: 110px 1fr; gap: 10px; font-size: 0.875rem; }
+.historial-orden time { color: var(--tenue); }
+.orden-en-curso { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 8px; border-bottom: 1px dashed var(--linea-suave); }
+
+/* Agenda de tomas */
+.dia-tomas { margin-bottom: 16px; }
+.dia-tomas.atrasadas { border-left: 4px solid var(--rojo); }
+.lista-tomas { list-style: none; margin: 0; padding: 4px 6px 8px; }
+.toma { display: flex; align-items: center; gap: 14px; padding: 10px 12px; border-radius: 8px; }
+.toma:hover { background: color-mix(in srgb, var(--inst) 4%, white); }
+.toma .hora { width: 54px; font-weight: 700; font-size: 1.0625rem; flex: none; }
+.toma .txt { flex: 1; display: grid; gap: 2px; min-width: 0; }
+.toma .enlace-paciente { justify-self: start; font-weight: 700; }
+.toma .acc { display: flex; gap: 6px; flex: none; }
+@media (max-width: 700px) { .toma { flex-wrap: wrap; } .pasos-orden li { font-size: 0.625rem; } }
+.examen-op { flex-direction: row !important; color: var(--tinta); }
+
 /* ==========================================================================
    Módulos Especializados: Centro Pediátrico y Clínica Odontológica
    ========================================================================== */

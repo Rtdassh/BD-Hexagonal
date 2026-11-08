@@ -18,7 +18,7 @@ from ..domain.entities import (
     UserRole,
 )
 from ..domain import validaciones as V
-from ..domain.ports import AuthPort, HospitalOperationsPort, PediatricOperationsPort, DentalOperationsPort
+from ..domain.ports import AuthPort, HospitalOperationsPort, LaboratoryOrdersPort, PediatricOperationsPort, DentalOperationsPort
 from .router import EngineRouter
 
 ROLES_CLINICOS = {UserRole.MEDICO, UserRole.PEDIATRA, UserRole.LABORATORISTA, UserRole.ODONTOLOGO, UserRole.ADMIN}
@@ -480,3 +480,76 @@ class AuthService:
 
     def get_demo_accounts(self) -> List[Dict[str, Any]]:
         return self.auth_port.list_available_users()
+
+
+
+class LabService:
+    """
+    Órdenes del Laboratorio Clínico. Solo existen con MongoDB conectado: si el adaptador
+    del usuario no implementa LaboratoryOrdersPort, la operación se rechaza.
+    """
+
+    def __init__(self, router: EngineRouter):
+        self.router = router
+
+    def _lab(self, user: User) -> LaboratoryOrdersPort:
+        adapter = self.router.get_adapter_for_user(user)
+        if not isinstance(adapter, LaboratoryOrdersPort):
+            raise ValueError("Las órdenes solo existen en el Laboratorio Clínico (con MongoDB conectado)")
+        return adapter
+
+    def ordenes(self, user, estado=None, id_paciente=None):
+        if estado and estado not in LaboratoryOrdersPort.ESTADOS:
+            raise ValueError("Estado de orden inválido")
+        return self._lab(user).list_lab_orders(estado, id_paciente)
+
+    def orden(self, user, id_orden):
+        return self._lab(user).get_lab_order(id_orden)
+
+    def crear(self, user, data):
+        _exigir_admin(user)
+        payload = V.validar_orden_laboratorio(dict(data))
+        if payload.get("fecha_toma"):
+            payload["id_laboratorista"] = _exigir_profesional_activo(self._lab(user), data.get("id_laboratorista") or 1)
+        return self._lab(user).create_lab_order(payload)
+
+    def agendar(self, user, id_orden, data):
+        _exigir_admin(user)
+        payload = dict(data)
+        V.fecha_hora(payload, "fecha_toma", "La toma de muestra", tolerancia_min=5, max_dias=90)
+        return self._lab(user).schedule_sample(id_orden, payload)
+
+    def muestra(self, user, id_orden, data):
+        _exigir_admin(user)
+        payload = dict(data)
+        V.texto(payload, "tipo_muestra", "Tipo de muestra", 80, 3, req=True)
+        V.texto(payload, "condicion_muestra", "Condición de la muestra", 200)
+        if payload.get("preparacion_cumplida") not in (True, "1", "true", "on", 1):
+            payload["motivo_rechazo"] = V.motivo(payload.get("motivo_rechazo"), "El motivo del rechazo")
+        return self._lab(user).register_sample(id_orden, payload)
+
+    def resultados(self, user, id_orden, data):
+        _exigir_admin(user)
+        payload = dict(data)
+        payload["parametros"] = [dict(p) for p in (payload.get("parametros") or []) if (p or {}).get("nombre_parametro")]
+        for i, p in enumerate(payload["parametros"], 1):
+            V.texto(p, "valor_resultado", f"Parámetro {i}: resultado", 40)
+        V.texto(payload, "observaciones_tecnicas", "Observaciones técnicas", 300)
+        return self._lab(user).register_results(id_orden, payload)
+
+    def validar(self, user, id_orden, data):
+        _exigir_admin(user)
+        return self._lab(user).validate_order(id_orden, dict(data))
+
+    def entregar(self, user, id_orden, data):
+        _exigir_admin(user)
+        payload = dict(data)
+        V.nombre(payload, "entregado_a", "Entregado a", 100, req=True)
+        return self._lab(user).deliver_order(id_orden, payload)
+
+    def cancelar(self, user, id_orden, motivo):
+        _exigir_admin(user)
+        return self._lab(user).cancel_order(id_orden, V.motivo(motivo, "El motivo de la cancelación"))
+
+    def agenda(self, user, desde=None):
+        return self._lab(user).sample_agenda(desde)

@@ -109,6 +109,28 @@ Solo el administrador del hospital ve tres secciones extra en el menú:
 
 ---
 
+### Laboratorio Clínico: órdenes y agenda de tomas
+
+El laboratorio no trabaja con consultas sino con **órdenes de examen**. En su menú, "Citas" se reemplaza por:
+
+- **Órdenes**: lista de trabajo por estado. Cada orden avanza así:
+
+  | Estado | Siguiente paso | Regla |
+  |--------|----------------|-------|
+  | Pendiente de muestra | Tomar muestra | Si el paciente no cumplió la preparación, la muestra se **rechaza** y la orden sigue pendiente |
+  | En análisis | Ingresar resultados | Uno por examen, con la plantilla de parámetros del catálogo; marca ALTO/BAJO/CRÍTICO |
+  | Por validar | Validar | **Doble verificación**: no puede validar quien hizo el análisis |
+  | Lista para entregar | Entregar | Se registra a quién se entregó |
+  | Entregada / Cancelada | — | Solo se cancela si todavía no hay resultados |
+
+- **Agenda de tomas**: solo para exámenes que requieren preparación (`requiere_cita` en `tipos_examen`).
+  Al crear la orden la app muestra qué debe traer el paciente ("Ayuno estricto de 8 a 12 horas").
+
+En MongoDB la orden es un documento con sus exámenes embebidos y su `historial_estados`; las muestras y los
+resultados viven en sus colecciones (`muestras`, `resultados`) enlazadas por `id_orden`. Cada paso es una
+transacción multi-documento (replica set `rs0`), y la colección `ordenes` tiene un validador `$jsonSchema`
+que solo admite los seis estados. Prueba sin Docker: `pip install mongomock` y `python -m pytest tests/test_laboratorio_ordenes.py`.
+
 ### Buscador de citas (las cuatro instituciones)
 
 La página **Citas** tiene un buscador por paciente, DPI, n.º de historial o motivo (sin importar tildes ni

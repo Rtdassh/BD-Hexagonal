@@ -16,6 +16,7 @@ from ..application.services import (
     ConsultationService,
     DentalService,
     HospitalService,
+    LabService,
     PatientService,
     PediatricService,
     PermisoDenegado,
@@ -66,6 +67,7 @@ def create_app(config: Config = None, router: EngineRouter = None):
     consultation_service = ConsultationService(engine_router)
     professional_service = ProfessionalService(engine_router)
     hospital_service = HospitalService(engine_router)
+    lab_service = LabService(engine_router)
     pediatric_service = PediatricService(engine_router)
     dental_service = DentalService(engine_router)
     app.engine_router = engine_router
@@ -533,6 +535,44 @@ def create_app(config: Config = None, router: EngineRouter = None):
         return _json(dental_service.insumos(request.current_user))
 
     # Estado de los motores ----------------------------------------------
+    # ---------------------------------------------------------------- Laboratorio
+    @app.route("/api/lab/orders", methods=["GET"])
+    @require_auth
+    def lab_orders():
+        return _json(lab_service.ordenes(request.current_user, request.args.get("estado") or None,
+                                         request.args.get("id_paciente", type=int)))
+
+    @app.route("/api/lab/orders", methods=["POST"])
+    @require_auth
+    def lab_create_order():
+        return _json(lab_service.crear(request.current_user, body()), 201)
+
+    @app.route("/api/lab/orders/<int:oid>", methods=["GET"])
+    @require_auth
+    def lab_order(oid):
+        return _json(lab_service.orden(request.current_user, oid))
+
+    @app.route("/api/lab/orders/<int:oid>/<accion>", methods=["POST"])
+    @require_auth
+    def lab_order_action(oid, accion):
+        u, b = request.current_user, body()
+        acciones = {
+            "schedule": lambda: lab_service.agendar(u, oid, b),
+            "sample": lambda: lab_service.muestra(u, oid, b),
+            "results": lambda: lab_service.resultados(u, oid, b),
+            "validate": lambda: lab_service.validar(u, oid, b),
+            "deliver": lambda: lab_service.entregar(u, oid, b),
+            "cancel": lambda: lab_service.cancelar(u, oid, b.get("motivo", "")),
+        }
+        if accion not in acciones:
+            return _json({"error": "Acción inválida"}, 404)
+        return _json(acciones[accion]())
+
+    @app.route("/api/lab/agenda", methods=["GET"])
+    @require_auth
+    def lab_agenda():
+        return _json(lab_service.agenda(request.current_user, request.args.get("desde") or None))
+
     @app.route("/api/engine/status", methods=["GET"])
     def engine_status():
         return jsonify({"modo": config.ENGINE_MODE, "motores": engine_router.health_check_all()})

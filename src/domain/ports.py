@@ -441,3 +441,57 @@ class AuthPort(ABC):
         """Returns pre-configured demonstration users for all 4 institutions."""
         pass
 
+
+
+class LaboratoryOrdersPort(ABC):
+    """
+    Flujo de trabajo del Laboratorio Clínico (solo MongoDB):
+    orden -> toma de muestra -> análisis -> validación -> entrega.
+    Cada paso cambia el estado de la orden dentro de una transacción multi-documento.
+    """
+
+    ESTADOS = ("pendiente_muestra", "en_analisis", "por_validar", "lista_entrega", "entregada", "cancelada")
+
+    @abstractmethod
+    def list_lab_orders(self, estado: Optional[str] = None, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        pass
+
+    @abstractmethod
+    def get_lab_order(self, order_id: int) -> Dict[str, Any]:
+        """Orden completa: exámenes, muestras, resultados e historial de estados."""
+        pass
+
+    @abstractmethod
+    def create_lab_order(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        pass
+
+    @abstractmethod
+    def schedule_sample(self, order_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Agenda la toma de muestra (para exámenes que requieren preparación)."""
+        pass
+
+    @abstractmethod
+    def register_sample(self, order_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Recibe la muestra; si no cumplió la preparación se rechaza y la orden sigue pendiente."""
+        pass
+
+    @abstractmethod
+    def register_results(self, order_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        pass
+
+    @abstractmethod
+    def validate_order(self, order_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        pass
+
+    @abstractmethod
+    def deliver_order(self, order_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        pass
+
+    @abstractmethod
+    def cancel_order(self, order_id: int, motivo: str) -> Dict[str, Any]:
+        pass
+
+    @abstractmethod
+    def sample_agenda(self, desde: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Tomas de muestra agendadas, con la preparación que debe traer el paciente."""
+        pass

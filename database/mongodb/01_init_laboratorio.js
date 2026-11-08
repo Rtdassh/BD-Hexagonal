@@ -460,16 +460,107 @@ dbInstance.tipos_examen.updateOne({ codigo: "MIC-01" }, { $set: { parametros_pla
 dbInstance.citas.drop();
 dbInstance.citas.createIndex({ id_cita: 1 }, { unique: true });
 dbInstance.citas.createIndex({ id_paciente: 1, fecha_hora_programada: -1 });
+dbInstance.citas.createIndex({ id_orden: 1 });
+
+// ----------------------------------------------------------------------------
+// 5. FLUJO DE ÓRDENES: orden -> toma de muestra -> análisis -> validación -> entrega
+// ----------------------------------------------------------------------------
+// Qué preparación pide cada examen y si conviene agendar la toma
+dbInstance.tipos_examen.updateOne({ codigo: "HEM-01" }, { $set: { requiere_cita: false, tipo_muestra: "Sangre total con EDTA (tubo lila)" } });
+dbInstance.tipos_examen.updateOne({ codigo: "QUI-01" }, { $set: { requiere_cita: true, tipo_muestra: "Suero (tubo rojo)" } });
+dbInstance.tipos_examen.updateOne({ codigo: "URO-01" }, { $set: { requiere_cita: false, tipo_muestra: "Orina (frasco estéril)" } });
+dbInstance.tipos_examen.updateOne({ codigo: "MIC-01" }, { $set: { requiere_cita: true, tipo_muestra: "Orina en frasco estéril" } });
+
+// Las órdenes históricas quedan como entregadas y con sus exámenes embebidos
+dbInstance.ordenes.updateOne({ id_orden: 1 }, { $set: {
+  estado_orden: "entregada", medico_solicitante: "Dr. Roberto Villagrán Santos", entregado_a: "Estuardo René Guzmán Barrios",
+  examenes: [{ codigo: "HEM-01", nombre_examen: "Hematología Completa Automatizada", estado: "entregado" }],
+  historial_estados: [
+    { estado: "pendiente_muestra", fecha: "2026-03-01 07:15", detalle: "Orden registrada" },
+    { estado: "en_analisis", fecha: "2026-03-01 07:30", detalle: "Muestra LAB-2026-000101 tomada" },
+    { estado: "por_validar", fecha: "2026-03-01 09:30", detalle: "Resultados completos" },
+    { estado: "lista_entrega", fecha: "2026-03-01 10:15", detalle: "Validada por Licda. Brenda Marisol Morales" },
+    { estado: "entregada", fecha: "2026-03-01 11:45", detalle: "Entregados a Estuardo René Guzmán Barrios" }
+  ] } });
+dbInstance.ordenes.updateOne({ id_orden: 2 }, { $set: {
+  estado_orden: "entregada", prioridad: "urgente", medico_solicitante: "Dr. Roberto Villagrán Santos", entregado_a: "Dr. Roberto Villagrán Santos",
+  examenes: [{ codigo: "QUI-01", nombre_examen: "Perfil Glucémico y Renal (Glucosa + Creatinina)", estado: "entregado" }],
+  historial_estados: [
+    { estado: "pendiente_muestra", fecha: "2026-03-01 08:00", detalle: "Orden registrada" },
+    { estado: "en_analisis", fecha: "2026-03-01 08:10", detalle: "Muestra tomada" },
+    { estado: "por_validar", fecha: "2026-03-01 09:00", detalle: "Resultados completos" },
+    { estado: "lista_entrega", fecha: "2026-03-01 09:15", detalle: "Validada" },
+    { estado: "entregada", fecha: "2026-03-01 09:20", detalle: "Valor crítico notificado al médico" }
+  ] } });
+
+// Órdenes de ejemplo en curso, con fechas relativas a hoy para que la demo siempre tenga trabajo
+function fechaLocal(diasMas, hora) {
+  const d = new Date(); d.setDate(d.getDate() + diasMas);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${hora}`;
+}
+// Orden 3: perfil glucémico con ayuno -> toma agendada para mañana
+dbInstance.ordenes.insertOne({
+  id_orden: 3, id_paciente: 2, id_cita: 1, medico_solicitante: "Dr. Roberto Villagrán Santos",
+  fecha_hora_ingreso: fechaLocal(0, "08:00"), prioridad: "normal", motivo: "Control de diabetes",
+  diagnostico_presuntivo: "Control de diabetes mellitus tipo 2", codigo_cie10: "E11.9", observaciones: "",
+  estado_orden: "pendiente_muestra",
+  examenes: [{ codigo: "QUI-01", nombre_examen: "Perfil Glucémico y Renal (Glucosa + Creatinina)", estado: "pendiente" }],
+  historial_estados: [
+    { estado: "pendiente_muestra", fecha: fechaLocal(0, "08:00"), detalle: "Orden registrada" },
+    { estado: "pendiente_muestra", fecha: fechaLocal(0, "08:01"), detalle: "Toma agendada para " + fechaLocal(1, "07:00") }
+  ]
+});
+dbInstance.citas.insertOne({
+  id_cita: 1, id_paciente: 2, id_orden: 3, id_laboratorista: 1, fecha_hora_programada: fechaLocal(1, "07:00"),
+  motivo_consulta: "Toma de muestra · orden 00003", preparacion: "Ayuno estricto de 8 a 12 horas",
+  estado_cita: "programada", fecha_creacion: fechaLocal(0, "08:01")
+});
+// Orden 4: hematología con la muestra ya tomada -> en análisis
+dbInstance.ordenes.insertOne({
+  id_orden: 4, id_paciente: 1, id_cita: null, medico_solicitante: "Solicitud del paciente",
+  fecha_hora_ingreso: fechaLocal(0, "07:20"), prioridad: "urgente", motivo: "Fatiga y palidez",
+  diagnostico_presuntivo: "Sospecha de anemia", codigo_cie10: "D64.9", observaciones: "",
+  estado_orden: "en_analisis",
+  examenes: [{ codigo: "HEM-01", nombre_examen: "Hematología Completa Automatizada", estado: "en_analisis" }],
+  historial_estados: [
+    { estado: "pendiente_muestra", fecha: fechaLocal(0, "07:20"), detalle: "Orden registrada" },
+    { estado: "en_analisis", fecha: fechaLocal(0, "07:35"), detalle: "Muestra LAB-2026-00004-002 tomada por Lic. Diego Armando Coyoy" }
+  ]
+});
+dbInstance.muestras.insertOne({
+  id_muestra: 2, id_orden: 4, tipo_muestra: "Sangre total con EDTA (tubo lila)", codigo_etiqueta_barras: "LAB-2026-00004-002",
+  fecha_hora_toma: fechaLocal(0, "07:35"), condicion_muestra: "Adecuada", estado: "apta_analisis"
+});
+
+// El estado de la orden solo puede tomar estos valores (validador de la colección)
+dbInstance.runCommand({
+  collMod: "ordenes",
+  validator: { $jsonSchema: {
+    bsonType: "object",
+    required: ["id_orden", "id_paciente", "estado_orden", "examenes"],
+    properties: {
+      id_orden: { bsonType: "int" },
+      id_paciente: { bsonType: "int" },
+      estado_orden: { enum: ["pendiente_muestra", "en_analisis", "por_validar", "lista_entrega", "entregada", "cancelada"] },
+      prioridad: { enum: ["normal", "urgente"] },
+      examenes: { bsonType: "array", minItems: 1, maxItems: 15, items: {
+        bsonType: "object", required: ["codigo", "nombre_examen", "estado"],
+        properties: { estado: { enum: ["pendiente", "en_analisis", "preliminar", "validado", "entregado"] } } } }
+    }
+  } }
+});
+dbInstance.ordenes.createIndex({ estado_orden: 1, fecha_hora_ingreso: -1 });
 
 // Contadores para ids enteros secuenciales (se incrementan con $inc dentro de la transacción)
 dbInstance.contadores.drop();
 dbInstance.contadores.insertMany([
   { _id: "pacientes", seq: 2 },
   { _id: "historiales_clinicos", seq: 2 },
-  { _id: "ordenes", seq: 2 },
-  { _id: "muestras", seq: 1 },
+  { _id: "ordenes", seq: 4 },
+  { _id: "muestras", seq: 2 },
   { _id: "resultados", seq: 2 },
-  { _id: "citas", seq: 0 },
+  { _id: "citas", seq: 1 },
   { _id: "laboratoristas", seq: 2 }
 ]);
 

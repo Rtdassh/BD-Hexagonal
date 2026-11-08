@@ -338,6 +338,7 @@ class Consultation:
     recetas_pediatricas: List[Prescription] = field(default_factory=list)
     procedimientos_dentales: List[DentalProcedureRecord] = field(default_factory=list)
     examenes_laboratorio: List[LabExamResult] = field(default_factory=list)
+    estado_orden: Optional[str] = None   # solo laboratorio: en qué paso va la orden
 
 
 @dataclass
@@ -351,6 +352,8 @@ class Appointment:
     estado_cita: str
     fecha_creacion: str
     id_secretaria: Optional[int] = None
+    id_orden: Optional[int] = None      # laboratorio: la toma pertenece a una orden
+    preparacion: Optional[str] = None
 
 
 @dataclass

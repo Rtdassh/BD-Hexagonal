@@ -195,6 +195,8 @@ const ICONO = {
   resultados: '<path d="M4 20V4"/><path d="M4 20h16"/><path d="M8 16l3-4 3 2 5-6"/>',
   motores: '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
   buscar: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
+  orden: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 3v2h6V3"/><path d="M9 10h6M9 14h6M9 18h3"/>',
+  tubo: '<path d="M9 3h6"/><path d="M10 3v13a2 2 0 0 0 4 0V3"/><path d="M10 11h4"/>',
   salir: '<path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/>',
   grafica: '<path d="M3 3v18h18"/><path d="M7 16l4-7 4 4 5-9"/>',
   hitos: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/>',
@@ -243,6 +245,7 @@ async function aplicarInstitucion() {
   $("#txtBuscar").value = "";
   $("#menuPersonal").textContent = `Personal médico`;
   document.querySelectorAll("[data-solo]").forEach((el) => { el.hidden = el.dataset.solo !== estado.inst; });
+  document.querySelectorAll("[data-no]").forEach((el) => { el.hidden = el.dataset.no === estado.inst; });
   actualizarIconos();
   try { estado.catalogos = await api("/api/catalogs"); } catch (_) { estado.catalogos = {}; }
   await Promise.all([cargarPacientes(""), cargarPersonal()]);
@@ -272,6 +275,8 @@ function ir(pagina) {
     quirofanos: pintarQuirofanos,
     enfermeria: pintarEnfermeria,
     habitaciones: pintarHabitaciones,
+    ordenes: pintarOrdenes,
+    agenda: pintarAgenda,
     motores: pintarMotores,
     paciente: pintarExpediente,
     "pediatrico-vacunas": pintarPediatricoVacunas,
@@ -505,7 +510,7 @@ async function pintarInicio() {
     <div class="cifras" id="inicioCifras">${'<div class="cifra-caja esqueleto"></div>'.repeat(4)}</div>
     <div class="inicio-cols">
       <section class="panel">
-        <header class="panel-cab"><h2>Próximas citas</h2><button type="button" class="btn sutil chico" data-ir="citas">Ver todas</button></header>
+        <header class="panel-cab"><h2>${estado.inst === "laboratorio" ? "Próximas tomas de muestra" : "Próximas citas"}</h2><button type="button" class="btn sutil chico" data-ir="${estado.inst === "laboratorio" ? "agenda" : "citas"}">Ver todas</button></header>
         <div id="inicioCitas"><p class="tenue relleno">Cargando…</p></div>
       </section>
       <section class="panel">
@@ -565,6 +570,33 @@ async function pintarInicio() {
             <button type="button" class="btn sutil chico" data-asignar="${h.id_hospitalizacion}">Asignar</button></li>`).join("")
             || '<li class="vacia">Todos los pacientes ingresados tienen enfermero.</li>'}</ul></div>
       </div></section>`);
+  } else if (estado.inst === "laboratorio" && m?.real) {
+    const [ordenes, agenda] = await Promise.all([
+      api("/api/lab/orders").catch(() => []),
+      api(`/api/lab/agenda?desde=${hoyISO()}`).catch(() => []),
+    ]);
+    if (estado.pagina !== "inicio") return;
+    const n = (e) => ordenes.filter((o) => o.estado_orden === e).length;
+    const criticas = ordenes.filter((o) => o.alertas_criticas && !["entregada", "cancelada"].includes(o.estado_orden)).length;
+    const tomasHoy = agenda.filter((c) => c.estado_cita === "programada" && c.fecha_hora_programada.slice(0, 10) === hoyISO()).length;
+    $("#inicioCifras").innerHTML =
+        cifra("orden", n("pendiente_muestra"), "esperan muestra", "ordenes")
+      + cifra("tubo", n("en_analisis"), "en análisis", "ordenes")
+      + cifra("consultas", n("por_validar"), "por validar", "ordenes", n("por_validar") ? "cifra-alerta" : "")
+      + cifra("citas", n("lista_entrega"), "listas para entregar", "ordenes")
+      + cifra("citas", tomasHoy, tomasHoy === 1 ? "toma agendada hoy" : "tomas agendadas hoy", "agenda")
+      + cifra("vacuna", criticas, criticas === 1 ? "valor crítico sin entregar" : "valores críticos sin entregar", "ordenes", criticas ? "cifra-alerta" : "");
+    const trabajo = ordenes.filter((o) => ACCION_ORDEN[o.estado_orden])
+      .sort((x, y) => (y.prioridad === "urgente") - (x.prioridad === "urgente") || (y.alertas_criticas - x.alertas_criticas) || x.fecha_hora_ingreso.localeCompare(y.fecha_hora_ingreso));
+    $("#inicioCifras").insertAdjacentHTML("afterend", `<section class="panel turno-panel">
+      <header class="panel-cab"><h2>Lista de trabajo <span class="tenue">${trabajo.length} orden${trabajo.length === 1 ? "" : "es"} en curso</span></h2>
+        <button type="button" class="btn sutil chico" data-ir="ordenes">Ir a Órdenes</button></header>
+      <ul class="lista-turno">${trabajo.slice(0, 6).map((o) => { const acc = ACCION_ORDEN[o.estado_orden]; return `<li class="fila-clic" data-ver-orden="${o.id_orden}">
+          <span class="hora">${numOrden(o.id_orden)}</span>
+          <span class="txt"><b>${esc(o.paciente)}</b>
+            <small>${o.examenes.map((e) => esc(e.codigo)).join(", ")} · ${ESTADOS_ORDEN[o.estado_orden][0]}${o.prioridad === "urgente" ? ' · <span class="atrasada-txt">urgente</span>' : ""}${o.alertas_criticas ? ' · <span class="atrasada-txt">valor crítico</span>' : ""}</small></span>
+          <button type="button" class="btn primario chico" data-paso-orden="${acc[0]}" data-orden="${o.id_orden}">${acc[1]}</button></li>`; }).join("")
+        || '<li class="vacia">No hay órdenes en curso.</li>'}</ul></section>`);
   } else {
     const conteos = Object.keys(m?.conteos || {}).length ? m.conteos : { pacientes: estado.pacientes.length };
     $("#inicioCifras").innerHTML = Object.entries(conteos).map(([k, v]) =>
@@ -585,7 +617,7 @@ async function pintarInicio() {
         <span class="agenda-dia"><b>${Number(dd)}</b><small>${mesCorto[Number(mm) - 1]}</small></span>
         <span class="agenda-txt"><b>${esc(nombreDe(c.id_paciente))}</b>
           <small>${esc((h || "").slice(0, 5))} · ${esc(c.motivo_consulta)} · ${esc(c.profesional_nombre)}</small></span>
-        <button type="button" class="btn primario chico" data-atender="${c.id_cita}" data-paciente="${c.id_paciente}">Atender</button>
+        <button type="button" class="btn primario chico" data-atender="${c.id_cita}" data-paciente="${c.id_paciente}" ${c.id_orden ? `data-orden="${c.id_orden}"` : ""}>${c.id_orden ? "Tomar muestra" : "Atender"}</button>
       </li>`;
     }).join("")}</ul>`
     : `<div class="vacio-tabla compacto"><span class="vacio-ico">${svg("citas")}</span><p>No hay citas programadas.</p>
@@ -604,7 +636,7 @@ function tablaCitas(citas, conPaciente = true) {
       <td>${esc(c.profesional_nombre)}</td>
       <td><span class="estado ${c.estado_cita === "programada" ? "alerta" : (c.estado_cita === "atendida" ? "activo" : "baja")}">${texto(c.estado_cita)}</span></td>
       <td class="acc">${c.estado_cita === "programada" && puedeAtender
-        ? `<button type="button" class="btn primario chico" data-atender="${c.id_cita}" data-paciente="${c.id_paciente}">Atender</button>`
+        ? `<button type="button" class="btn primario chico" data-atender="${c.id_cita}" data-paciente="${c.id_paciente}" ${c.id_orden ? `data-orden="${c.id_orden}"` : ""}>${c.id_orden ? "Tomar muestra" : "Atender"}</button>`
         : `<button type="button" class="btn sutil chico" data-id="${c.id_paciente}">Ver historial</button>`}</td>
     </tr>`).join("")}</tbody></table>`;
 }
@@ -694,6 +726,409 @@ function limpiarBusquedaCitas() {
 }
 $("#contenido").addEventListener("click", (ev) => {
   if (ev.target.closest("#busCitasLimpiar, [data-limpiar-citas]")) limpiarBusquedaCitas();
+});
+
+
+// ================================================================ Laboratorio
+// Flujo: orden -> toma de muestra -> análisis -> validación -> entrega (MongoDB)
+const ESTADOS_ORDEN = {
+  pendiente_muestra: ["Pendiente de muestra", "alerta"],
+  en_analisis: ["En análisis", "info"],
+  por_validar: ["Por validar", "morado"],
+  lista_entrega: ["Lista para entregar", "activo"],
+  entregada: ["Entregada", "neutro"],
+  cancelada: ["Cancelada", "baja"],
+};
+const PASOS_ORDEN = ["pendiente_muestra", "en_analisis", "por_validar", "lista_entrega", "entregada"];
+const ACCION_ORDEN = {
+  pendiente_muestra: ["muestra", "Tomar muestra"], en_analisis: ["resultados", "Ingresar resultados"],
+  por_validar: ["validar", "Validar"], lista_entrega: ["entregar", "Entregar"],
+};
+const tiposExamen = () => estado.catalogos.tipos_examen || [];
+const tipoExamen = (c) => tiposExamen().find((t) => t.codigo === c) || {};
+const numOrden = (id) => String(id).padStart(5, "0");
+const chipEstadoOrden = (e) => { const [t, c] = ESTADOS_ORDEN[e] || [e, ""]; return `<span class="estado ${c}">${t}</span>`; };
+const laboratoristas = () => personalActivo();
+estado.ordenesCache = {};
+
+async function pintarOrdenes() {
+  cabecera({ titulo: "Órdenes", acciones: btnAccion("nueva-orden", "+ Nueva orden") });
+  $("#vista").innerHTML = `<p class="tenue">Cargando…</p>`;
+  const ordenes = await api("/api/lab/orders").catch((e) => { avisar(e.message, true); return []; });
+  if (estado.pagina !== "ordenes") return;
+  estado.ordenes = ordenes.map((o) => ({ ...o, _buscar: normalizar(`${o.paciente} ${o.dpi} ${numOrden(o.id_orden)} ${o.medico_solicitante} ${o.examenes.map((e) => `${e.codigo} ${e.nombre_examen}`).join(" ")}`) }));
+  $("#vista").innerHTML = `
+    <div class="barra-busqueda" role="search">
+      <label class="busca-texto"><span class="sr">Buscar orden</span><span class="ico" aria-hidden="true">${svg("buscar")}</span>
+        <input type="search" id="busOrdenes" maxlength="60" value="${esc(estado.busOrdenes || "")}" placeholder="Paciente, DPI, n.º de orden o examen" autocomplete="off"></label>
+    </div>
+    <div id="pestanasOrdenes"></div>
+    <div class="panel" id="tablaOrdenes"></div>`;
+  pintarListaOrdenes();
+}
+
+estado.filtroOrdenes = "pendiente_muestra";
+function pintarListaOrdenes() {
+  const q = normalizar((estado.busOrdenes || "").trim());
+  const lista = (estado.ordenes || []).filter((o) => !q || q.split(/\s+/).every((p) => o._buscar.includes(p)));
+  const cuenta = (e) => lista.filter((o) => o.estado_orden === e).length;
+  const pest = [...PASOS_ORDEN.slice(0, 4).map((e) => [e, `${ESTADOS_ORDEN[e][0]} (${cuenta(e)})`]),
+    ["historial", `Entregadas y canceladas (${cuenta("entregada") + cuenta("cancelada")})`]];
+  $("#pestanasOrdenes").innerHTML = pestanas(pest, estado.filtroOrdenes, "data-filtro-ordenes");
+  const visibles = lista.filter((o) => (estado.filtroOrdenes === "historial" ? ["entregada", "cancelada"].includes(o.estado_orden) : o.estado_orden === estado.filtroOrdenes))
+    .sort((a, b) => (b.prioridad === "urgente") - (a.prioridad === "urgente") || (estado.filtroOrdenes === "historial" ? b.fecha_hora_ingreso.localeCompare(a.fecha_hora_ingreso) : a.fecha_hora_ingreso.localeCompare(b.fecha_hora_ingreso)));
+  const vacio = q ? "Ninguna orden coincide con la búsqueda." : {
+    pendiente_muestra: "No hay órdenes esperando muestra.", en_analisis: "No hay muestras en análisis.",
+    por_validar: "No hay resultados por validar.", lista_entrega: "No hay resultados listos para entregar.",
+    historial: "Todavía no hay órdenes entregadas ni canceladas." }[estado.filtroOrdenes];
+  $("#tablaOrdenes").innerHTML = visibles.length ? tablaOrdenes(visibles)
+    : `<div class="vacio-tabla"><span class="vacio-ico">${svg("orden")}</span><p>${vacio}</p>${q ? "" : btnAccion("nueva-orden", "+ Nueva orden")}</div>`;
+}
+
+function tablaOrdenes(lista, conPaciente = true) {
+  return `<table class="tabla-datos">
+    <thead><tr><th>Orden</th>${conPaciente ? "<th>Paciente</th>" : ""}<th>Exámenes</th><th>Ingreso</th><th>Estado</th><th class="acc"></th></tr></thead>
+    <tbody>${lista.map((o) => {
+      const acc = ACCION_ORDEN[o.estado_orden];
+      return `<tr class="fila-clic" data-ver-orden="${o.id_orden}">
+        <td class="nowrap"><b>${numOrden(o.id_orden)}</b>${o.prioridad === "urgente" ? '<br><span class="estado critico">Urgente</span>' : ""}</td>
+        ${conPaciente ? `<td><button type="button" class="enlace-paciente" data-id="${o.id_paciente}">${esc(o.paciente)}</button><br><small class="tenue">${esc(o.medico_solicitante)}</small></td>` : ""}
+        <td><span class="chips-examen">${o.examenes.map((e) => `<span class="chip-examen e-${e.estado}" title="${esc(e.nombre_examen)}">${esc(e.codigo)}</span>`).join("")}</span>
+          ${o.alertas_criticas ? '<br><span class="alerta-critica">Valor crítico</span>' : ""}</td>
+        <td class="nowrap">${fecha(o.fecha_hora_ingreso, true)}${o.cita && o.estado_orden === "pendiente_muestra" ? `<br><small class="tenue">Toma: ${fecha(o.cita.fecha_hora_programada, true)}</small>` : ""}</td>
+        <td>${chipEstadoOrden(o.estado_orden)}</td>
+        <td class="acc">${acc ? `<button type="button" class="btn primario chico" data-paso-orden="${acc[0]}" data-orden="${o.id_orden}">${acc[1]}</button>` : ""}</td>
+      </tr>`;
+    }).join("")}</tbody></table>`;
+}
+
+async function cargarOrden(id) {
+  const o = await api(`/api/lab/orders/${id}`);
+  estado.ordenesCache[id] = o;
+  return o;
+}
+
+// Panel lateral con la orden completa: línea de tiempo, exámenes, muestras y resultados
+async function verOrden(id) {
+  abrirCajon({ ini: "OR", sub: "Cargando…", titulo: `Orden ${numOrden(id)}`, cuerpo: '<p class="tenue">Cargando…</p>', pie: "" });
+  try {
+    const o = await cargarOrden(id);
+    const idx = PASOS_ORDEN.indexOf(o.estado_orden);
+    const pasos = PASOS_ORDEN.map((e, i) => `<li class="${o.estado_orden === "cancelada" ? "" : i < idx ? "hecho" : i === idx ? "actual" : ""}">${ESTADOS_ORDEN[e][0]}</li>`).join("");
+    const resultados = o.resultados.map((r) => `<section class="cajon-bloque">
+        <h3>${esc(r.nombre_examen)} <span class="tenue">· ${esc(texto(r.estado))}</span>${r.alertas_criticas ? ' <span class="alerta-critica">valor crítico</span>' : ""}</h3>
+        <table class="tabla"><tbody>${r.parametros.map((p) => `<tr><td>${esc(p.nombre_parametro)}</td>
+          <td class="num"><b>${esc(p.valor_resultado)}</b> ${esc(p.unidad_medida)}</td>
+          <td><span class="flag ${esc(p.interpretacion_alerta)}">${texto(p.interpretacion_alerta).toLowerCase()}</span></td></tr>`).join("")}</tbody></table>
+        <small class="tenue">Analizó ${esc(r.analista || "—")}${r.validador ? ` · validó ${esc(r.validador)}` : ""}</small>
+        ${r.conclusiones_diagnosticas ? `<p class="notas">${esc(r.conclusiones_diagnosticas)}</p>` : ""}
+      </section>`).join("");
+    const acc = ACCION_ORDEN[o.estado_orden];
+    abrirCajon({
+      ini: "OR", sub: `${o.paciente} · ${o.prioridad === "urgente" ? "urgente" : "prioridad normal"}`, titulo: `Orden ${numOrden(o.id_orden)}`,
+      cuerpo: `
+        <div>${chipEstadoOrden(o.estado_orden)}${o.alertas_criticas ? ' <span class="estado critico">Valor crítico</span>' : ""}</div>
+        ${o.estado_orden !== "cancelada" ? `<ol class="pasos-orden">${pasos}</ol>` : `<p class="aviso-baja">${esc(o.motivo_cancelacion || "Cancelada")}</p>`}
+        <dl class="datos-cortos">
+          <div><dt>Solicitó</dt><dd>${esc(o.medico_solicitante)}</dd></div>
+          <div><dt>Ingreso</dt><dd>${fecha(o.fecha_hora_ingreso, true)}</dd></div>
+          ${o.diagnostico_presuntivo ? `<div style="grid-column:1/-1"><dt>Diagnóstico presuntivo</dt><dd>${o.codigo_cie10 ? `${esc(o.codigo_cie10)} · ` : ""}${esc(o.diagnostico_presuntivo)}</dd></div>` : ""}
+        </dl>
+        <section class="cajon-bloque"><h3>Exámenes</h3>
+          ${o.examenes.map((e) => { const t = tipoExamen(e.codigo); return `<p class="linea-dato"><span>${esc(e.nombre_examen)}<br><small class="tenue">${esc(t.indicaciones_preparacion || "")}</small></span><span>${esc(texto(e.estado))}</span></p>`; }).join("")}
+        </section>
+        ${o.cita ? `<section class="cajon-bloque"><h3>Toma de muestra agendada</h3><p><b>${fecha(o.cita.fecha_hora_programada, true)}</b> · ${esc(texto(o.cita.estado_cita))}</p></section>` : ""}
+        ${o.muestras.length ? `<section class="cajon-bloque"><h3>Muestras</h3>${o.muestras.map((m) => `<p class="linea-dato"><span>${esc(m.codigo_etiqueta_barras)}<br><small class="tenue">${esc(m.tipo_muestra)}${m.motivo_rechazo ? ` · ${esc(m.motivo_rechazo)}` : ""}</small></span><span>${esc(texto(m.estado))}</span></p>`).join("")}</section>` : ""}
+        ${resultados}
+        <section class="cajon-bloque"><h3>Historial de la orden</h3><ul class="historial-orden">${[...o.historial_estados].reverse().map((h) => `<li><time>${fecha(h.fecha, true)}</time><span>${esc(h.detalle)}</span></li>`).join("")}</ul></section>`,
+      pie: `${acc ? `<button type="button" class="btn primario" data-paso-orden="${acc[0]}" data-orden="${o.id_orden}">${acc[1]}</button>` : `<button type="button" class="btn primario" data-cajon="historial" data-paciente="${o.id_paciente}">Ver historial del paciente</button>`}
+        ${o.estado_orden === "pendiente_muestra" ? `<button type="button" class="btn sutil" data-paso-orden="agendar" data-orden="${o.id_orden}">${o.cita ? "Reagendar toma" : "Agendar toma"}</button>` : ""}
+        ${["pendiente_muestra", "en_analisis"].includes(o.estado_orden) && !o.resultados.length ? `<button type="button" class="btn sutil peligro-txt" data-paso-orden="cancelar" data-orden="${o.id_orden}">Cancelar orden</button>` : ""}`,
+    });
+  } catch (e) {
+    $("#cajonCuerpo").innerHTML = `<p class="error">${esc(e.message)}</p>`;
+  }
+}
+
+function refrescarLab(id = null) {
+  if (estado.pagina === "ordenes") pintarOrdenes();
+  else if (estado.pagina === "agenda") pintarAgenda();
+  else if (estado.pagina === "inicio") pintarInicio();
+  else if (estado.pagina === "paciente") abrirPaciente(estado.historial.paciente.id_paciente, estado.pestana);
+  // Si el paso se lanzó desde el panel de la orden, se vuelve a abrir con el siguiente paso
+  if (id && (estado.volverAOrden === id || $("#cajon").open)) verOrden(id);
+  estado.volverAOrden = null;
+}
+
+async function pasoOrden(paso, id) {
+  if (paso === "cancelar") return formCancelarOrden(id);
+  const o = estado.ordenesCache[id] || await cargarOrden(id);
+  cerrarCajon();
+  ({ muestra: formMuestra, resultados: formResultados, validar: formValidar, entregar: formEntregar, agendar: formAgendarToma })[paso](o);
+}
+
+// ---- Nueva orden
+async function formOrden(idPaciente = null) {
+  const pacientes = await todosLosPacientes();
+  const tipos = tiposExamen();
+  const medicos = estado.catalogos.medicos_solicitantes || [];
+  const html = `<div id="cuerpoOrden">
+    <fieldset class="paso"><legend>Paciente y solicitud</legend><div class="rejilla">
+      <label class="doble"><span class="requerido">Paciente</span><select name="id_paciente" required ${idPaciente ? "disabled" : ""}>
+        <option value="">Seleccione…</option>${pacientes.filter((p) => p.estado !== "dado_de_baja").map((p) => `<option value="${p.id_paciente}" ${p.id_paciente === idPaciente ? "selected" : ""}>${esc(p.nombres)} ${esc(p.apellidos)} · ${esc(p.dpi)}</option>`).join("")}
+      </select></label>
+      <label>Prioridad<select name="prioridad"><option value="normal">Normal</option><option value="urgente">Urgente</option></select></label>
+      <label class="doble">Médico solicitante<input name="medico_solicitante" list="listaMedicos" placeholder="Vacío si lo pide el paciente"></label>
+      <datalist id="listaMedicos">${medicos.map((m) => `<option value="${esc(m)}">`).join("")}</datalist>
+      <label>CIE-10<input name="codigo_cie10" placeholder="E11.9"></label>
+      <label class="completo">Diagnóstico presuntivo<input name="diagnostico_presuntivo" maxlength="200" placeholder="Control de diabetes"></label>
+    </div></fieldset>
+    <fieldset class="paso"><legend>Exámenes</legend>
+      <div class="lista-examenes">${tipos.map((t) => `<label class="examen-op">
+        <input type="checkbox" name="examen" value="${esc(t.codigo)}">
+        <span><b>${esc(t.nombre_examen)}</b><small class="tenue">${esc(t.codigo)} · ${esc(t.area_laboratorio || "")} · resultado en ${t.tiempo_estimado_horas ?? "?"} h</small>
+          ${t.indicaciones_preparacion ? `<small class="prep ${t.requiere_cita ? "prep-cita" : ""}">${esc(t.indicaciones_preparacion)}</small>` : ""}</span>
+        <span class="precio">Q${Number(t.costo || 0).toFixed(2)}</span></label>`).join("")}</div>
+      <p class="total-orden" id="totalOrden">Ningún examen seleccionado</p>
+    </fieldset>
+    <fieldset class="paso" id="secToma" hidden><legend>Toma de muestra</legend>
+      <div class="aviso-prep" id="avisoPrep"></div>
+      <div class="rejilla">
+        <label class="completo examen-op"><input type="checkbox" name="agendar" value="1" checked>
+          <span><b>Agendar la toma</b><small class="tenue">Desmarque si el paciente ya cumple la preparación y se toma la muestra ahora.</small></span></label>
+        <label class="doble" data-cuando-agendar><span class="requerido">Fecha y hora</span><input name="fecha_toma" type="datetime-local"></label>
+        <label class="doble" data-cuando-agendar>Laboratorista<select name="id_laboratorista">${opciones(laboratoristas().map((l) => [String(l.id_profesional), l.nombre_completo]))}</select></label>
+      </div>
+    </fieldset>
+    <label>Observaciones<input name="observaciones" maxlength="300"></label></div>`;
+  abrirModal("Nueva orden de laboratorio", html, "Registrar orden", async (fd) => {
+    const d = datosForm(fd);
+    const examenes = fd.getAll("examen");
+    if (!examenes.length) throw new Error("Elija al menos un examen.");
+    const requiere = examenes.some((c) => tipoExamen(c).requiere_cita);
+    const body = { id_paciente: idPaciente || Number(d.id_paciente), examenes, prioridad: d.prioridad, medico_solicitante: d.medico_solicitante,
+      codigo_cie10: d.codigo_cie10, diagnostico_presuntivo: d.diagnostico_presuntivo, observaciones: d.observaciones };
+    if (requiere && fd.get("agendar") === "1") {
+      if (!d.fecha_toma) throw new Error("Indique la fecha de la toma de muestra.");
+      body.fecha_toma = d.fecha_toma;
+      body.id_laboratorista = Number(d.id_laboratorista);
+    }
+    const o = await api("/api/lab/orders", { method: "POST", body });
+    avisar(o.cita ? `Orden ${numOrden(o.id_orden)} registrada · toma el ${fecha(o.cita.fecha_hora_programada, true)}` : `Orden ${numOrden(o.id_orden)} registrada`);
+    estado.filtroOrdenes = "pendiente_muestra";
+    if (estado.pagina === "ordenes" || estado.pagina === "paciente" || estado.pagina === "inicio") refrescarLab();
+    else ir("ordenes");
+    if (!o.cita) setTimeout(() => verOrden(o.id_orden), 300);
+  });
+  const f = $("#modalForm");
+  const manana = new Date(); manana.setDate(manana.getDate() + 1); manana.setHours(7, 0, 0, 0);
+  f.fecha_toma.value = isoLocal(manana);
+  const actualizar = () => {
+    const sel = [...f.querySelectorAll('[name="examen"]:checked')].map((c) => tipoExamen(c.value));
+    const total = sel.reduce((s, t) => s + Number(t.costo || 0), 0);
+    $("#totalOrden").innerHTML = sel.length ? `${sel.length} examen${sel.length > 1 ? "es" : ""} · <b>Total Q${total.toFixed(2)}</b> · resultados en ${Math.max(...sel.map((t) => t.tiempo_estimado_horas || 0))} h` : "Ningún examen seleccionado";
+    const conCita = sel.filter((t) => t.requiere_cita);
+    $("#secToma").hidden = !conCita.length;
+    $("#avisoPrep").innerHTML = conCita.length ? `<b>Requiere preparación.</b> Indique al paciente: ${conCita.map((t) => `${esc(t.indicaciones_preparacion)} (${esc(t.codigo)})`).join("; ")}.` : "";
+    const ag = f.agendar.checked;
+    f.querySelectorAll("[data-cuando-agendar]").forEach((el) => { el.hidden = !ag; });
+  };
+  $("#cuerpoOrden").addEventListener("change", actualizar);   // dentro del modal: no se acumula entre formularios
+  actualizar();
+}
+
+// ---- Toma de muestra (o rechazo si no cumplió la preparación)
+function formMuestra(o) {
+  const tipos = o.tipos_examen || [];
+  const preps = tipos.filter((t) => t.indicaciones_preparacion);
+  const tipoSug = [...new Set(tipos.map((t) => t.tipo_muestra).filter(Boolean))].join(" + ");
+  const html = `<div class="dosis-resumen"><b>Orden ${numOrden(o.id_orden)} · ${esc(o.paciente)}</b>
+      <span class="tenue">${o.examenes.map((e) => esc(e.nombre_examen)).join(", ")}</span></div>
+    ${preps.length ? `<label class="examen-op cumple-prep"><input type="checkbox" name="preparacion_cumplida" value="1" checked>
+      <span><b>El paciente cumplió la preparación</b>${preps.map((t) => `<small class="prep">${esc(t.indicaciones_preparacion)}</small>`).join("")}</span></label>`
+      : '<input type="hidden" name="preparacion_cumplida" value="1">'}
+    <div class="rejilla">
+      <label class="doble"><span class="requerido">Tipo de muestra</span><input name="tipo_muestra" required maxlength="80" value="${esc(tipoSug)}"></label>
+      <label class="doble"><span class="requerido">Tomada por</span><select name="id_laboratorista" required>${opciones(laboratoristas().map((l) => [String(l.id_profesional), l.nombre_completo]))}</select></label>
+      <label class="completo" data-si-cumple>Condición de la muestra<input name="condicion_muestra" maxlength="200" placeholder="Adecuada, sin hemólisis"></label>
+      <label class="completo" data-si-rechaza hidden><span class="requerido">Motivo del rechazo</span><input name="motivo_rechazo" minlength="5" maxlength="200" placeholder="No vino en ayunas"></label>
+    </div>
+    <p class="ayuda" id="ayudaMuestra">Se genera la etiqueta de la muestra y la orden pasa a análisis.</p>`;
+  abrirModal("Tomar muestra", html, "Registrar muestra", async (fd) => {
+    const d = datosForm(fd);
+    const cumple = fd.get("preparacion_cumplida") === "1";
+    if (!cumple && (d.motivo_rechazo || "").trim().length < 5) throw new Error("Indique el motivo del rechazo (al menos 5 caracteres).");
+    const r = await api(`/api/lab/orders/${o.id_orden}/sample`, { method: "POST", body: { ...d, preparacion_cumplida: cumple } });
+    const m = r.muestras[r.muestras.length - 1];
+    avisar(cumple ? `Muestra ${m.codigo_etiqueta_barras} registrada · orden en análisis` : "Muestra rechazada · la orden sigue pendiente", !cumple);
+    refrescarLab(o.id_orden);
+  });
+  const f = $("#modalForm");
+  const chk = f.querySelector('input[type="checkbox"][name="preparacion_cumplida"]');
+  if (chk) chk.addEventListener("change", () => {
+    f.querySelector("[data-si-rechaza]").hidden = chk.checked;
+    f.querySelector("[data-si-cumple]").hidden = !chk.checked;
+    $("#modalAceptar").textContent = chk.checked ? "Registrar muestra" : "Rechazar muestra";
+    $("#ayudaMuestra").textContent = chk.checked ? "Se genera la etiqueta de la muestra y la orden pasa a análisis." : "La muestra queda rechazada y la orden sigue pendiente; puede reagendar la toma.";
+  });
+}
+
+// ---- Resultados de un examen (plantilla de parámetros del catálogo)
+function formResultados(o, codigo = null) {
+  const pendientes = o.examenes.filter((e) => e.estado === "en_analisis");
+  if (!pendientes.length) { avisar("Todos los exámenes ya tienen resultados", true); return; }
+  const cod = codigo || pendientes[0].codigo;
+  const t = tipoExamen(cod);
+  const plantilla = t.parametros_plantilla || [];
+  const html = `<div id="cuerpoResultados"><div class="dosis-resumen"><b>Orden ${numOrden(o.id_orden)} · ${esc(o.paciente)}</b>
+      <span class="tenue">Muestra ${esc(o.muestras.filter((m) => m.estado !== "rechazada").map((m) => m.codigo_etiqueta_barras).join(", "))}</span></div>
+    ${pendientes.length > 1 ? `<label>Examen<select name="codigo_examen" id="selExamenRes">${opciones(pendientes.map((e) => [e.codigo, e.nombre_examen]), cod)}</select></label>`
+      : `<input type="hidden" name="codigo_examen" value="${esc(cod)}"><p><b>${esc(t.nombre_examen || cod)}</b></p>`}
+    <table class="tabla tabla-resultados"><thead><tr><th>Parámetro</th><th>Resultado</th><th>Referencia</th><th></th></tr></thead>
+      <tbody>${plantilla.map((p, i) => `<tr data-fila="parametro" data-i="${i}">
+        <td>${esc(p.nombre_parametro)}<input type="hidden" data-k="nombre_parametro" value="${esc(p.nombre_parametro)}">
+          <input type="hidden" data-k="unidad_medida" value="${esc(p.unidad_medida || "")}">
+          <input type="hidden" data-k="rango_referencia_min" value="${p.rango_referencia_min ?? ""}"><input type="hidden" data-k="rango_referencia_max" value="${p.rango_referencia_max ?? ""}">
+          <input type="hidden" data-k="valor_referencia_cualitativo" value="${esc(p.valor_referencia_cualitativo || "")}"></td>
+        <td><span class="valor-con-unidad"><input data-k="valor_resultado" maxlength="40" ${p.valor_referencia_cualitativo ? `placeholder="${esc(p.valor_referencia_cualitativo)}"` : 'inputmode="decimal"'} aria-label="${esc(p.nombre_parametro)}"><span class="tenue">${esc(p.unidad_medida || "")}</span></span></td>
+        <td class="tenue nowrap">${p.rango_referencia_min != null || p.rango_referencia_max != null ? `${p.rango_referencia_min ?? ""} – ${p.rango_referencia_max ?? ""}` : esc(p.valor_referencia_cualitativo || "")}</td>
+        <td><span class="flag" data-flag></span></td></tr>`).join("")}</tbody></table>
+    <div class="rejilla">
+      <label class="doble"><span class="requerido">Analizó</span><select name="id_laboratorista" required>${opciones(laboratoristas().map((l) => [String(l.id_profesional), l.nombre_completo]))}</select></label>
+      <label class="doble">Observaciones técnicas<input name="observaciones_tecnicas" maxlength="300"></label>
+    </div>
+    <p class="ayuda">Los resultados quedan preliminares hasta que otra persona los valide.</p></div>`;
+  abrirModal(`Resultados · ${t.nombre_examen || cod}`, html, "Guardar resultados", async (fd) => {
+    const d = datosForm(fd);
+    const parametros = [...$("#modalCuerpo").querySelectorAll('[data-fila="parametro"]')].map((tr) =>
+      Object.fromEntries([...tr.querySelectorAll("[data-k]")].map((i) => [i.dataset.k, i.value.trim()]))).filter((p) => p.valor_resultado);
+    if (!parametros.length) throw new Error("Ingrese al menos un resultado.");
+    const r = await api(`/api/lab/orders/${o.id_orden}/results`, { method: "POST", body: { ...d, parametros } });
+    avisar(r.estado_orden === "por_validar" ? "Resultados completos · orden lista para validar" : "Resultados guardados");
+    estado.ordenesCache[o.id_orden] = r;
+    refrescarLab(o.id_orden);
+    if (r.estado_orden === "en_analisis") setTimeout(() => formResultados(r), 250);
+  });
+  $("#selExamenRes")?.addEventListener("change", (ev) => { cerrarModal(); formResultados(o, ev.target.value); });
+  // Interpretación en vivo, igual que la calcula el servidor
+  $("#cuerpoResultados").addEventListener("input", (ev) => {
+    const tr = ev.target.closest('[data-fila="parametro"]');
+    if (!tr || ev.target.dataset.k !== "valor_resultado") return;
+    const p = plantilla[Number(tr.dataset.i)];
+    const v = ev.target.value.trim().replace(",", ".");
+    const flag = tr.querySelector("[data-flag]");
+    let txt = "";
+    if (v !== "" && !Number.isNaN(Number(v)) && (p.rango_referencia_min != null || p.rango_referencia_max != null)) {
+      const n = Number(v);
+      if (p.rango_referencia_max != null && n > p.rango_referencia_max) txt = n >= p.rango_referencia_max * 2 ? "CRITICO_ALTO" : "ALTO";
+      else if (p.rango_referencia_min != null && n < p.rango_referencia_min) txt = n <= p.rango_referencia_min * 0.5 ? "CRITICO_BAJO" : "BAJO";
+      else txt = "NORMAL";
+    } else if (v && p.valor_referencia_cualitativo) {
+      txt = normalizar(v) === normalizar(p.valor_referencia_cualitativo) ? "NORMAL" : "POSITIVO";
+    }
+    flag.className = `flag ${txt}`;
+    flag.textContent = txt ? txt.replace("_", " ").toLowerCase() : "";
+  });
+}
+
+// ---- Validación (doble verificación: no puede validar quien analizó)
+function formValidar(o) {
+  const analistas = new Set(o.resultados.map((r) => r.id_laboratorista_analista));
+  const validadores = laboratoristas().filter((l) => !analistas.has(l.id_profesional));
+  const html = `<div class="dosis-resumen"><b>Orden ${numOrden(o.id_orden)} · ${esc(o.paciente)}</b>
+      <span class="tenue">${o.alertas_criticas ? "Hay valores críticos: notifique al médico solicitante." : "Sin valores críticos."}</span></div>
+    ${o.resultados.map((r) => `<section class="validar-examen"><h3>${esc(r.nombre_examen)} <small class="tenue">analizó ${esc(r.analista)}</small></h3>
+      <table class="tabla"><tbody>${r.parametros.map((p) => `<tr><td>${esc(p.nombre_parametro)}</td><td class="num"><b>${esc(p.valor_resultado)}</b> ${esc(p.unidad_medida)}</td>
+        <td><span class="flag ${esc(p.interpretacion_alerta)}">${texto(p.interpretacion_alerta).toLowerCase()}</span></td></tr>`).join("")}</tbody></table>
+      <label>Conclusión<textarea name="conclusion_${esc(r.codigo_examen)}" maxlength="1000" rows="2" placeholder="Interpretación para el médico"></textarea></label></section>`).join("")}
+    <label><span class="requerido">Valida</span><select name="id_laboratorista" required>
+      <option value="">Seleccione…</option>${opciones(validadores.map((l) => [String(l.id_profesional), l.nombre_completo]))}</select></label>
+    <p class="ayuda">${validadores.length ? "Solo aparece el personal que no hizo el análisis (doble verificación)." : "No hay otro laboratorista activo para validar: registre o active uno en Personal médico."}</p>`;
+  abrirModal("Validar resultados", html, "Validar", async (fd) => {
+    const d = datosForm(fd);
+    const conclusiones = Object.fromEntries(o.resultados.map((r) => [r.codigo_examen, fd.get(`conclusion_${r.codigo_examen}`) || ""]));
+    await api(`/api/lab/orders/${o.id_orden}/validate`, { method: "POST", body: { id_laboratorista: Number(d.id_laboratorista), conclusiones } });
+    avisar(`Orden ${numOrden(o.id_orden)} validada · lista para entregar`);
+    refrescarLab(o.id_orden);
+  });
+}
+
+function formEntregar(o) {
+  abrirModal("Entregar resultados", `<div class="dosis-resumen"><b>Orden ${numOrden(o.id_orden)} · ${esc(o.paciente)}</b>
+      <span class="tenue">${o.examenes.map((e) => esc(e.nombre_examen)).join(", ")}</span></div>
+    <label><span class="requerido">Entregado a</span><input name="entregado_a" required maxlength="100" value="${esc(o.paciente)}"></label>
+    <p class="ayuda">Puede ser el paciente, un familiar o el médico solicitante (${esc(o.medico_solicitante)}).</p>`,
+  "Registrar entrega", async (fd) => {
+    await api(`/api/lab/orders/${o.id_orden}/deliver`, { method: "POST", body: datosForm(fd) });
+    avisar("Resultados entregados");
+    refrescarLab(o.id_orden);
+  });
+}
+
+function formAgendarToma(o) {
+  const preps = (o.tipos_examen || []).filter((t) => t.indicaciones_preparacion);
+  const manana = new Date(); manana.setDate(manana.getDate() + 1); manana.setHours(7, 0, 0, 0);
+  abrirModal(o.cita ? "Reagendar toma de muestra" : "Agendar toma de muestra", `
+    ${preps.length ? `<div class="aviso-prep"><b>Indique al paciente:</b> ${preps.map((t) => esc(t.indicaciones_preparacion)).join("; ")}.</div>` : ""}
+    <div class="rejilla">
+      <label class="doble"><span class="requerido">Fecha y hora</span><input name="fecha_toma" type="datetime-local" required value="${isoLocal(manana)}"></label>
+      <label class="doble">Laboratorista<select name="id_laboratorista">${opciones(laboratoristas().map((l) => [String(l.id_profesional), l.nombre_completo]))}</select></label>
+    </div>`, o.cita ? "Reagendar" : "Agendar", async (fd) => {
+    const r = await api(`/api/lab/orders/${o.id_orden}/schedule`, { method: "POST", body: datosForm(fd) });
+    avisar(`Toma agendada para el ${fecha(r.cita.fecha_hora_programada, true)}`);
+    refrescarLab(o.id_orden);
+  });
+}
+
+function formCancelarOrden(id) {
+  abrirModal("Cancelar orden", `<label><span class="requerido">Motivo</span><input name="motivo" required minlength="5" maxlength="200" placeholder="El paciente no se presentó"></label>
+    <p class="ayuda">Si tenía toma agendada, también se cancela.</p>`, "Cancelar orden", async (fd) => {
+    await api(`/api/lab/orders/${id}/cancel`, { method: "POST", body: datosForm(fd) });
+    avisar("Orden cancelada");
+    refrescarLab(id);
+  });
+}
+
+// ---- Agenda de tomas
+async function pintarAgenda() {
+  cabecera({ titulo: "Agenda de tomas", acciones: btnAccion("nueva-orden", "+ Nueva orden") });
+  $("#vista").innerHTML = `<p class="tenue">Cargando…</p>`;
+  const hoy = hoyISO();
+  const citas = await api(`/api/lab/agenda?desde=${hoyISO(new Date(Date.now() - 7 * 86400000))}`).catch((e) => { avisar(e.message, true); return []; });
+  if (estado.pagina !== "agenda") return;
+  const pendientes = citas.filter((c) => c.estado_cita === "programada");
+  const atrasadas = pendientes.filter((c) => c.fecha_hora_programada.slice(0, 10) < hoy);
+  const proximas = pendientes.filter((c) => c.fecha_hora_programada.slice(0, 10) >= hoy);
+  const porDia = {};
+  proximas.forEach((c) => { (porDia[c.fecha_hora_programada.slice(0, 10)] ||= []).push(c); });
+  const fila = (c) => `<li class="toma">
+      <span class="hora">${horaDe(c.fecha_hora_programada)}</span>
+      <span class="txt"><button type="button" class="enlace-paciente" data-id="${c.id_paciente}">${esc(c.paciente)}</button>
+        <small class="tenue">Orden ${numOrden(c.id_orden)} · ${c.examenes.map((e) => esc(e.codigo)).join(", ")}${c.telefono ? ` · tel. ${esc(c.telefono)}` : ""}</small>
+        ${c.preparacion ? `<small class="prep">${esc(c.preparacion)}</small>` : ""}</span>
+      <span class="acc"><button type="button" class="btn sutil chico" data-ver-orden="${c.id_orden}">Ver orden</button>
+        ${c.estado_orden === "pendiente_muestra" ? `<button type="button" class="btn primario chico" data-paso-orden="muestra" data-orden="${c.id_orden}">Tomar muestra</button>` : ""}</span></li>`;
+  const tituloDia = (d) => {
+    const f = new Date(`${d}T12:00`);
+    const txt = f.toLocaleDateString("es-GT", { weekday: "long", day: "numeric", month: "long" });
+    return d === hoy ? `Hoy · ${txt}` : d === hoyISO(new Date(Date.now() + 86400000)) ? `Mañana · ${txt}` : txt.charAt(0).toUpperCase() + txt.slice(1);
+  };
+  $("#vista").innerHTML = `
+    <p class="ayuda">Solo aparecen los exámenes que requieren preparación (ayuno, primera orina, frasco estéril). Los demás se toman sin cita al registrar la orden.</p>
+    ${atrasadas.length ? `<section class="panel dia-tomas atrasadas"><header class="panel-cab"><h2>No se presentaron <span class="tenue">(${atrasadas.length})</span></h2></header>
+      <ul class="lista-tomas">${atrasadas.map(fila).join("")}</ul></section>` : ""}
+    ${Object.keys(porDia).length ? Object.entries(porDia).map(([d, lista]) => `<section class="panel dia-tomas">
+        <header class="panel-cab"><h2>${esc(tituloDia(d))}</h2><span class="tenue">${lista.length} toma${lista.length > 1 ? "s" : ""}</span></header>
+        <ul class="lista-tomas">${lista.map(fila).join("")}</ul></section>`).join("")
+      : `<div class="panel vacio-tabla"><span class="vacio-ico">${svg("citas")}</span><p>No hay tomas de muestra agendadas.</p>${btnAccion("nueva-orden", "+ Nueva orden")}</div>`}`;
+}
+
+let tBusOrdenes;
+$("#contenido").addEventListener("input", (ev) => {
+  if (ev.target.id !== "busOrdenes") return;
+  estado.busOrdenes = ev.target.value;
+  clearTimeout(tBusOrdenes);
+  tBusOrdenes = setTimeout(pintarListaOrdenes, 150);
 });
 
 // ---------------------------------------------------------- Estado de motores
@@ -1331,6 +1766,8 @@ function abrirCajon({ ini, sub, titulo, cuerpo, pie }) {
 const cerrarCajon = () => { if ($("#cajon").open) $("#cajon").close(); };
 $("#cajon").addEventListener("click", async (ev) => {
   if (ev.target === $("#cajon") || ev.target.closest("[data-cerrar-cajon]")) { cerrarCajon(); return; }
+  const po = ev.target.closest("[data-paso-orden]");
+  if (po) { estado.volverAOrden = Number(po.dataset.orden); pasoOrden(po.dataset.pasoOrden, Number(po.dataset.orden)); return; }
   const b = ev.target.closest("[data-cajon]");
   if (!b) return;
   const id = Number(b.dataset.paciente);
@@ -1493,8 +1930,8 @@ function pintarExpediente() {
     titulo: `${esc(p.nombres)} ${esc(p.apellidos)}`,
     acciones: deBaja ? btnAccion("imprimir", "Imprimir", "sutil") : [
       btnAccion("editar", "Editar datos", "sutil"),
-      btnAccion("cita", "Agendar cita", "secundario"),
-      puedeRegistrar() ? btnAccion("consulta", lab ? "+ Registrar resultado" : "+ Registrar consulta") : "",
+      lab ? "" : btnAccion("cita", "Agendar cita", "secundario"),
+      puedeRegistrar() ? btnAccion("consulta", lab ? "+ Nueva orden" : "+ Registrar consulta") : "",
       `<details class="mas-acciones"><summary class="btn sutil" aria-label="Más acciones">Más</summary>
         <div class="mas-menu">${btnAccion("imprimir", "Imprimir historial", "item")}
         ${puedeRegistrar() ? btnAccion("baja", "Dar de baja el historial…", "item peligro-txt") : ""}</div></details>`,
@@ -1504,7 +1941,7 @@ function pintarExpediente() {
   const especial = pestanaEspecial();
   const lista = [
     ["historial", `${lab ? "Órdenes y resultados" : "Historial clínico"} (${h.consultas.length})`],
-    ["citas", `Citas (${h.citas.length})`],
+    ["citas", `${lab ? "Tomas agendadas" : "Citas"} (${h.citas.length})`],
     ["datos", "Datos personales"],
   ];
   if (inst === "hospital" && especial) {
@@ -1525,7 +1962,7 @@ function pintarExpediente() {
   if (estado.pestana === "historial") {
     cuerpo = h.consultas.length ? `<ol class="linea-tiempo">${h.consultas.map(pintarConsulta).join("")}</ol>`
       : `<div class="panel vacio-tabla"><p>Todavía no hay registros clínicos para este paciente.</p>
-         ${puedeRegistrar() && !deBaja ? btnAccion("consulta", lab ? "+ Registrar el primer resultado" : "+ Registrar la primera consulta") : ""}</div>`;
+         ${puedeRegistrar() && !deBaja ? btnAccion("consulta", lab ? "+ Registrar la primera orden" : "+ Registrar la primera consulta") : ""}</div>`;
   } else if (estado.pestana === "citas") {
     cuerpo = `<div class="panel">${h.citas.length ? tablaCitas(h.citas, null)
       : `<div class="vacio-tabla"><p>Este paciente no tiene citas.</p>${!deBaja ? btnAccion("cita", "+ Agendar cita") : ""}</div>`}</div>`;
@@ -1580,9 +2017,9 @@ function pintarExpediente() {
           ${alertasPulsera}
         </div>
         <dl class="resumen">
-          <div><dt>Consultas</dt><dd>${h.consultas.length}</dd></div>
+          <div><dt>${lab ? "Órdenes" : "Consultas"}</dt><dd>${h.consultas.length}</dd></div>
           <div><dt>Última atención</dt><dd>${h.consultas[0] ? fecha(h.consultas[0].fecha_hora_atencion) : "Ninguna"}</dd></div>
-          <div><dt>Próxima cita</dt><dd>${proxima ? fecha(proxima.fecha_hora_programada, true) : "Sin agendar"}</dd></div>
+          <div><dt>${lab ? "Próxima toma" : "Próxima cita"}</dt><dd>${proxima ? fecha(proxima.fecha_hora_programada, true) : "Sin agendar"}</dd></div>
           ${lab ? `<div><dt>Valores críticos</dt><dd class="${criticos ? "alerta-critica" : ""}">${criticos}</dd></div>`
                 : `<div><dt>Historial abierto</dt><dd>${fecha(h.fecha_apertura)}</dd></div>`}
         </dl>
@@ -1655,6 +2092,14 @@ $("#contenido").addEventListener("click", async (ev) => {
   if (anu) { confirmarAnular(Number(anu.dataset.anular)); return; }
   const alta = t.closest("[data-alta]");
   if (alta) { formAlta(Number(alta.dataset.alta)); return; }
+  const paso = t.closest("[data-paso-orden]");
+  if (paso) { pasoOrden(paso.dataset.pasoOrden, Number(paso.dataset.orden)); return; }
+  const fOrd = t.closest("[data-filtro-ordenes]");
+  if (fOrd) { estado.filtroOrdenes = fOrd.dataset.filtroOrdenes; pintarListaOrdenes(); return; }
+  const vOrd = t.closest("[data-ver-orden]");
+  const btnDentro = t.closest("button");
+  // La fila abre la orden; un botón dentro de la fila (paciente, paso) hace lo suyo
+  if (vOrd && (!btnDentro || btnDentro.dataset.verOrden)) { verOrden(Number(vOrd.dataset.verOrden)); return; }
   const nHab = t.closest("[data-nueva-hab]");
   if (nHab) { formHabitacion(nHab.dataset.nuevaHab); return; }
   const eHab = t.closest("[data-editar-hab]");
@@ -1680,6 +2125,7 @@ $("#contenido").addEventListener("click", async (ev) => {
   const pest = t.closest("[data-pestana]");
   if (pest) { estado.pestana = pest.dataset.pestana; pintarExpediente(); return; }
   const atender = t.closest("[data-atender]");
+  if (atender && atender.dataset.orden) { pasoOrden("muestra", Number(atender.dataset.orden)); return; }
   if (atender) {
     const idCita = Number(atender.dataset.atender);
     await abrirPaciente(Number(atender.dataset.paciente), "historial");
@@ -1717,8 +2163,9 @@ $("#contenido").addEventListener("click", async (ev) => {
   if (accion === "programar-cx-paciente") formCirugia(estado.idSeleccionado);
   if (accion === "limpiar") { $("#txtBuscar").value = ""; await cargarPacientes(""); pintarPacientes(); }
   if (accion === "refrescar-motores") pintarMotores();
-  if (accion === "consulta") formConsulta();
+  if (accion === "consulta") { if (estado.inst === "laboratorio") formOrden(estado.historial?.paciente.id_paciente); else formConsulta(); }
   if (accion === "cita") formCita();
+  if (accion === "nueva-orden") formOrden(estado.pagina === "paciente" ? estado.historial?.paciente.id_paciente : null);
   if (accion === "editar") formPaciente(estado.historial.paciente);
   if (accion === "baja") formBaja();
   if (accion === "imprimir") window.print();
@@ -1911,6 +2358,10 @@ function pintarConsulta(c) {
 
   if (c.notas_clinicas) partes.push(`<div><div class="subtitulo">Notas</div><p class="notas">${esc(c.notas_clinicas)}</p></div>`);
 
+  if (c.estado_orden && c.estado_orden !== "entregada") {
+    partes.unshift(`<div class="orden-en-curso">${chipEstadoOrden(c.estado_orden)}
+      <button type="button" class="btn sutil chico" data-ver-orden="${c.id_consulta}">Ver orden ${numOrden(c.id_consulta)}</button></div>`);
+  }
   return `<li class="evento">
     <div class="evento-cab"><time>${fecha(c.fecha_hora_atencion, true)}</time>
       <span class="tenue">${texto(c.tipo_consulta)}${c.profesional_nombre ? ` · ${esc(c.profesional_nombre)}` : ""}</span></div>
@@ -2154,6 +2605,7 @@ $("#modalCuerpo").addEventListener("focusout", (ev) => {
 
 let alAceptar = null;
 
+const cerrarModal = () => { if ($("#modal").open) $("#modal").close(); };
 function abrirModal(titulo, html, textoBoton, accion) {
   $("#modalTitulo").textContent = titulo;
   $("#modalCuerpo").innerHTML = html;

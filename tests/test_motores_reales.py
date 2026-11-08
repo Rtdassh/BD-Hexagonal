@@ -105,6 +105,31 @@ class TestMongoDB(FlujoComun, unittest.TestCase):
     consulta_extra = {"codigo_examen": "QUI-01", "parametros": [
         {"nombre_parametro": "Glucosa", "valor_resultado": 90, "rango_referencia_min": 70, "rango_referencia_max": 100}]}
 
+    def test_flujo_de_orden(self):
+        """Orden -> muestra rechazada -> muestra -> resultados -> validación (doble) -> entrega."""
+        a = self.a
+        o = a.create_lab_order({"id_paciente": 1, "examenes": ["QUI-01"], "medico_solicitante": "Dr. Prueba",
+                                "fecha_toma": "2030-01-01 07:00", "id_laboratorista": 1})
+        oid = o["id_orden"]
+        self.assertEqual((o["estado_orden"], o["cita"]["estado_cita"]), ("pendiente_muestra", "programada"))
+        o = a.register_sample(oid, {"id_laboratorista": 1, "tipo_muestra": "Suero", "preparacion_cumplida": False,
+                                    "motivo_rechazo": "No vino en ayunas"})
+        self.assertEqual(o["estado_orden"], "pendiente_muestra")
+        o = a.register_sample(oid, {"id_laboratorista": 1, "tipo_muestra": "Suero", "preparacion_cumplida": True})
+        self.assertEqual(o["estado_orden"], "en_analisis")
+        o = a.register_results(oid, {"codigo_examen": "QUI-01", "id_laboratorista": 1, "parametros": [
+            {"nombre_parametro": "Glucosa Sérica Basal", "valor_resultado": "250", "unidad_medida": "mg/dL",
+             "rango_referencia_min": 70, "rango_referencia_max": 100}]})
+        self.assertEqual(o["estado_orden"], "por_validar")
+        with self.assertRaises(ValueError):   # quien analizó no puede validar
+            a.validate_order(oid, {"id_laboratorista": 1})
+        o = a.validate_order(oid, {"id_laboratorista": 2, "conclusiones": {"QUI-01": "Hiperglucemia"}})
+        self.assertEqual(o["estado_orden"], "lista_entrega")
+        o = a.deliver_order(oid, {"entregado_a": "Paciente"})
+        self.assertEqual(o["estado_orden"], "entregada")
+        with self.assertRaises(ValueError):   # ya entregada
+            a.cancel_order(oid, "Prueba de cancelación")
+
 
 class TestFirestore(FlujoComun, unittest.TestCase):
     motor = "firestore"
