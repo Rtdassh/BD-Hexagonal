@@ -1754,16 +1754,66 @@ async function pintarHabitaciones() {
                 <button type="button" class="enlace-paciente" data-id="${o.id_paciente}" data-pestana-ir="especial">${esc(o.paciente)}</button>
                 <small class="tenue">Desde ${fecha(o.fecha_ingreso)}</small>
                 <button type="button" class="btn sutil chico" data-cambiar-hab="${o.id_hospitalizacion}" data-hab-actual="${esc(h.codigo)}">Cambiar habitación</button></li>`
-              : `<li class="cama"><span class="cama-n">Cama ${i + 1}</span><span class="tenue">${h.estado !== "disponible" ? "Fuera de servicio" : "Libre"}</span></li>`;
+              : h.estado !== "disponible"
+                ? `<li class="cama"><span class="cama-n">Cama ${i + 1}</span><span class="tenue">Fuera de servicio</span></li>`
+                : `<li class="cama libre"><span class="cama-n">Cama ${i + 1}</span><span class="tenue">Libre</span>
+                    <button type="button" class="btn sutil chico" data-ingresar-hab="${esc(h.codigo)}">+ Ingresar paciente</button></li>`;
           }).join("")}</ul>
         </article>`).join("") || `<p class="tenue relleno">Sin habitaciones. <button type="button" class="btn sutil chico" data-nueva-hab="${d.id_departamento}">+ Agregar la primera</button></p>`}</div>
       </section>`).join("")}
-      <p class="ayuda">Los pacientes se ingresan al registrar una consulta. La base de datos no permite ocupar más camas de las que tiene una habitación.</p>`;
+      <p class="ayuda">Para ocupar una cama use “+ Ingresar paciente” en una cama libre, o marque “Ingresar al paciente en el hospital” al registrar su consulta.
+        La base de datos no permite ocupar más camas de las que tiene una habitación.</p>`;
   } catch (e) {
     $("#vista").innerHTML = `<p class="error">${esc(e.message)}</p>`;
   }
 }
 
+
+// Ingreso directo desde una cama libre: registra la evaluación de ingreso (consulta)
+// y la hospitalización en la misma transacción, igual que el formulario de consulta.
+async function formIngresoCama(codigo) {
+  const hab = habitacionDe(codigo);
+  let pacientes = [];
+  let ingresados = [];
+  try {
+    [pacientes, ingresados] = await Promise.all([todosLosPacientes(), api("/api/hospital/hospitalizations")]);
+  } catch (e) { avisar(e.message, true); return; }
+  const yaIngresados = new Set(ingresados.map((h) => h.id_paciente));
+  const candidatos = pacientes.filter((p) => !ESTADOS_BAJA.includes(p.estado) && !yaIngresados.has(p.id_paciente))
+    .sort((a, b) => `${a.apellidos} ${a.nombres}`.localeCompare(`${b.apellidos} ${b.nombres}`));
+  if (!candidatos.length) {
+    avisar("Todos los pacientes activos ya están ingresados. Registre al paciente nuevo en Pacientes.", true);
+    return;
+  }
+  const html = `
+    <div class="rejilla">
+      <p class="completo">Habitación <b>${esc(codigo)}</b>${hab ? ` · ${esc(hab.departamento)} · ${esc(TIPO_HAB[hab.tipo] || hab.tipo)}` : ""}</p>
+      <label class="completo"><span class="requerido">Paciente</span>
+        <select name="id_paciente" required>
+          <option value="">Seleccione…</option>
+          ${candidatos.map((p) => `<option value="${p.id_paciente}">${esc(p.apellidos)}, ${esc(p.nombres)} · DPI ${esc(p.dpi || "—")}</option>`).join("")}
+        </select>
+      </label>
+      ${campoProfesional("Médico que ingresa")}
+      <label>Tipo de ingreso<select name="tipo_consulta">${opciones([["emergencia", "Por emergencia"], ["ordinaria", "Programado"]], "emergencia")}</select></label>
+      <label class="completo"><span class="requerido">Motivo de ingreso</span>
+        <input name="motivo" required maxlength="200" placeholder="Ej.: neumonía adquirida en la comunidad, observación"></label>
+      ${campo("presion_arterial", "Presión arterial", { extra: 'placeholder="120/80"' })}
+      ${campo("temperatura", "Temperatura (°C)", { tipo: "number", extra: 'step="0.1" min="30" max="45"' })}
+      <p class="ayuda completo">Se registra como la consulta de ingreso del paciente (con su cobro en Caja) y la cama queda ocupada.</p>
+    </div>`;
+  abrirModal("Ingresar paciente", html, "Ingresar", async (fd) => {
+    const d = datosForm(fd);
+    d.id_paciente = Number(d.id_paciente);
+    d.requiere_hospitalizacion = true;
+    d.numero_habitacion = codigo;
+    d.motivo_hospitalizacion = d.motivo;
+    await api("/api/consultations", { method: "POST", body: d });
+    avisar(`${nombreDe(d.id_paciente)} ingresado en ${codigo}`);
+    await cargarPacientes("");
+    pintarHabitaciones();
+  });
+}
 
 // Código sugerido para una habitación nueva: mismo prefijo del departamento y el número siguiente
 function codigoSugerido(idDep) {
@@ -2506,6 +2556,8 @@ $("#contenido").addEventListener("click", async (ev) => {
   if (nHab) { formHabitacion(nHab.dataset.nuevaHab); return; }
   const eHab = t.closest("[data-editar-hab]");
   if (eHab) { formEditarHabitacion(eHab.dataset.editarHab); return; }
+  const ingHab = t.closest("[data-ingresar-hab]");
+  if (ingHab) { formIngresoCama(ingHab.dataset.ingresarHab); return; }
   const camb = t.closest("[data-cambiar-hab]");
   if (camb) { formCambiarHabitacion(Number(camb.dataset.cambiarHab), camb.dataset.habActual); return; }
   const indMed = t.closest("[data-indicar-med]");
