@@ -286,7 +286,6 @@ function ir(pagina) {
     "dental-odontograma": pintarDentalOdontograma,
     "dental-planes": pintarDentalPlanes,
     "dental-aranceles": pintarDentalAranceles,
-    "dental-cobros": pintarDentalCobros,
   };
   (mapa[pagina] || pintarInicio)();
 }
@@ -1147,7 +1146,7 @@ $("#contenido").addEventListener("input", (ev) => {
 // ====================================================================== Caja
 // Hospital (PostgreSQL), Pediátrico (MySQL) y Laboratorio (MongoDB) comparten esta pantalla.
 // La Clínica Odontológica usa su propia facturación por planes de tratamiento.
-const conCaja = () => ["hospital", "pediatrico", "laboratorio"].includes(estado.inst);
+const conCaja = () => ["hospital", "pediatrico", "laboratorio", "odontologia"].includes(estado.inst);
 const Q = (n) => `Q${Number(n || 0).toLocaleString("es-GT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const ESTADO_FACTURA = { pendiente: ["Por cobrar", "alerta"], parcial: ["Abonada", "info"], pagada: ["Pagada", "activo"], anulada: ["Anulada", "baja"] };
 const chipFactura = (e) => { const [t, c] = ESTADO_FACTURA[e] || [e, ""]; return `<span class="estado ${c}">${t}</span>`; };
@@ -1155,7 +1154,7 @@ const METODOS = [["efectivo", "Efectivo"], ["tarjeta", "Tarjeta"], ["transferenc
 const CATEGORIAS = { consulta: "Consulta", hospitalizacion: "Hospitalización", cirugia: "Cirugía", medicamento: "Medicamento",
   procedimiento: "Procedimiento", vacunacion: "Vacunación", examen: "Examen", otro: "Otro" };
 const origenTxt = (f) => ({ consulta: "Consulta", internamiento: "Internamiento", cirugia: "Cirugía",
-  orden: `Orden ${String(f.origen_id).padStart(5, "0")}` })[f.origen_tipo] || "Cargo manual";
+  orden: `Orden ${String(f.origen_id).padStart(5, "0")}`, plan: `Plan de tratamiento #${f.origen_id}` })[f.origen_tipo] || "Cargo manual";
 estado.facturasCache = {};
 
 // NIT de Guatemala: módulo 11 (10 = K). La misma regla valida el servidor.
@@ -1236,8 +1235,9 @@ async function tablaAranceles() {
   estado.aranceles = null;
   const lista = await aranceles();
   const lab = estado.inst === "laboratorio";
+  const nota = estado.inst === "odontologia" ? '<span class="tenue">Son los procedimientos del catálogo clínico.</span> ' : "";
   return `<header class="panel-cab"><h2>Aranceles <span class="tenue">${lista.length} servicios</span></h2>
-      ${lab ? '<span class="tenue">Son los exámenes del catálogo; aquí se cambia su precio.</span>' : '<button type="button" class="btn sutil chico" data-editar-arancel="">+ Nuevo arancel</button>'}</header>
+      ${lab ? '<span class="tenue">Son los exámenes del catálogo; aquí se cambia su precio.</span>' : `<span>${nota}<button type="button" class="btn sutil chico" data-editar-arancel="">+ Nuevo arancel</button></span>`}</header>
     <table class="tabla-datos"><thead><tr><th>Código</th><th>Servicio</th><th>Categoría</th><th class="num">Precio</th><th>Estado</th><th class="acc"></th></tr></thead>
     <tbody>${lista.map((a) => `<tr>
       <td class="nowrap"><b>${esc(a.codigo)}</b></td><td>${esc(a.descripcion)}</td><td>${esc(CATEGORIAS[a.categoria] || a.categoria)}</td>
@@ -1408,9 +1408,11 @@ function formAnularFactura(id) {
 
 async function formArancel(codigo) {
   const lista = await aranceles();
-  const a = lista.find((x) => x.codigo === codigo) || { codigo: "", descripcion: "", categoria: estado.inst === "laboratorio" ? "examen" : "consulta", precio: "", activo: true };
-  const lab = estado.inst === "laboratorio";
-  const cats = Object.entries(CATEGORIAS).filter(([k]) => (estado.inst === "hospital" ? !["vacunacion", "examen"].includes(k) : estado.inst === "pediatrico" ? ["consulta", "vacunacion", "procedimiento", "medicamento", "otro"].includes(k) : k === "examen"));
+  // En laboratorio y odontología la categoría es fija: exámenes y procedimientos del catálogo
+  const fija = { laboratorio: "examen", odontologia: "procedimiento" }[estado.inst];
+  const a = lista.find((x) => x.codigo === codigo) || { codigo: "", descripcion: "", categoria: fija || "consulta", precio: "", activo: true };
+  const lab = Boolean(fija);
+  const cats = Object.entries(CATEGORIAS).filter(([k]) => (estado.inst === "hospital" ? !["vacunacion", "examen"].includes(k) : estado.inst === "pediatrico" ? ["consulta", "vacunacion", "procedimiento", "medicamento", "otro"].includes(k) : k === fija));
   abrirModal(codigo ? `Editar ${codigo}` : "Nuevo arancel", `<div class="rejilla">
       <label><span class="requerido">Código</span><input name="codigo_arancel" required maxlength="15" value="${esc(a.codigo)}" ${codigo ? "readonly" : ""} placeholder="CURACION"></label>
       <label><span class="requerido">Precio (Q)</span><input name="precio" type="number" required min="0" max="100000" step="0.01" value="${a.precio}"></label>
@@ -1421,7 +1423,7 @@ async function formArancel(codigo) {
   "Guardar", async (fd) => {
     const d = datosForm(fd);
     await api("/api/billing/tariffs", { method: "POST", body: { codigo: d.codigo_arancel.toUpperCase(), descripcion: d.descripcion,
-      categoria: lab ? "examen" : d.categoria, precio: Number(d.precio), activo: fd.get("activo") === "1" } });
+      categoria: fija || d.categoria, precio: Number(d.precio), activo: fd.get("activo") === "1" } });
     avisar("Arancel guardado");
     estado.aranceles = null;
     if (estado.pagina === "cobros") pintarListaCaja();
@@ -2303,7 +2305,6 @@ function pintarExpediente() {
   } else if (inst === "odontologia") {
     lista.push(["dental-odontograma", "Odontograma interactivo"]);
     lista.push(["dental-planes", `Planes (${estado.dentalPaciente?.planes_tratamiento?.length || 0})`]);
-    lista.push(["dental-cobros", `Cobros (${estado.dentalPaciente?.facturacion?.facturas?.length || 0})`]);
   }
   if (conCaja()) lista.push(["cuenta", "Cuenta"]);
   if (!lista.some(([k]) => k === estado.pestana)) estado.pestana = "historial";
@@ -2330,8 +2331,6 @@ function pintarExpediente() {
     cuerpo = pintarExpedienteOdontograma();
   } else if (estado.pestana === "dental-planes") {
     cuerpo = pintarExpedientePlanes();
-  } else if (estado.pestana === "dental-cobros") {
-    cuerpo = pintarExpedienteCobros();
   } else if (estado.pestana === "cuenta") {
     cuerpo = '<div id="cuentaPaciente"><p class="tenue">Cargando…</p></div>';
     setTimeout(cargarCuentaPaciente, 0);
@@ -2551,8 +2550,6 @@ $("#contenido").addEventListener("click", async (ev) => {
   if (accion === "nuevo-plan-tratamiento") formPlanTratamiento(null);
   if (accion === "nuevo-plan-paciente") formPlanTratamiento(estado.idSeleccionado);
   if (accion === "nuevo-procedimiento-arancel") formProcedimientoArancel();
-  if (accion === "nuevo-abono") formAbonoDental(null);
-  if (accion === "nuevo-abono-paciente") formAbonoDental(estado.idSeleccionado);
 });
 
 function pintarDatos(p) {
@@ -3263,7 +3260,8 @@ function formConsulta(idCita = null) {
         throw new Error("Para recetar se necesita un diagnóstico.");
       }
       await api("/api/consultations", { method: "POST", body: d });
-      avisar(lab ? "Resultado guardado" : conCaja() ? "Consulta guardada · su cobro quedó pendiente en Caja" : "Consulta guardada");
+      const conCobro = conCaja() && (estado.inst !== "odontologia" || d.procedimientos.length > 0);
+      avisar(lab ? "Resultado guardado" : conCobro ? "Consulta guardada · su cobro quedó pendiente en Caja" : "Consulta guardada");
       abrirPaciente(estado.idSeleccionado, "historial");
     });
 
@@ -3496,6 +3494,7 @@ function pintarExpedientePlanes() {
                 <div style="text-align:right">
                   <span class="estado ${pl.estado === "aprobado_paciente" ? "activo" : (pl.estado === "en_curso" ? "alerta" : "sutil")}">${esc(pl.estado || "propuesto")}</span>
                   <div style="margin-top:4px; font-size:16px; font-weight:700">Q${Number(pl.costo_total_estimado || 0).toFixed(2)}</div>
+                  ${pl.id_factura ? `<button type="button" class="btn sutil chico" data-ver-factura="${pl.id_factura}">Factura ${esc(pl.numero_factura || "")}</button>` : ""}
                 </div>
               </div>
 
@@ -3527,77 +3526,6 @@ function pintarExpedientePlanes() {
     </div>`;
 }
 
-function pintarExpedienteCobros() {
-  const fac = estado.dentalPaciente?.facturacion?.facturas || [];
-  const pagos = estado.dentalPaciente?.facturacion?.pagos || [];
-  const totalFacturado = fac.reduce((s, f) => s + Number(f.monto_total || 0), 0);
-  const totalPagado = fac.reduce((s, f) => s + Number(f.monto_pagado || 0), 0);
-  const saldoPendiente = totalFacturado - totalPagado;
-
-  return `
-    <div class="panel relleno">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px">
-        <div>
-          <h2 style="margin:0 0 4px 0">Procedimientos, Facturas y Abonos</h2>
-          <p class="tenue" style="margin:0">Cuentas corrientes odontológicas, presupuestos y control de cobros.</p>
-        </div>
-        <div>${btnAccion("nuevo-abono-paciente", "+ Registrar abono / pago")}</div>
-      </div>
-
-      <div class="cifras" style="margin-bottom:20px">
-        <div class="cifra-caja">
-          <span class="cifra-ico">${svg("cobros")}</span>
-          <span class="cifra-texto"><span class="cifra">Q${totalFacturado.toFixed(2)}</span><span class="cifra-etq">Total Presupuestado</span></span>
-        </div>
-        <div class="cifra-caja">
-          <span class="cifra-ico">${svg("cobros")}</span>
-          <span class="cifra-texto"><span class="cifra">Q${totalPagado.toFixed(2)}</span><span class="cifra-etq">Total Abonado</span></span>
-        </div>
-        <div class="cifra-caja ${saldoPendiente > 0 ? "cifra-alerta" : ""}">
-          <span class="cifra-ico">${svg("cobros")}</span>
-          <span class="cifra-texto"><span class="cifra">Q${saldoPendiente.toFixed(2)}</span><span class="cifra-etq">Saldo Pendiente</span></span>
-        </div>
-      </div>
-
-      <h3 style="margin:16px 0 10px 0; font-size:16px">Facturas y Cuentas de Cobro</h3>
-      ${fac.length ? `
-        <table class="tabla-datos" style="margin-bottom:24px">
-          <thead><tr><th>N.º Factura</th><th>Fecha</th><th>Plan Asociado</th><th class="num">Monto Total</th><th class="num">Abonado</th><th class="num">Saldo</th><th>Estado</th></tr></thead>
-          <tbody>
-            ${fac.map((f) => `
-              <tr>
-                <td><b>${esc(f.numero_factura)}</b></td>
-                <td>${fecha(f.fecha_emision)}</td>
-                <td>${f.id_plan ? `Plan #${f.id_plan}` : "Atención directa"}</td>
-                <td class="num">Q${Number(f.monto_total || 0).toFixed(2)}</td>
-                <td class="num" style="color:var(--verde)">Q${Number(f.monto_pagado || 0).toFixed(2)}</td>
-                <td class="num" style="color:${(f.saldo_pendiente || 0) > 0 ? "var(--rojo)" : "inherit"}; font-weight:700">Q${Number(f.saldo_pendiente || 0).toFixed(2)}</td>
-                <td><span class="estado ${f.estado === "pagada" ? "activo" : (f.estado === "parcial" ? "alerta" : "baja")}">${esc(f.estado)}</span></td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
-      ` : `<p class="tenue">No hay facturas emitidas para este paciente.</p>`}
-
-      <h3 style="margin:16px 0 10px 0; font-size:16px">Registro de Pagos y Recibos de Caja</h3>
-      ${pagos.length ? `
-        <table class="tabla-datos">
-          <thead><tr><th>N.º Recibo</th><th>Fecha</th><th>Monto</th><th>Método de Pago</th><th>Referencia / Aut.</th></tr></thead>
-          <tbody>
-            ${pagos.map((pg) => `
-              <tr>
-                <td><b>${esc(pg.numero_recibo)}</b></td>
-                <td>${fecha(pg.fecha_pago, true)}</td>
-                <td><b>Q${Number(pg.monto || 0).toFixed(2)}</b></td>
-                <td><span class="estado sutil">${texto(pg.metodo_pago)}</span></td>
-                <td>${esc(pg.referencia || "—")}</td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
-      ` : `<p class="tenue">No hay pagos registrados para este paciente.</p>`}
-    </div>`;
-}
 
 function pintarExpedienteSomatometria() {
   const somas = estado.pediatricoPaciente?.somatometria || [];
@@ -4108,6 +4036,7 @@ async function pintarDentalPlanes() {
                   <div style="text-align:right">
                     <span class="estado ${pl.estado === "aprobado_paciente" ? "activo" : (pl.estado === "en_curso" ? "alerta" : "sutil")}">${esc(pl.estado || "propuesto")}</span>
                     <div style="margin-top:4px; font-size:16px; font-weight:700">Q${Number(pl.costo_total_estimado || 0).toFixed(2)}</div>
+                  ${pl.id_factura ? `<button type="button" class="btn sutil chico" data-ver-factura="${pl.id_factura}">Factura ${esc(pl.numero_factura || "")}</button>` : ""}
                   </div>
                 </div>
 
@@ -4171,7 +4100,7 @@ async function pintarDentalAranceles() {
                   <td>${esc(pr.nombre_procedimiento)}</td>
                   <td><span class="estado sutil">${texto(pr.categoria || "Operatoria")}</span></td>
                   <td class="num"><b>Q${Number(pr.costo || pr.costo_base || 0).toFixed(2)}</b></td>
-                  <td class="num">${esc(pr.duracion_minutos || pr.duracion_promedio_min || 30)} min</td>
+                  <td class="num">${esc(pr.duracion_minutos || pr.duracion_estimada_min || pr.duracion_promedio_min || 30)} min</td>
                 </tr>
               `).join("")}
             </tbody>
@@ -4204,91 +4133,6 @@ async function pintarDentalAranceles() {
             </tbody>
           </table>
         ` : `<div class="vacio-tabla"><p>No hay insumos registrados en inventario.</p></div>`}
-      </div>`;
-  } catch (e) {
-    avisar(e.message, true);
-  }
-}
-
-async function pintarDentalCobros() {
-  cabecera({
-    titulo: "Facturación, Pagos y Abonos Odontológicos",
-    acciones: btnAccion("nuevo-abono", "+ Registrar abono / pago")
-  });
-  $("#vista").innerHTML = `<p class="tenue relleno">Cargando estado financiero odontológico…</p>`;
-
-  try {
-    const res = await api("/api/dental/billing").catch(() => ({ facturas: [], pagos: [] }));
-    if (estado.pagina !== "dental-cobros") return;
-
-    const fac = res.facturas || [];
-    const pagos = res.pagos || [];
-    const totalFacturado = fac.reduce((s, f) => s + Number(f.monto_total || 0), 0);
-    const totalPagado = fac.reduce((s, f) => s + Number(f.monto_pagado || 0), 0);
-    const saldoPendiente = totalFacturado - totalPagado;
-
-    $("#vista").innerHTML = `
-      <div class="cifras" style="margin-bottom:20px">
-        <div class="cifra-caja">
-          <span class="cifra-ico">${svg("cobros")}</span>
-          <span class="cifra-texto"><span class="cifra">Q${totalFacturado.toFixed(2)}</span><span class="cifra-etq">Total Presupuestado</span></span>
-        </div>
-        <div class="cifra-caja">
-          <span class="cifra-ico">${svg("cobros")}</span>
-          <span class="cifra-texto"><span class="cifra">Q${totalPagado.toFixed(2)}</span><span class="cifra-etq">Total Cobrado</span></span>
-        </div>
-        <div class="cifra-caja ${saldoPendiente > 0 ? "cifra-alerta" : ""}">
-          <span class="cifra-ico">${svg("cobros")}</span>
-          <span class="cifra-texto"><span class="cifra">Q${saldoPendiente.toFixed(2)}</span><span class="cifra-etq">Saldo por Cobrar</span></span>
-        </div>
-      </div>
-
-      <div class="panel" style="margin-bottom:24px">
-        <header class="panel-cab">
-          <h2>Facturas y Cuentas de Cobro</h2>
-          <button type="button" class="btn primario chico" data-accion="nuevo-abono">+ Registrar abono</button>
-        </header>
-        ${fac.length ? `
-          <table class="tabla-datos">
-            <thead><tr><th>N.º Factura</th><th>Paciente</th><th>Fecha</th><th class="num">Monto Total</th><th class="num">Abonado</th><th class="num">Saldo Pendiente</th><th>Estado</th></tr></thead>
-            <tbody>
-              ${fac.map((f) => `
-                <tr>
-                  <td><b>${esc(f.numero_factura)}</b></td>
-                  <td><button type="button" class="enlace-paciente" data-id="${f.id_paciente}" data-pestana-ir="dental-cobros"><b>${esc(f.paciente_nombre || nombreDe(f.id_paciente))}</b></button></td>
-                  <td>${fecha(f.fecha_emision)}</td>
-                  <td class="num">Q${Number(f.monto_total || 0).toFixed(2)}</td>
-                  <td class="num" style="color:var(--verde)">Q${Number(f.monto_pagado || 0).toFixed(2)}</td>
-                  <td class="num" style="color:${(f.saldo_pendiente || 0) > 0 ? "var(--rojo)" : "inherit"}; font-weight:700">Q${Number(f.saldo_pendiente || 0).toFixed(2)}</td>
-                  <td><span class="estado ${f.estado === "pagada" ? "activo" : (f.estado === "parcial" ? "alerta" : "baja")}">${esc(f.estado)}</span></td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-        ` : `<div class="vacio-tabla"><p>No hay facturas emitidas.</p></div>`}
-      </div>
-
-      <div class="panel">
-        <header class="panel-cab">
-          <h2>Registro de Abonos y Recibos de Caja</h2>
-          <span class="tenue">Transacciones cobradas por efectivo, tarjeta o transferencia</span>
-        </header>
-        ${pagos.length ? `
-          <table class="tabla-datos">
-            <thead><tr><th>N.º Recibo</th><th>Fecha y Hora</th><th class="num">Monto Abonado</th><th>Método de Pago</th><th>Referencia / Aut.</th></tr></thead>
-            <tbody>
-              ${pagos.map((pg) => `
-                <tr>
-                  <td><b>${esc(pg.numero_recibo)}</b></td>
-                  <td>${fecha(pg.fecha_pago, true)}</td>
-                  <td class="num"><b>Q${Number(pg.monto || 0).toFixed(2)}</b></td>
-                  <td><span class="estado sutil">${texto(pg.metodo_pago)}</span></td>
-                  <td>${esc(pg.referencia || "—")}</td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-        ` : `<div class="vacio-tabla"><p>No hay pagos registrados.</p></div>`}
       </div>`;
   } catch (e) {
     avisar(e.message, true);
@@ -4668,8 +4512,8 @@ async function formPlanTratamiento(idPaciente = null) {
         estado: "pendiente"
       }]
     };
-    await api("/api/dental/treatment-plans", { method: "POST", body: payload });
-    avisar("Plan de tratamiento propuesto");
+    const plan = await api("/api/dental/treatment-plans", { method: "POST", body: payload });
+    avisar(plan.numero_factura ? `Plan propuesto · la factura ${plan.numero_factura} quedó en Caja para abonos` : "Plan de tratamiento propuesto");
     if (estado.pagina === "paciente") abrirPaciente(pid, "dental-planes");
     else if (estado.pagina === "dental-planes") pintarDentalPlanes();
   });
@@ -4713,52 +4557,6 @@ function formProcedimientoArancel() {
     await api("/api/dental/procedures", { method: "POST", body: d });
     avisar("Procedimiento añadido al arancel");
     if (estado.pagina === "dental-aranceles") pintarDentalAranceles();
-  });
-}
-
-async function formAbonoDental(idPaciente = null) {
-  const res = await api("/api/dental/billing").catch(() => ({ facturas: [] }));
-  let facturas = res.facturas || [];
-  if (idPaciente) facturas = facturas.filter((f) => f.id_paciente === idPaciente);
-  const facturasPendientes = facturas.filter((f) => (f.saldo_pendiente || 0) > 0);
-
-  if (!facturasPendientes.length) {
-    avisar("No hay facturas con saldo pendiente para registrar abonos.", true);
-    return;
-  }
-
-  const html = `
-    <div class="rejilla">
-      <label class="completo"><span class="requerido">Factura / Cuenta a abonar</span>
-        <select name="id_factura" required id="selFacturaAbono">
-          ${facturasPendientes.map((f) => `
-            <option value="${f.id_factura}" data-saldo="${f.saldo_pendiente}">
-              Factura ${esc(f.numero_factura)} · ${esc(f.paciente_nombre || nombreDe(f.id_paciente))} (Saldo pendiente: Q${Number(f.saldo_pendiente).toFixed(2)})
-            </option>
-          `).join("")}
-        </select>
-      </label>
-      ${campo("numero_recibo", "N.º Recibo de caja", { req: true, extra: 'placeholder="REC-2026-001"' })}
-      ${campo("monto", "Monto a abonar (Q)", { tipo: "number", req: true, valor: Number(facturasPendientes[0]?.saldo_pendiente || 100).toFixed(2), extra: 'step="0.01" min="0.01"' })}
-      <label><span class="requerido">Método de pago</span>
-        <select name="metodo_pago" required>
-          <option value="efectivo">Efectivo</option>
-          <option value="tarjeta_credito">Tarjeta de Crédito</option>
-          <option value="tarjeta_debito">Tarjeta de Débito</option>
-          <option value="transferencia_bancaria">Transferencia Bancaria</option>
-        </select>
-      </label>
-      ${campo("referencia", "N.º de autorización / comprobante", { extra: 'placeholder="AUT-94821"' })}
-    </div>`;
-
-  abrirModal("Registrar Abono Odontológico", html, "Registrar Cobro", async (fd) => {
-    const d = datosForm(fd);
-    d.id_factura = Number(d.id_factura);
-    d.monto = Number(d.monto);
-    await api("/api/dental/payments", { method: "POST", body: d });
-    avisar(`Abono de Q${d.monto.toFixed(2)} registrado con éxito`);
-    if (estado.pagina === "paciente") abrirPaciente(estado.idSeleccionado, "dental-cobros");
-    else if (estado.pagina === "dental-cobros") pintarDentalCobros();
   });
 }
 

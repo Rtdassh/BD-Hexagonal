@@ -20,6 +20,7 @@ from src.infrastructure.config import Config  # noqa: E402
 from src.infrastructure.adapters.firebase_adapter import crear_cliente_firestore  # noqa: E402
 
 COLECCIONES = ["pacientes", "citas", "odontologos", "secretarias", "procedimientos_catalogo",
+               "planes_tratamiento", "facturas", "pagos", "facturas_origen",
                "contadores", "dpi_index", "colegiado_index"]
 
 
@@ -28,6 +29,39 @@ def borrar_coleccion(col):
         for sub in doc.reference.collections():
             borrar_coleccion(sub)
         doc.reference.delete()
+
+
+def cargar(db, data):
+    """Escribe los datos iniciales en un solo batch (atómico: se carga todo o nada)."""
+    batch = db.batch()
+    for p in data["procedimientos_catalogo"]:
+        batch.set(db.collection("procedimientos_catalogo").document(str(p["id_procedimiento"])), p)
+    for o in data["odontologos"]:
+        batch.set(db.collection("odontologos").document(str(o["id_odontologo"])), o)
+        batch.set(db.collection("colegiado_index").document(o["numero_colegiado"]), {"id_odontologo": o["id_odontologo"]})
+    for s in data["secretarias"]:
+        batch.set(db.collection("secretarias").document(str(s["id_secretaria"])), s)
+    for c in data["citas"]:
+        batch.set(db.collection("citas").document(str(c["id_cita"])), c)
+    for nombre, seq in data["contadores"].items():
+        batch.set(db.collection("contadores").document(nombre), {"seq": seq})
+    for p in data["pacientes"]:
+        consultas = p.pop("consultas", [])
+        ref = db.collection("pacientes").document(str(p["id_paciente"]))
+        batch.set(ref, p)
+        batch.set(db.collection("dpi_index").document(p["dpi"]), {"id_paciente": p["id_paciente"]})
+        for c in consultas:
+            batch.set(ref.collection("consultas").document(str(c["id_consulta"])), c)
+    for pl in data.get("planes_tratamiento", []):
+        batch.set(db.collection("planes_tratamiento").document(str(pl["id_plan"])), pl)
+    for f in data.get("facturas", []):
+        batch.set(db.collection("facturas").document(str(f["id_factura"])), f)
+        if f.get("origen_id") and f["estado"] != "anulada":
+            batch.set(db.collection("facturas_origen").document(f"{f['origen_tipo']}-{f['origen_id']}"),
+                      {"id_factura": f["id_factura"], "numero_factura": f["numero_factura"]})
+    for pg in data.get("pagos", []):
+        batch.set(db.collection("pagos").document(str(pg["id_pago"])), pg)
+    batch.commit()
 
 
 def main():
@@ -49,29 +83,11 @@ def main():
     with open(os.path.join(os.path.dirname(__file__), "init_odontologia.json"), encoding="utf-8") as f:
         data = json.load(f)
 
-    batch = db.batch()
-    for p in data["procedimientos_catalogo"]:
-        batch.set(db.collection("procedimientos_catalogo").document(str(p["id_procedimiento"])), p)
-    for o in data["odontologos"]:
-        batch.set(db.collection("odontologos").document(str(o["id_odontologo"])), o)
-        batch.set(db.collection("colegiado_index").document(o["numero_colegiado"]), {"id_odontologo": o["id_odontologo"]})
-    for s in data["secretarias"]:
-        batch.set(db.collection("secretarias").document(str(s["id_secretaria"])), s)
-    for c in data["citas"]:
-        batch.set(db.collection("citas").document(str(c["id_cita"])), c)
-    for nombre, seq in data["contadores"].items():
-        batch.set(db.collection("contadores").document(nombre), {"seq": seq})
-    for p in data["pacientes"]:
-        consultas = p.pop("consultas", [])
-        ref = db.collection("pacientes").document(str(p["id_paciente"]))
-        batch.set(ref, p)
-        batch.set(db.collection("dpi_index").document(p["dpi"]), {"id_paciente": p["id_paciente"]})
-        for c in consultas:
-            batch.set(ref.collection("consultas").document(str(c["id_consulta"])), c)
-    batch.commit()  # un batch es atómico: se carga todo o nada
+    cargar(db, data)
 
     print(f"Listo: {len(data['pacientes'])} pacientes, {len(data['citas'])} citas, "
-          f"{len(data['procedimientos_catalogo'])} procedimientos en catálogo.")
+          f"{len(data['procedimientos_catalogo'])} procedimientos en catálogo, "
+          f"{len(data.get('facturas', []))} facturas.")
 
 
 if __name__ == "__main__":

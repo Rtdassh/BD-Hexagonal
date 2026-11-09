@@ -1,11 +1,11 @@
 {
-  "_descripcion": "Clínica Odontológica - Cloud Firestore. Colecciones raíz: pacientes, citas, odontologos, secretarias, procedimientos_catalogo, contadores. Subcolección: pacientes/{id}/consultas. Cargar con: python database/firebase/seed_firestore.py",
+  "_descripcion": "Clínica Odontológica - Cloud Firestore. Colecciones raíz: pacientes, citas, odontologos, secretarias, procedimientos_catalogo, planes_tratamiento, facturas, pagos, contadores. Subcolección: pacientes/{id}/consultas. Cargar con: python database/firebase/seed_firestore.py",
   "procedimientos_catalogo": [
-    { "id_procedimiento": 1, "nombre_procedimiento": "Profilaxis y limpieza dental con ultrasonido", "descripcion": "Remoción de cálculo supragingival, placa bacteriana y pulido dental", "duracion_estimada_min": 45, "costo": 250.0 },
-    { "id_procedimiento": 2, "nombre_procedimiento": "Restauración con resina fotocurable", "descripcion": "Eliminación de caries y obturación estética directa", "duracion_estimada_min": 60, "costo": 350.0 },
-    { "id_procedimiento": 3, "nombre_procedimiento": "Extracción dental simple", "descripcion": "Exodoncia de pieza dental con anestesia local", "duracion_estimada_min": 40, "costo": 300.0 },
-    { "id_procedimiento": 4, "nombre_procedimiento": "Endodoncia unirradicular", "descripcion": "Tratamiento de conducto radicular, instrumentación y sellado", "duracion_estimada_min": 90, "costo": 800.0 },
-    { "id_procedimiento": 5, "nombre_procedimiento": "Aplicación de sellante de fosas y fisuras", "descripcion": "Prevención de caries en molares", "duracion_estimada_min": 20, "costo": 125.0 }
+    { "id_procedimiento": 1, "codigo": "OD-01", "nombre_procedimiento": "Profilaxis y limpieza dental con ultrasonido", "descripcion": "Remoción de cálculo supragingival, placa bacteriana y pulido dental", "duracion_estimada_min": 45, "costo": 250.0, "activo": true },
+    { "id_procedimiento": 2, "codigo": "OD-02", "nombre_procedimiento": "Restauración con resina fotocurable", "descripcion": "Eliminación de caries y obturación estética directa", "duracion_estimada_min": 60, "costo": 350.0, "activo": true },
+    { "id_procedimiento": 3, "codigo": "OD-03", "nombre_procedimiento": "Extracción dental simple", "descripcion": "Exodoncia de pieza dental con anestesia local", "duracion_estimada_min": 40, "costo": 300.0, "activo": true },
+    { "id_procedimiento": 4, "codigo": "OD-04", "nombre_procedimiento": "Endodoncia unirradicular", "descripcion": "Tratamiento de conducto radicular, instrumentación y sellado", "duracion_estimada_min": 90, "costo": 800.0, "activo": true },
+    { "id_procedimiento": 5, "codigo": "OD-05", "nombre_procedimiento": "Aplicación de sellante de fosas y fisuras", "descripcion": "Prevención de caries en molares", "duracion_estimada_min": 20, "costo": 125.0, "activo": true }
   ],
   "odontologos": [
     { "id_odontologo": 1, "nombre_completo": "Dr. Rodrigo Andrés Molina", "numero_colegiado": "ODONT-3210", "especialidad": "Ortodoncia y rehabilitación oral", "telefono": "5554-0101", "correo_electronico": "rmolina@clinicadental.gt", "horarios_atencion": "Lunes a viernes 08:00 - 17:00", "estado": "activo" },
@@ -47,9 +47,11 @@
             { "medicamento": "Ibuprofeno", "presentacion": "Tabletas 400 mg", "dosis": "1 tableta", "frecuencia": "Cada 8 horas", "duracion_dias": 3, "via_administracion": "Oral", "indicaciones": "Tomar después de comer, solo si hay dolor", "fecha_emision": "2026-03-01" }
           ],
           "procedimientos": [
-            { "id_procedimiento": 2, "nombre_procedimiento": "Restauración con resina fotocurable", "pieza_dental": "46", "observaciones": "Resina A2, sin complicaciones", "costo": 350.0 }
+            { "id_procedimiento": 2, "nombre_procedimiento": "Restauración con resina fotocurable", "pieza_dental": "46", "observaciones": "Resina A2, sin complicaciones", "costo": 350.0, "codigo_arancel": "OD-02" }
           ],
-          "total_cobrado": 350.0
+          "total_cobrado": 350.0,
+          "id_factura": 1,
+          "numero_factura": "CO-000001"
         }
       ]
     },
@@ -74,11 +76,46 @@
     { "id_cita": 1, "id_paciente": 1, "paciente_nombre": "Sofía Valentina Morales Díaz", "id_odontologo": 1, "odontologo_nombre": "Dr. Rodrigo Andrés Molina", "id_secretaria": 1, "fecha_hora_programada": "2026-03-01 09:00", "motivo_consulta": "Revisión general y sensibilidad en molar inferior derecho", "estado_cita": "atendida", "fecha_creacion": "2026-02-25 14:30" },
     { "id_cita": 2, "id_paciente": 2, "paciente_nombre": "Alejandro Javier Soto Paz", "id_odontologo": 1, "odontologo_nombre": "Dr. Rodrigo Andrés Molina", "id_secretaria": 1, "fecha_hora_programada": "2026-12-03 10:00", "motivo_consulta": "Limpieza dental semestral", "estado_cita": "programada", "fecha_creacion": "2026-11-01 09:10" }
   ],
+  "planes_tratamiento": [
+    {
+      "id_plan": 1,
+      "id_paciente": 2,
+      "paciente_nombre": "Alejandro Javier Soto Paz",
+      "id_odontologo": 1,
+      "odontologo_nombre": "Dr. Rodrigo Andrés Molina",
+      "titulo": "Caries en molares y gingivitis marginal",
+      "diagnostico_general": "Caries en molares y gingivitis marginal",
+      "costo_total_estimado": 975.0,
+      "estado": "en_curso",
+      "estado_aprobacion": "en_curso",
+      "fecha_propuesta": "2026-03-10",
+      "etapas": [
+        { "id_etapa": 1, "numero_etapa": 1, "nombre_etapa": "Higiene y profilaxis", "descripcion_fase": "Higiene y profilaxis", "procedimientos_planificados": "Profilaxis con ultrasonido", "costo_estimado": 250.0, "costo_fase": 250.0, "estado": "completada", "estado_fase": "completada" },
+        { "id_etapa": 2, "numero_etapa": 2, "nombre_etapa": "Restauraciones", "descripcion_fase": "Restauraciones", "procedimientos_planificados": "Resina en piezas 36 y 46", "costo_estimado": 700.0, "costo_fase": 700.0, "estado": "pendiente", "estado_fase": "pendiente" },
+        { "id_etapa": 3, "numero_etapa": 3, "nombre_etapa": "Sellantes", "descripcion_fase": "Sellantes", "procedimientos_planificados": "Sellante en pieza 17", "costo_estimado": 25.0, "costo_fase": 25.0, "estado": "pendiente", "estado_fase": "pendiente" }
+      ],
+      "id_factura": 2,
+      "numero_factura": "CO-000002"
+    }
+  ],
+  "facturas": [
+    { "id_factura": 1, "numero_factura": "CO-000001", "id_paciente": 1, "paciente": "Sofía Valentina Morales Díaz", "nit": "CF", "nombre_facturacion": "Sofía Valentina Morales Díaz", "fecha_emision": "2026-03-01 09:45", "detalle": [{"codigo_arancel": "OD-02", "concepto": "Restauración con resina fotocurable (pieza 46)", "cantidad": 1.0, "precio_unitario": 350.0, "subtotal": 350.0}], "monto_total": 350.0, "monto_pagado": 350.0, "saldo_pendiente": 0.0, "estado": "pagada", "estado_factura": "pagada", "origen_tipo": "consulta", "origen_id": 1, "id_plan": null, "motivo_anulacion": null },
+    { "id_factura": 2, "numero_factura": "CO-000002", "id_paciente": 2, "paciente": "Alejandro Javier Soto Paz", "nit": "CF", "nombre_facturacion": "Alejandro Javier Soto Paz", "fecha_emision": "2026-03-10 10:15", "detalle": [{"codigo_arancel": null, "concepto": "Plan #1: Higiene y profilaxis", "cantidad": 1.0, "precio_unitario": 250.0, "subtotal": 250.0}, {"codigo_arancel": null, "concepto": "Plan #1: Restauraciones", "cantidad": 1.0, "precio_unitario": 700.0, "subtotal": 700.0}, {"codigo_arancel": null, "concepto": "Plan #1: Sellantes", "cantidad": 1.0, "precio_unitario": 25.0, "subtotal": 25.0}], "monto_total": 975.0, "monto_pagado": 400.0, "saldo_pendiente": 575.0, "estado": "parcial", "estado_factura": "parcial", "origen_tipo": "plan", "origen_id": 1, "id_plan": 1, "motivo_anulacion": null }
+  ],
+  "pagos": [
+    { "id_pago": 1, "id_factura": 1, "id_paciente": 1, "numero_recibo": "R-CO-000001", "fecha_pago": "2026-03-01 10:00", "monto": 350.0, "monto_abonado": 350.0, "metodo_pago": "efectivo", "referencia": null, "recibido_por": "Claudia Maricela Fuentes", "secretaria": "Claudia Maricela Fuentes" },
+    { "id_pago": 2, "id_factura": 2, "id_paciente": 2, "numero_recibo": "R-CO-000002", "fecha_pago": "2026-03-10 10:20", "monto": 250.0, "monto_abonado": 250.0, "metodo_pago": "tarjeta", "referencia": "AUT-58213", "recibido_por": "Claudia Maricela Fuentes", "secretaria": "Claudia Maricela Fuentes" },
+    { "id_pago": 3, "id_factura": 2, "id_paciente": 2, "numero_recibo": "R-CO-000003", "fecha_pago": "2026-04-02 16:05", "monto": 150.0, "monto_abonado": 150.0, "metodo_pago": "efectivo", "referencia": null, "recibido_por": "Claudia Maricela Fuentes", "secretaria": "Claudia Maricela Fuentes" }
+  ],
   "contadores": {
     "pacientes": 2,
     "historiales": 2,
     "consultas": 1,
     "citas": 2,
-    "odontologos": 2
+    "odontologos": 2,
+    "procedimientos_catalogo": 5,
+    "planes_tratamiento": 1,
+    "facturas": 2,
+    "pagos": 3
   }
 }

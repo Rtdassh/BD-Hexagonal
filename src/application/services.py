@@ -458,7 +458,8 @@ class ConsultationService:
         return consulta
 
     # Cobro automático: la consulta genera su factura pendiente en Caja (hospital y pediátrico).
-    # El laboratorio factura al crear la orden y la clínica dental por planes de tratamiento.
+    # El laboratorio factura al crear la orden; la clínica dental factura dentro de la misma
+    # transacción de Firestore los procedimientos de la consulta y los planes de tratamiento.
     def _cobrar_consulta(self, user: User, adapter, consulta, payload: Dict[str, Any]) -> None:
         inst = user.institucion.value
         if inst not in ("hospital", "pediatrico") or not isinstance(adapter, BillingPort):
@@ -584,7 +585,7 @@ class LabService:
 
 
 class BillingService:
-    """Caja de hospital, pediátrico y laboratorio (la clínica dental tiene la suya por planes)."""
+    """Caja de las cuatro instituciones: hospital, pediátrico, laboratorio y clínica odontológica."""
 
     def __init__(self, router: EngineRouter):
         self.router = router

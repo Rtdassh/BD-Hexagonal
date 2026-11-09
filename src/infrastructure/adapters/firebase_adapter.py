@@ -13,6 +13,12 @@ Modelo documental:
                                       agenda con una sola lectura.
   * odontologos, secretarias, procedimientos_catalogo -> catálogos.
   * contadores/{coleccion}         -> ids enteros secuenciales.
+  * facturas/{id}                  -> Caja: factura con su detalle EMBEBIDO (CO-000001). Se
+                                      genera sola al registrar una consulta con procedimientos
+                                      o al proponer un plan de tratamiento.
+  * pagos/{id}                     -> abonos y pagos (R-CO-000001), referencian la factura.
+  * facturas_origen/{tipo}-{id}    -> índice que impide facturar dos veces la misma consulta
+                                      o el mismo plan (se lee dentro de la transacción).
 
 Consistencia: las escrituras que tocan varios documentos usan transacciones de
 Firestore (todas las lecturas primero, luego las escrituras; si otro cliente
@@ -40,7 +46,7 @@ from ...domain.entities import (
     UnifiedClinicalRecord,
     UserRole,
 )
-from ...domain.ports import DentalOperationsPort
+from ...domain.ports import BillingPort, DentalOperationsPort
 
 CAMPOS_EDITABLES = {
     "nombres", "apellidos", "fecha_nacimiento", "sexo", "direccion", "telefono", "correo_electronico",
@@ -73,7 +79,7 @@ def crear_cliente_firestore(config: Config):
     raise RuntimeError("Firebase no configurado: defina FIRESTORE_EMULATOR_HOST o FIREBASE_CREDENTIALS_PATH")
 
 
-class FirebaseAdapter(BaseClinicalAdapter, DentalOperationsPort):
+class FirebaseAdapter(BaseClinicalAdapter, DentalOperationsPort, BillingPort):
     is_live = True
 
     def __init__(self, config: Config, client=None):
@@ -106,6 +112,12 @@ class FirebaseAdapter(BaseClinicalAdapter, DentalOperationsPort):
     def _leer_contador(self, tx, nombre: str) -> int:
         snap = self.db.collection("contadores").document(nombre).get(transaction=tx)
         return int(snap.to_dict().get("seq", 0)) if snap.exists else 0
+
+    def _siguiente_id(self, nombre: str) -> int:
+        """Reserva el siguiente id de una colección en su propia transacción."""
+        def tx_fn(tx):
+            return self._next_id(tx, nombre, self._leer_contador(tx, nombre))
+        return self._run_tx(tx_fn)
 
     def _paciente_ref(self, pid: int):
         return self.db.collection("pacientes").document(str(int(pid)))
@@ -325,7 +337,9 @@ class FirebaseAdapter(BaseClinicalAdapter, DentalOperationsPort):
                 "pieza_dental": str(p.get("pieza_dental") or "General"),
                 "observaciones": p.get("observaciones") or "",
                 "costo": self._f(p.get("costo")) if p.get("costo") not in (None, "") else float(cat.get("costo", 0.0)),
+                "codigo_arancel": self._codigo_proc(cat) if cat else None,
             })
+        cobrar = any(p["costo"] > 0 for p in procedimientos)
 
         id_odont = int(data["id_profesional"])
         od_snap = self.db.collection("odontologos").document(str(id_odont)).get()
@@ -351,6 +365,8 @@ class FirebaseAdapter(BaseClinicalAdapter, DentalOperationsPort):
                     raise ValueError(f"La cita ya está '{cita['estado_cita']}'")
             seq_c = self._leer_contador(tx, "consultas")
             seq_ci = self._leer_contador(tx, "citas") if cita is None else None
+            # Los procedimientos con costo generan su factura pendiente en Caja (misma transacción)
+            ctx_fac = self._leer_para_factura(tx, {"id_paciente": pid}) if cobrar else None
 
             # 2) ESCRITURAS
             if cita is None:
@@ -400,6 +416,14 @@ class FirebaseAdapter(BaseClinicalAdapter, DentalOperationsPort):
                 "procedimientos": procedimientos,
                 "total_cobrado": round(sum(p["costo"] for p in procedimientos), 2),
             }
+            if ctx_fac is not None:
+                fac = self._escribir_factura(tx, ctx_fac, {
+                    "id_paciente": pid, "origen_tipo": "consulta", "origen_id": id_consulta,
+                    "lineas": [{"codigo_arancel": p["codigo_arancel"], "cantidad": 1, "precio_unitario": p["costo"],
+                                "concepto": p["nombre_procedimiento"] + (f" (pieza {p['pieza_dental']})"
+                                                                         if p["pieza_dental"] != "General" else "")}
+                               for p in procedimientos if p["costo"] > 0]})
+                doc["id_factura"], doc["numero_factura"] = fac["id_factura"], fac["numero_factura"]
             tx.set(pac_ref.collection("consultas").document(str(id_consulta)), doc)
             tx.update(pac_ref, {"historial.fecha_ultima_actualizacion": _ahora()})
             return doc
@@ -574,12 +598,12 @@ class FirebaseAdapter(BaseClinicalAdapter, DentalOperationsPort):
                 if pr.get("pieza_dental"):
                     piezas_tratadas.add(str(pr["pieza_dental"]).split()[0])
 
-        planes = [s.to_dict() for s in self.db.collection("planes_tratamiento").where("id_paciente", "==", patient_id).stream()]
-        facturas = [s.to_dict() for s in self.db.collection("facturas").where("id_paciente", "==", patient_id).stream()]
-        pagos = [s.to_dict() for s in self.db.collection("pagos").where("id_paciente", "==", patient_id).stream()]
+        planes = self.list_treatment_plans(patient_id)
+        facturas = [f for f in self.list_invoices(patient_id=patient_id) if f["estado"] != "anulada"]
+        pagos = [s.to_dict() for s in self.db.collection("pagos").where("id_paciente", "==", int(patient_id)).stream()]
 
-        tot_fac = sum(f.get("monto_total", 0.0) for f in facturas)
-        tot_pag = sum(pg.get("monto_abonado", 0.0) for pg in pagos)
+        tot_fac = round(sum(f["monto_total"] for f in facturas), 2)
+        tot_pag = round(sum(f["monto_pagado"] for f in facturas), 2)
 
         return {
             "paciente": p,
@@ -642,117 +666,289 @@ class FirebaseAdapter(BaseClinicalAdapter, DentalOperationsPort):
         ref.document(doc_id).set(item)
         return item
 
+    # ------------------------------------------------------------------
+    # Planes de tratamiento
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _etapa(i: int, e: Dict[str, Any]) -> Dict[str, Any]:
+        """Una fase del plan. Guarda los dos juegos de nombres (pantalla y documento)."""
+        nombre = (e.get("nombre_etapa") or e.get("descripcion_fase") or f"Fase {i}").strip()
+        costo = round(float(e.get("costo_estimado") or e.get("costo_fase") or 0.0), 2)
+        est = e.get("estado") or e.get("estado_fase") or "pendiente"
+        return {"id_etapa": i, "numero_etapa": i, "nombre_etapa": nombre, "descripcion_fase": nombre,
+                "procedimientos_planificados": e.get("procedimientos_planificados") or "",
+                "costo_estimado": costo, "costo_fase": costo, "estado": est, "estado_fase": est}
+
     def list_treatment_plans(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
         q = self.db.collection("planes_tratamiento")
         if patient_id:
-            q = q.where("id_paciente", "==", patient_id)
-        return [s.to_dict() for s in q.stream()]
+            q = q.where("id_paciente", "==", int(patient_id))
+        return sorted((s.to_dict() for s in q.stream()), key=lambda p: p["id_plan"], reverse=True)
 
     def create_treatment_plan(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        new_id = self._siguiente_id("planes_tratamiento")
-        etapas_raw = data.get("etapas") or []
-        etapas = []
-        for i, e in enumerate(etapas_raw, 1):
-            etapas.append({
-                "id_etapa": i, "numero_etapa": i,
-                "descripcion_fase": e.get("descripcion_fase", f"Fase {i}"),
-                "costo_fase": float(e.get("costo_fase", 0.0)),
-                "estado_fase": e.get("estado_fase", "pendiente")
-            })
-        costo_total = float(data.get("costo_total_estimado", sum(e["costo_fase"] for e in etapas)))
-        plan = {
-            "id_plan": new_id,
-            "id_paciente": int(data["id_paciente"]),
-            "id_odontologo": int(data.get("id_odontologo", 1)),
-            "titulo": data.get("titulo", "Plan Odontológico"),
-            "costo_total_estimado": costo_total,
-            "estado_aprobacion": "pendiente",
-            "fecha_propuesta": _ahora()[:10],
-            "etapas": etapas
-        }
-        self.db.collection("planes_tratamiento").document(str(new_id)).set(plan)
-        # Crear factura inicial
-        id_fac = self._siguiente_id("facturas")
-        self.db.collection("facturas").document(str(id_fac)).set({
-            "id_factura": id_fac, "id_paciente": plan["id_paciente"], "id_plan": new_id,
-            "fecha_emision": _ahora()[:10], "monto_total": costo_total, "monto_pagado": 0.0,
-            "saldo_pendiente": costo_total, "estado_factura": "pendiente"
-        })
-        return plan
+        pid = int(data["id_paciente"])
+        etapas = [self._etapa(i, e) for i, e in enumerate(data.get("etapas") or [], 1)]
+        suma = round(sum(e["costo_estimado"] for e in etapas), 2)
+        total = round(float(data.get("costo_total_estimado") or suma), 2)
+        if total < suma:
+            raise ValueError(f"El costo total (Q{total:.2f}) es menor que la suma de las fases (Q{suma:.2f})")
+        id_od = int(data.get("id_odontologo") or data.get("id_profesional") or 1)
+        od = self.db.collection("odontologos").document(str(id_od)).get()
+        od_nombre = od.to_dict().get("nombre_completo", "Odontólogo") if od.exists else "Odontólogo"
+        titulo = data.get("titulo") or data.get("diagnostico_general") or "Plan odontológico"
+
+        def tx_fn(tx):
+            # 1) LECTURAS
+            seq_plan = self._leer_contador(tx, "planes_tratamiento")
+            # el id del plan aún no existe, así que no hace falta revisar si ya se facturó
+            ctx = self._leer_para_factura(tx, {"id_paciente": pid})
+            # 2) ESCRITURAS
+            plan_id = self._next_id(tx, "planes_tratamiento", seq_plan)
+            pac = ctx["paciente"]
+            lineas = [{"codigo_arancel": None, "concepto": f"Plan #{plan_id}: {e['nombre_etapa']}",
+                       "cantidad": 1, "precio_unitario": e["costo_estimado"]} for e in etapas if e["costo_estimado"] > 0]
+            if total > suma:
+                lineas.append({"codigo_arancel": None, "cantidad": 1, "precio_unitario": round(total - suma, 2),
+                               "concepto": f"Plan #{plan_id}: fases restantes" if etapas else f"Plan #{plan_id}: {titulo}"})
+            factura = self._escribir_factura(tx, ctx, {
+                "id_paciente": pid, "lineas": lineas, "origen_tipo": "plan", "origen_id": plan_id}) if lineas else None
+            plan = {
+                "id_plan": plan_id, "id_paciente": pid, "paciente_nombre": f"{pac['nombres']} {pac['apellidos']}",
+                "id_odontologo": id_od, "odontologo_nombre": od_nombre,
+                "titulo": titulo, "diagnostico_general": data.get("diagnostico_general") or titulo,
+                "costo_total_estimado": total, "estado": "propuesto", "estado_aprobacion": "pendiente",
+                "fecha_propuesta": _ahora()[:10], "etapas": etapas,
+                "id_factura": factura["id_factura"] if factura else None,
+                "numero_factura": factura["numero_factura"] if factura else None,
+            }
+            tx.set(self.db.collection("planes_tratamiento").document(str(plan_id)), plan)
+            return plan
+
+        return self._run_tx(tx_fn)
 
     def update_treatment_plan_stage(self, plan_id: int, etapa_id: int, estado: str) -> Dict[str, Any]:
         ref = self.db.collection("planes_tratamiento").document(str(int(plan_id)))
-        snap = ref.get()
-        if not snap.exists:
-            raise ValueError(f"Plan {plan_id} no encontrado")
-        p = snap.to_dict()
-        for e in p.get("etapas") or []:
-            if e["id_etapa"] == etapa_id:
-                e["estado_fase"] = estado
-        if all(e["estado_fase"] == "completada" for e in p.get("etapas", [])):
-            p["estado_aprobacion"] = "finalizado"
-        elif any(e["estado_fase"] == "completada" for e in p.get("etapas", [])):
-            p["estado_aprobacion"] = "en_curso"
-        ref.set(p)
-        return p
+
+        def tx_fn(tx):
+            snap = ref.get(transaction=tx)
+            if not snap.exists:
+                raise ValueError(f"Plan {plan_id} no encontrado")
+            p = snap.to_dict()
+            etapas = p.get("etapas") or []
+            if not any(int(e["id_etapa"]) == int(etapa_id) for e in etapas):
+                raise ValueError(f"El plan {plan_id} no tiene la fase {etapa_id}")
+            for e in etapas:
+                if int(e["id_etapa"]) == int(etapa_id):
+                    e["estado"] = e["estado_fase"] = estado
+            if all(e.get("estado") == "completada" for e in etapas):
+                p["estado"], p["estado_aprobacion"] = "finalizado", "finalizado"
+            elif any(e.get("estado") in ("en_curso", "completada") for e in etapas):
+                p["estado"], p["estado_aprobacion"] = "en_curso", "en_curso"
+            tx.set(ref, p)
+            return p
+
+        return self._run_tx(tx_fn)
+
+    # ------------------------------------------------------------------
+    # Catálogo de procedimientos = aranceles de la Caja
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _codigo_proc(p: Dict[str, Any]) -> str:
+        return p.get("codigo") or f"OD-{int(p['id_procedimiento']):02d}"
 
     def list_dental_procedures_catalog(self) -> List[Dict[str, Any]]:
-        return sorted((s.to_dict() for s in self.db.collection("procedimientos_catalogo").stream()),
+        return sorted(({**s.to_dict(), "codigo": self._codigo_proc(s.to_dict())}
+                       for s in self.db.collection("procedimientos_catalogo").stream()),
                       key=lambda p: p["id_procedimiento"])
 
     def create_dental_procedure(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        new_id = self._siguiente_id("procedimientos_catalogo")
-        proc = {
-            "id_procedimiento": new_id,
-            "nombre_procedimiento": data["nombre_procedimiento"].strip(),
-            "descripcion": data.get("descripcion", ""),
-            "duracion_estimada_min": int(data.get("duracion_estimada_min", 45)),
-            "costo": float(data["costo"])
-        }
-        self.db.collection("procedimientos_catalogo").document(str(new_id)).set(proc)
-        return proc
+        def tx_fn(tx):
+            new_id = self._next_id(tx, "procedimientos_catalogo", self._leer_contador(tx, "procedimientos_catalogo"))
+            proc = {
+                "id_procedimiento": new_id,
+                "codigo": (data.get("codigo") or f"OD-{new_id:02d}").strip().upper(),
+                "nombre_procedimiento": data["nombre_procedimiento"].strip(),
+                "descripcion": data.get("descripcion") or "",
+                "categoria": data.get("categoria") or data.get("especialidad") or "Operatoria",
+                "duracion_estimada_min": int(data.get("duracion_estimada_min") or data.get("duracion_minutos") or 45),
+                "costo": round(float(data["costo"]), 2),
+                "activo": True,
+            }
+            tx.set(self.db.collection("procedimientos_catalogo").document(str(new_id)), proc)
+            return proc
 
-    def list_billing_and_payments(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        return self._run_tx(tx_fn)
+
+    def list_tariffs(self) -> List[Dict[str, Any]]:
+        return [{"codigo": p["codigo"], "descripcion": p["nombre_procedimiento"], "categoria": "procedimiento",
+                 "precio": float(p.get("costo") or 0), "activo": p.get("activo", True)}
+                for p in self.list_dental_procedures_catalog()]
+
+    def save_tariff(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        actual = next((p for p in self.list_dental_procedures_catalog() if p["codigo"] == data["codigo"]), None)
+        if actual is None:
+            self.create_dental_procedure({"codigo": data["codigo"], "nombre_procedimiento": data["descripcion"],
+                                          "costo": data["precio"]})
+        else:
+            self.db.collection("procedimientos_catalogo").document(str(actual["id_procedimiento"])).update({
+                "codigo": data["codigo"], "nombre_procedimiento": data["descripcion"],
+                "costo": round(float(data["precio"]), 2), "activo": bool(data.get("activo", True))})
+        return next(t for t in self.list_tariffs() if t["codigo"] == data["codigo"])
+
+    # ------------------------------------------------------------------
+    # Caja (BillingPort)
+    # ------------------------------------------------------------------
+    def _leer_para_factura(self, tx, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Fase de LECTURA de una factura nueva: paciente, contador y que el origen no esté facturado."""
+        pid = int(data["id_paciente"])
+        snap = self._paciente_ref(pid).get(transaction=tx)
+        if not snap.exists:
+            raise ValueError(f"Paciente {pid} no encontrado")
+        if data.get("origen_id"):
+            origen_ref = self.db.collection("facturas_origen").document(f"{data.get('origen_tipo') or 'manual'}-{int(data['origen_id'])}")
+            ya = origen_ref.get(transaction=tx)
+            if ya.exists:
+                raise ValueError(f"Eso ya está facturado en la factura {ya.to_dict().get('numero_factura')}")
+        return {"paciente": snap.to_dict(), "seq": self._leer_contador(tx, "facturas")}
+
+    def _escribir_factura(self, tx, ctx: Dict[str, Any], data: Dict[str, Any]) -> Dict[str, Any]:
+        """Fase de ESCRITURA: la factura con su detalle embebido."""
+        pac = ctx["paciente"]
+        fid = self._next_id(tx, "facturas", ctx["seq"])
+        detalle = [{"codigo_arancel": l.get("codigo_arancel") or None, "concepto": l["concepto"],
+                    "cantidad": float(l["cantidad"]), "precio_unitario": round(float(l["precio_unitario"]), 2),
+                    "subtotal": round(float(l["cantidad"]) * float(l["precio_unitario"]), 2)} for l in data["lineas"]]
+        total = round(sum(d["subtotal"] for d in detalle), 2)
+        est = "pendiente" if total > 0 else "pagada"
+        origen_tipo, origen_id = data.get("origen_tipo") or "manual", data.get("origen_id")
+        doc = {
+            "id_factura": fid, "numero_factura": f"CO-{fid:06d}", "id_paciente": int(pac["id_paciente"]),
+            "paciente": f"{pac['nombres']} {pac['apellidos']}",
+            "nit": data.get("nit") or "CF",
+            "nombre_facturacion": data.get("nombre_facturacion") or f"{pac['nombres']} {pac['apellidos']}",
+            "fecha_emision": _ahora(), "detalle": detalle,
+            "monto_total": total, "monto_pagado": 0.0, "saldo_pendiente": total,
+            "estado": est, "estado_factura": est,
+            "origen_tipo": origen_tipo, "origen_id": int(origen_id) if origen_id else None,
+            "id_plan": int(origen_id) if origen_tipo == "plan" and origen_id else None,
+            "motivo_anulacion": None,
+        }
+        tx.set(self.db.collection("facturas").document(str(fid)), doc)
+        if origen_id:   # índice para no facturar dos veces el mismo plan o consulta
+            tx.set(self.db.collection("facturas_origen").document(f"{origen_tipo}-{int(origen_id)}"),
+                   {"id_factura": fid, "numero_factura": doc["numero_factura"]})
+        return doc
+
+    @staticmethod
+    def _con_saldo(f: Dict[str, Any]) -> Dict[str, Any]:
+        f["saldo"] = f["saldo_pendiente"] = round(f["monto_total"] - f["monto_pagado"], 2)
+        return f
+
+    def list_invoices(self, estado: Optional[str] = None, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
         q = self.db.collection("facturas")
         if patient_id:
-            q = q.where("id_paciente", "==", patient_id)
-        facturas = [s.to_dict() for s in q.stream()]
-        res = []
-        for f in facturas:
-            pagos = [s.to_dict() for s in self.db.collection("pagos").where("id_factura", "==", f["id_factura"]).stream()]
-            res.append({**f, "abonos": pagos})
-        return res
+            q = q.where("id_paciente", "==", int(patient_id))
+        facturas = [self._con_saldo(s.to_dict()) for s in q.stream()]
+        if estado:
+            facturas = [f for f in facturas if f["estado"] == estado]
+        return sorted(facturas, key=lambda f: (f["fecha_emision"], f["id_factura"]), reverse=True)
+
+    def _pagos_de(self, invoice_id: int) -> List[Dict[str, Any]]:
+        return sorted((s.to_dict() for s in self.db.collection("pagos").where("id_factura", "==", int(invoice_id)).stream()),
+                      key=lambda p: p["id_pago"])
+
+    def get_invoice(self, invoice_id: int) -> Dict[str, Any]:
+        snap = self.db.collection("facturas").document(str(int(invoice_id))).get()
+        if not snap.exists:
+            raise ValueError("Factura no encontrada")
+        f = self._con_saldo(snap.to_dict())
+        f["pagos"] = self._pagos_de(f["id_factura"])
+        return f
+
+    def create_invoice(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        def tx_fn(tx):
+            ctx = self._leer_para_factura(tx, data)
+            return self._escribir_factura(tx, ctx, data)["id_factura"]
+
+        return self.get_invoice(self._run_tx(tx_fn))
+
+    def register_invoice_payment(self, invoice_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        self._cobrar(invoice_id, data)
+        return self.get_invoice(invoice_id)
+
+    def _cobrar(self, invoice_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Registra el pago y devuelve el recibo."""
+        monto = round(float(data["monto"]), 2)
+        fref = self.db.collection("facturas").document(str(int(invoice_id)))
+
+        def tx_fn(tx):
+            # 1) LECTURAS: si otro cajero cobra al mismo tiempo, Firestore reintenta y vuelve a validar el saldo
+            snap = fref.get(transaction=tx)
+            if not snap.exists:
+                raise ValueError("Factura no encontrada")
+            f = snap.to_dict()
+            if f["estado"] == "anulada":
+                raise ValueError(f"La factura {f['numero_factura']} está anulada")
+            if f["estado"] == "pagada":
+                raise ValueError(f"La factura {f['numero_factura']} ya está pagada")
+            saldo = round(f["monto_total"] - f["monto_pagado"], 2)
+            if monto > saldo:
+                raise ValueError(f"El pago (Q{monto:.2f}) supera el saldo de la factura (Q{saldo:.2f})")
+            seq = self._leer_contador(tx, "pagos")
+            # 2) ESCRITURAS
+            pago_id = self._next_id(tx, "pagos", seq)
+            quien = data.get("recibido_por") or "Caja"
+            pago = {
+                "id_pago": pago_id, "id_factura": f["id_factura"], "id_paciente": f["id_paciente"],
+                "numero_recibo": f"R-CO-{pago_id:06d}", "fecha_pago": _ahora(),
+                "monto": monto, "monto_abonado": monto, "metodo_pago": data["metodo_pago"],
+                "referencia": data.get("referencia") or None, "recibido_por": quien, "secretaria": quien,
+            }
+            tx.set(self.db.collection("pagos").document(str(pago_id)), pago)
+            pagado = round(f["monto_pagado"] + monto, 2)
+            est = "pagada" if pagado >= f["monto_total"] else "parcial"
+            tx.update(fref, {"monto_pagado": pagado, "saldo_pendiente": round(f["monto_total"] - pagado, 2),
+                             "estado": est, "estado_factura": est})
+            return pago
+
+        return self._run_tx(tx_fn)
+
+    def void_invoice(self, invoice_id: int, motivo: str) -> Dict[str, Any]:
+        fref = self.db.collection("facturas").document(str(int(invoice_id)))
+
+        def tx_fn(tx):
+            snap = fref.get(transaction=tx)
+            if not snap.exists:
+                raise ValueError("Factura no encontrada")
+            f = snap.to_dict()
+            if f["estado"] == "anulada":
+                raise ValueError("La factura ya está anulada")
+            if f["monto_pagado"] > 0:
+                raise ValueError(f"La factura {f['numero_factura']} tiene pagos por Q{f['monto_pagado']:.2f}; no se puede anular")
+            tx.update(fref, {"estado": "anulada", "estado_factura": "anulada", "motivo_anulacion": motivo})
+            if f.get("origen_id"):   # el plan o la consulta se puede volver a facturar
+                tx.delete(self.db.collection("facturas_origen").document(f"{f['origen_tipo']}-{f['origen_id']}"))
+
+        self._run_tx(tx_fn)
+        return self.get_invoice(invoice_id)
+
+    def suggested_charges(self, origen_tipo: str, origen_id: int) -> List[Dict[str, Any]]:
+        return []
+
+    # Rutas antiguas /api/dental/billing y /api/dental/payments: usan la misma Caja
+    def list_billing_and_payments(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        return [{**f, "abonos": self._pagos_de(f["id_factura"])} for f in self.list_invoices(patient_id=patient_id)]
+
+    _METODOS = {"efectivo": "efectivo", "tarjeta de crédito/débito": "tarjeta", "transferencia bancaria": "transferencia",
+                "tarjeta": "tarjeta", "transferencia": "transferencia", "cheque": "cheque"}
 
     def register_payment(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        id_fac = int(data["id_factura"])
-        monto = float(data["monto_abonado"])
-        fref = self.db.collection("facturas").document(str(id_fac))
-        fsnap = fref.get()
-        if not fsnap.exists:
-            raise ValueError(f"Factura {id_fac} no encontrada")
-        f = fsnap.to_dict()
-
-        new_id = self._siguiente_id("pagos")
-        pago = {
-            "id_pago": new_id, "id_factura": id_fac, "id_paciente": f["id_paciente"],
-            "fecha_pago": _ahora(), "monto_abonado": monto,
-            "metodo_pago": data.get("metodo_pago", "Efectivo"),
-            "numero_recibo": data["numero_recibo"].strip().upper(),
-            "secretaria": data.get("secretaria", "Recepción")
-        }
-        self.db.collection("pagos").document(str(new_id)).set(pago)
-
-        f["monto_pagado"] = round(f["monto_pagado"] + monto, 2)
-        f["saldo_pendiente"] = max(0.0, round(f["monto_total"] - f["monto_pagado"], 2))
-        f["estado_factura"] = "cancelada" if f["saldo_pendiente"] == 0 else "parcial"
-        fref.set(f)
-        return {
-            **pago,
-            "monto": monto,
-            "monto_abonado": monto,
-            "pago": pago,
-            "factura": f
-        }
+        metodo = self._METODOS.get(str(data.get("metodo_pago") or "efectivo").strip().lower(), "efectivo")
+        pago = self._cobrar(int(data["id_factura"]), {
+            "monto": data.get("monto_abonado") or data.get("monto"), "metodo_pago": metodo,
+            "referencia": data.get("referencia") or data.get("numero_recibo"),
+            "recibido_por": data.get("secretaria") or data.get("recibido_por")})
+        return {**pago, "pago": pago, "factura": self.get_invoice(int(data["id_factura"]))}
 
     def list_dental_findings_catalog(self) -> List[Dict[str, Any]]:
         return [

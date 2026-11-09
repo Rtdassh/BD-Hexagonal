@@ -35,7 +35,14 @@ if (-not (Test-Path ".env")) { Copy-Item ".env.example" ".env"; Write-Host "Se c
 # 3. Motores ------------------------------------------------------------------
 if ($Reiniciar) {
     Paso "Borrando las bases anteriores (docker compose down -v)"
-    docker compose down -v
+    docker compose down -v --remove-orphans
+    # A veces Docker Desktop no alcanza a borrar la red ("Error Delete .../networks/...").
+    # No afecta a los datos: se reintenta y, si sigue ahí, "up" la vuelve a usar.
+    $red = "$((Split-Path -Leaf $PWD).ToLower())_default"
+    if (docker network ls -q --filter "name=^$red$") {
+        Start-Sleep -Seconds 2
+        docker network rm $red 2>$null | Out-Null
+    }
 }
 Paso "Levantando los motores (la primera vez tarda varios minutos)"
 docker compose up -d --build

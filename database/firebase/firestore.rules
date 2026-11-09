@@ -75,6 +75,42 @@ service cloud.firestore {
       allow read, create: if esPersonal();
       allow update, delete: if false;
     }
+    // ---------------------------------------------------------------- Caja
+    function facturaValida(d) {
+      return d.numero_factura is string && d.numero_factura.matches('^CO-[0-9]{6}$')
+        && d.monto_total is number && d.monto_total >= 0
+        && d.monto_pagado is number && d.monto_pagado >= 0 && d.monto_pagado <= d.monto_total
+        && d.estado in ['pendiente', 'parcial', 'pagada', 'anulada']
+        && d.nit is string && d.nit.matches('^(CF|[0-9]{1,12}-?[0-9K])$')
+        && d.detalle is list && d.detalle.size() >= 1 && d.detalle.size() <= 30;
+    }
+    match /facturas/{id} {
+      allow read: if esPersonal();
+      allow create: if esPersonal() && facturaValida(request.resource.data) && request.resource.data.monto_pagado == 0;
+      // el detalle y el total no se cambian después de emitir; solo el pago y el estado
+      allow update: if esPersonal() && facturaValida(request.resource.data)
+        && request.resource.data.monto_total == resource.data.monto_total
+        && request.resource.data.detalle == resource.data.detalle
+        && resource.data.estado != 'anulada';
+      allow delete: if false;
+    }
+    match /pagos/{id} {
+      allow read: if esPersonal();
+      allow create: if esPersonal() && request.resource.data.monto is number && request.resource.data.monto > 0
+        && request.resource.data.metodo_pago in ['efectivo', 'tarjeta', 'transferencia', 'cheque']
+        && request.resource.data.numero_recibo.matches('^R-CO-[0-9]{6}$');
+      allow update, delete: if false; // un recibo emitido no se modifica
+    }
+    match /facturas_origen/{origen} {
+      allow read, create, delete: if esPersonal();
+      allow update: if false;
+    }
+    match /planes_tratamiento/{id} {
+      allow read: if esPersonal();
+      allow create, update: if esClinico() && request.resource.data.costo_total_estimado is number
+        && request.resource.data.costo_total_estimado >= 0 && request.resource.data.etapas is list;
+      allow delete: if false;
+    }
     match /contadores/{nombre} {
       allow read, write: if esPersonal();
     }

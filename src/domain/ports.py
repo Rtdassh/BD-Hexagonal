@@ -500,8 +500,8 @@ class LaboratoryOrdersPort(ABC):
 class BillingPort(ABC):
     """
     Caja de cada institución: aranceles (precios), facturas con su detalle y pagos.
-    Lo implementan PostgreSQL (hospital), MySQL (pediátrico) y MongoDB (laboratorio).
-    La Clínica Odontológica tiene su propia facturación por planes en DentalOperationsPort.
+    Lo implementan PostgreSQL (hospital), MySQL (pediátrico), MongoDB (laboratorio) y
+    Firestore (clínica odontológica, donde los aranceles son el catálogo de procedimientos).
     """
 
     ESTADOS = ("pendiente", "parcial", "pagada", "anulada")
