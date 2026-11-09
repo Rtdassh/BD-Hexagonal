@@ -587,7 +587,8 @@ class FirebaseAdapter(BaseClinicalAdapter, DentalOperationsPort, BillingPort):
             "medicamentos_actuales": "", "observaciones_medicas": "Sin antecedentes patológicos."
         }
 
-        hallazgos = [s.to_dict() for s in ref.collection("odontograma").stream()]
+        odonto = self.get_odontogram(patient_id)
+        hallazgos = odonto["hallazgos"]
         piezas_tratadas = {str(h["codigo_fdi"]) for h in hallazgos if "codigo_fdi" in h}
 
         procs = []
@@ -609,6 +610,7 @@ class FirebaseAdapter(BaseClinicalAdapter, DentalOperationsPort, BillingPort):
             "paciente": p,
             "antecedentes": ant,
             "hallazgos_odontograma": hallazgos,
+            "odontograma": odonto,
             "piezas_tratadas": sorted(list(piezas_tratadas)),
             "procedimientos": procs,
             "planes_tratamiento": planes,
@@ -636,35 +638,73 @@ class FirebaseAdapter(BaseClinicalAdapter, DentalOperationsPort, BillingPort):
         ref.set(ant)
         return ant
 
+    _ORDEN_CARAS = {"G": 0, "O": 1, "V": 2, "L": 3, "P": 3, "M": 4, "D": 5}
+
     def get_odontogram(self, patient_id: Optional[int] = None) -> Dict[str, Any]:
         if patient_id is not None:
-            ref = self._paciente_ref(patient_id)
-            hallazgos = [s.to_dict() for s in ref.collection("odontograma").stream()]
+            hallazgos = [s.to_dict() for s in self._paciente_ref(patient_id).collection("odontograma").stream()]
         else:
             try:
                 hallazgos = [s.to_dict() for s in self.db.collection_group("odontograma").stream()]
             except Exception:
                 hallazgos = []
-        piezas = {}
+        hallazgos.sort(key=lambda h: (int(h.get("codigo_fdi", 0)), self._ORDEN_CARAS.get(h.get("cara"), 9)))
+        piezas: Dict[str, List[Dict[str, Any]]] = {}
         for h in hallazgos:
+            h.setdefault("fecha_registro", h.get("fecha"))
+            h.setdefault("estado", "activo")
             piezas.setdefault(str(h.get("codigo_fdi")), []).append(h)
-        return {"id_paciente": patient_id, "hallazgos": hallazgos, "piezas": piezas}
+        activos = sum(1 for h in hallazgos if h["estado"] == "activo")
+        return {"id_paciente": patient_id, "hallazgos": hallazgos, "piezas": piezas,
+                "resumen": {"piezas_con_hallazgos": len(piezas), "por_tratar": activos,
+                            "tratados": sum(1 for h in hallazgos if h["estado"] == "tratado")}}
 
     def save_odontogram_finding(self, patient_id: int, data: Dict[str, Any]) -> Dict[str, Any]:
-        ref = self._paciente_ref(patient_id).collection("odontograma")
-        doc_id = f"{data['codigo_fdi']}_{data.get('cara', 'O')}"
-        item = {
-            "id_detalle": doc_id,
-            "id_paciente": patient_id,
-            "codigo_fdi": int(data["codigo_fdi"]),
-            "cara": str(data.get("cara", "O")).upper(),
-            "hallazgo": str(data["hallazgo"]).strip(),
-            "color_hex": str(data.get("color_hex", "#E53935")),
-            "notas": str(data.get("notas", "")),
-            "fecha": _ahora()[:10]
-        }
-        ref.document(doc_id).set(item)
-        return item
+        """Una cara de una pieza guarda su estado actual; lo anterior queda en 'historial'."""
+        pac_ref = self._paciente_ref(patient_id)
+        cara = str(data.get("cara") or "O").upper()
+        doc_id = f"{int(data['codigo_fdi'])}_{cara}"
+        ref = pac_ref.collection("odontograma").document(doc_id)
+        cat = {h["nombre"]: h for h in self.list_dental_findings_catalog()}
+        info = cat.get(str(data["hallazgo"]).strip(), {})
+
+        def tx_fn(tx):
+            if not pac_ref.get(transaction=tx).exists:
+                raise ValueError(f"Paciente {patient_id} no encontrado")
+            previo = ref.get(transaction=tx)
+            historial = []
+            if previo.exists:
+                a = previo.to_dict()
+                historial = (a.get("historial") or [])[-9:] + [{k: a.get(k) for k in
+                                                              ("hallazgo", "estado", "fecha_registro", "registrado_por")}]
+            item = {
+                "id_detalle": doc_id, "id_paciente": int(patient_id),
+                "codigo_fdi": int(data["codigo_fdi"]), "cara": cara,
+                "hallazgo": str(data["hallazgo"]).strip(), "codigo_hallazgo": info.get("codigo"),
+                "color_hex": data.get("color_hex") or info.get("color_hex") or "#B42318",
+                "estado": data.get("estado") or "activo", "severidad": data.get("severidad") or None,
+                "notas": str(data.get("notas") or ""), "registrado_por": data.get("registrado_por"),
+                "fecha_registro": _ahora(), "historial": historial,
+            }
+            tx.set(ref, item)
+            tx.update(pac_ref, {"historial.fecha_ultima_actualizacion": _ahora()})
+            return item
+
+        return self._run_tx(tx_fn)
+
+    def update_odontogram_finding(self, patient_id: int, codigo_fdi: int, cara: str, estado: str) -> Dict[str, Any]:
+        ref = self._paciente_ref(patient_id).collection("odontograma").document(f"{int(codigo_fdi)}_{cara.upper()}")
+        snap = ref.get()
+        if not snap.exists:
+            raise ValueError(f"La pieza {codigo_fdi} no tiene hallazgo en esa cara")
+        ref.update({"estado": estado, "fecha_registro": _ahora()})
+        return ref.get().to_dict()
+
+    def delete_odontogram_finding(self, patient_id: int, codigo_fdi: int, cara: str) -> None:
+        ref = self._paciente_ref(patient_id).collection("odontograma").document(f"{int(codigo_fdi)}_{cara.upper()}")
+        if not ref.get().exists:
+            raise ValueError(f"La pieza {codigo_fdi} no tiene hallazgo en esa cara")
+        ref.delete()
 
     # ------------------------------------------------------------------
     # Planes de tratamiento
@@ -950,17 +990,29 @@ class FirebaseAdapter(BaseClinicalAdapter, DentalOperationsPort, BillingPort):
             "recibido_por": data.get("secretaria") or data.get("recibido_por")})
         return {**pago, "pago": pago, "factura": self.get_invoice(int(data["id_factura"]))}
 
+    # Simbología del odontograma. Vive en la colección catalogo_hallazgos; si aún no se
+    # cargó, se usa esta lista (los mismos colores que la leyenda de la pantalla).
+    CATALOGO_HALLAZGOS = [
+        {"id_hallazgo": 1, "codigo": "caries", "nombre": "Caries activa", "color_hex": "#B42318", "tipo": "patologia", "toda_la_pieza": False},
+        {"id_hallazgo": 2, "codigo": "fractura", "nombre": "Fractura dental", "color_hex": "#C2410C", "tipo": "patologia", "toda_la_pieza": False},
+        {"id_hallazgo": 3, "codigo": "extraccion_indicada", "nombre": "Extracción indicada", "color_hex": "#8B1E3F", "tipo": "patologia", "toda_la_pieza": True},
+        {"id_hallazgo": 4, "codigo": "resina", "nombre": "Restauración con resina", "color_hex": "#2F5E9E", "tipo": "restauracion", "toda_la_pieza": False},
+        {"id_hallazgo": 5, "codigo": "amalgama", "nombre": "Obturación con amalgama", "color_hex": "#44546A", "tipo": "restauracion", "toda_la_pieza": False},
+        {"id_hallazgo": 6, "codigo": "sellante", "nombre": "Sellante de fisuras", "color_hex": "#0E7C86", "tipo": "restauracion", "toda_la_pieza": False},
+        {"id_hallazgo": 7, "codigo": "corona", "nombre": "Corona protésica", "color_hex": "#B98900", "tipo": "restauracion", "toda_la_pieza": True},
+        {"id_hallazgo": 8, "codigo": "endodoncia", "nombre": "Endodoncia / conducto", "color_hex": "#7A4FB0", "tipo": "restauracion", "toda_la_pieza": True},
+        {"id_hallazgo": 9, "codigo": "ausente", "nombre": "Pieza ausente / extraída", "color_hex": "#6E7F7C", "tipo": "ausencia", "toda_la_pieza": True},
+    ]
+
     def list_dental_findings_catalog(self) -> List[Dict[str, Any]]:
-        return [
-            {"id_hallazgo": 1, "codigo": "caries", "nombre": "Caries activa", "color_hex": "#E53935"},
-            {"id_hallazgo": 2, "codigo": "resina", "nombre": "Restauración resina", "color_hex": "#43A047"},
-            {"id_hallazgo": 3, "codigo": "amalgama", "nombre": "Obturación amalgama", "color_hex": "#1E88E5"},
-            {"id_hallazgo": 4, "codigo": "corona", "nombre": "Corona protésica", "color_hex": "#FDD835"},
-            {"id_hallazgo": 5, "codigo": "endodoncia", "nombre": "Conducto / Endodoncia", "color_hex": "#8E24AA"},
-            {"id_hallazgo": 6, "codigo": "ausente", "nombre": "Pieza ausente / extracción", "color_hex": "#757575"},
-            {"id_hallazgo": 7, "codigo": "sellante", "nombre": "Sellante de fisuras", "color_hex": "#00ACC1"},
-            {"id_hallazgo": 8, "codigo": "fractura", "nombre": "Fractura dental", "color_hex": "#FB8C00"}
-        ]
+        try:
+            cat = sorted((s.to_dict() for s in self.db.collection("catalogo_hallazgos").stream()),
+                         key=lambda h: h["id_hallazgo"])
+        except Exception:
+            cat = []
+        # nombre_hallazgo / color_sugerido: los nombres que usa el adaptador simulado
+        return [{**h, "nombre_hallazgo": h["nombre"], "color_sugerido": h["color_hex"]}
+                for h in (cat or self.CATALOGO_HALLAZGOS)]
 
     def list_dental_supplies(self) -> List[Dict[str, Any]]:
         return [

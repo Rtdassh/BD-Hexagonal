@@ -1012,6 +1012,36 @@ input[aria-invalid]:focus, textarea[aria-invalid]:focus { outline-color: rgba(18
 .diente-svg polygon:hover, .diente-svg rect:hover { stroke: var(--tinta); stroke-width: 2; }
 .diente-svg .cara-ausente { fill: #E0E0E0 !important; }
 
+/* Odontograma de la clínica dental (página Odontograma y pestaña del expediente) */
+.arcadas { display: grid; gap: 14px; overflow-x: auto; }
+.arcada-grupo h4 { margin: 0 0 6px; font-size: 0.8125rem; font-weight: 600; color: var(--tinta-2); }
+.arcada-fdi { display: flex; align-items: flex-end; gap: 2px; width: max-content; }
+.arcada-fdi + .arcada-fdi { margin-top: 6px; }
+.linea-media { width: 2px; align-self: stretch; background: var(--tinta-2); opacity: .35; margin: 0 6px; border-radius: 1px; }
+.diente-caja { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 3px; border-radius: 6px; border: 1px solid transparent; }
+.diente-caja:hover { background: color-mix(in srgb, var(--inst) 7%, white); }
+.diente-caja.seleccionado { background: color-mix(in srgb, var(--inst) 14%, white); border-color: var(--inst); }
+.diente-caja .diente-num { font-size: 0.75rem; font-variant-numeric: tabular-nums; color: var(--tinta-2); cursor: pointer; }
+.diente-caja.con-hallazgo .diente-num { color: var(--tinta); font-weight: 700; }
+.diente-svg polygon.cara-activa { stroke: var(--inst); stroke-width: 2.4; }
+.diente-svg rect.corona { cursor: default; }
+.odonto-resumen { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 0.875rem; color: var(--tinta-2); }
+.odonto-resumen b { color: var(--tinta); font-size: 1rem; margin-right: 2px; }
+.odonto-resumen .peligro-txt b { color: inherit; }
+.leyenda-hallazgos i, .punto-color { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.detalle-pieza-vacio { margin: 16px 0; padding: 14px 16px; border: 1px dashed var(--linea); border-radius: 10px; }
+.detalle-pieza-vacio p { margin: 0; }
+.tarjeta-detalle-pieza { margin: 16px 0; padding: 14px 16px; border: 1px solid var(--inst); border-radius: 10px; background: var(--blanco); display: grid; gap: 10px; }
+.tarjeta-detalle-pieza header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.tarjeta-detalle-pieza h4 { margin: 0; font-size: 1rem; }
+.tarjeta-detalle-pieza p { margin: 0; }
+.titulo-sec { margin: 20px 0 10px; font-size: 1rem; }
+.barra-odonto { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.barra-odonto label { display: grid; gap: 4px; font-size: 0.8125rem; font-weight: 600; color: var(--tinta-2); }
+.barra-odonto select { min-width: 320px; }
+.enlace-pieza { font: inherit; font-weight: 700; background: none; border: 0; padding: 0; color: var(--inst); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.acciones-hallazgo { white-space: nowrap; text-align: right; }
+
 .leyenda-hallazgos { display: flex; flex-wrap: wrap; gap: 8px 14px; font-size: 0.8125rem; align-items: center; padding: 10px 14px; background: var(--papel); border-radius: 8px; }
 .leyenda-item { display: inline-flex; align-items: center; gap: 6px; }
 .leyenda-dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex: none; }

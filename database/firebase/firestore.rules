@@ -39,6 +39,10 @@ service cloud.firestore {
       allow read: if true;
       allow write: if esClinico();
     }
+    match /catalogo_hallazgos/{id} {
+      allow read: if true;
+      allow write: if esClinico();
+    }
     match /odontologos/{id} {
       allow read: if true;
       allow write: if esClinico() && profesionalValido(request.resource.data);
@@ -57,6 +61,20 @@ service cloud.firestore {
       match /consultas/{consultaId} {
         allow read, write: if esClinico();
         allow delete: if false;
+      }
+      // RESTRINGIDA: odontograma, un documento por pieza y cara ("46_O"); solo el clínico lo edita
+      match /odontograma/{piezaCara} {
+        allow read: if esPersonal();
+        allow write: if esClinico() && request.resource.data.codigo_fdi is int
+          && ((request.resource.data.codigo_fdi >= 11 && request.resource.data.codigo_fdi <= 48)
+              || (request.resource.data.codigo_fdi >= 51 && request.resource.data.codigo_fdi <= 85))
+          && request.resource.data.cara in ['O', 'V', 'L', 'M', 'D', 'G']
+          && request.resource.data.estado in ['activo', 'tratado', 'en_observacion']
+          && piezaCara == string(request.resource.data.codigo_fdi) + '_' + request.resource.data.cara;
+        allow delete: if esClinico();
+      }
+      match /antecedente_sistemico/{doc} {
+        allow read, write: if esClinico();
       }
     }
     match /citas/{citaId} {

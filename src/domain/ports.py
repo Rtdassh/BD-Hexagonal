@@ -375,6 +375,14 @@ class DentalOperationsPort(ABC):
         """Registra un hallazgo patológico o diagnóstico en una cara y pieza dental específica."""
         pass
 
+    def update_odontogram_finding(self, patient_id: int, codigo_fdi: int, cara: str, estado: str) -> Dict[str, Any]:
+        """Cambia el estado de un hallazgo (activo, tratado, en observación)."""
+        raise NotImplementedError("Este motor no permite cambiar hallazgos del odontograma")
+
+    def delete_odontogram_finding(self, patient_id: int, codigo_fdi: int, cara: str) -> None:
+        """Quita un hallazgo registrado por error."""
+        raise NotImplementedError("Este motor no permite quitar hallazgos del odontograma")
+
     @abstractmethod
     def list_treatment_plans(self, patient_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """Lista presupuestos y planes globales de rehabilitación dental con sus etapas."""

@@ -404,14 +404,37 @@ def validar_hallazgo_odontograma(data: Dict[str, Any]) -> Dict[str, Any]:
     fdi = numero(data, "codigo_fdi", "Pieza dental (FDI)", 11, 85, req=True, entero=True)
     if int(fdi) not in PIEZAS_FDI:
         raise ValueError(f"Pieza dental {int(fdi)} no es válida en notación FDI (11-48 permanentes, 51-85 temporales)")
-    cara = _txt(data.get("cara", "O")).upper()
-    if cara not in CARAS_DENTALES_VALIDAS:
-        raise ValueError(f"Cara dental inválida ({cara}). Use: {', '.join(sorted(CARAS_DENTALES_VALIDAS))}")
-    data["cara"] = cara
+    data["cara"] = validar_cara_dental(data.get("cara", "O"))
     texto(data, "hallazgo", "Hallazgo o diagnóstico", 80, 2, True)
-    texto(data, "color_hex", "Color simbología", 10, 4, False)
+    color = _txt(data.get("color_hex"))
+    if color and not re.fullmatch(r"#[0-9A-Fa-f]{6}", color):
+        raise ValueError("Color de simbología inválido (use el formato #RRGGBB)")
+    validar_estado_hallazgo(data.get("estado") or "activo")
+    data["estado"] = data.get("estado") or "activo"
+    sev = _txt(data.get("severidad")).lower()
+    if sev and sev not in SEVERIDADES_HALLAZGO:
+        raise ValueError(f"Severidad inválida. Use: {', '.join(SEVERIDADES_HALLAZGO)}")
+    data["severidad"] = sev or None
     texto(data, "notas", "Notas específicas", 255, 0, False)
     return data
+
+
+ESTADOS_HALLAZGO = ("activo", "tratado", "en_observacion")
+SEVERIDADES_HALLAZGO = ("leve", "moderada", "severa")
+_ALIAS_CARAS = {"GENERAL": "G", "O/I": "O", "I": "O", "P": "L"}
+
+
+def validar_cara_dental(valor: Any) -> str:
+    cara = _ALIAS_CARAS.get(_txt(valor).upper(), _txt(valor).upper())
+    if cara not in ("O", "V", "L", "M", "D", "G"):
+        raise ValueError(f"Cara dental inválida ({valor}). Use O, V, L, M, D o G (toda la pieza)")
+    return cara
+
+
+def validar_estado_hallazgo(estado: Any) -> str:
+    if estado not in ESTADOS_HALLAZGO:
+        raise ValueError(f"Estado del hallazgo inválido. Use: {', '.join(ESTADOS_HALLAZGO)}")
+    return estado
 
 
 def validar_plan_tratamiento(data: Dict[str, Any]) -> Dict[str, Any]:

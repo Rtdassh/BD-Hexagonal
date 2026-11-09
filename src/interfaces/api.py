@@ -489,6 +489,16 @@ def create_app(config: Config = None, router: EngineRouter = None):
     def dental_save_finding(pid):
         return _json(dental_service.registrar_hallazgo(request.current_user, pid, body()), 201)
 
+    @app.route("/api/dental/patients/<int:pid>/odontogram/findings/<int:fdi>/<cara>", methods=["PATCH"])
+    @require_auth
+    def dental_update_finding(pid, fdi, cara):
+        return _json(dental_service.cambiar_estado_hallazgo(request.current_user, pid, fdi, cara, body().get("estado")))
+
+    @app.route("/api/dental/patients/<int:pid>/odontogram/findings/<int:fdi>/<cara>", methods=["DELETE"])
+    @require_auth
+    def dental_delete_finding(pid, fdi, cara):
+        return _json(dental_service.quitar_hallazgo(request.current_user, pid, fdi, cara))
+
     @app.route("/api/dental/treatment-plans", methods=["GET"])
     @require_auth
     def dental_list_treatment_plans():

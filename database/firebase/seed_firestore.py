@@ -20,7 +20,7 @@ from src.infrastructure.config import Config  # noqa: E402
 from src.infrastructure.adapters.firebase_adapter import crear_cliente_firestore  # noqa: E402
 
 COLECCIONES = ["pacientes", "citas", "odontologos", "secretarias", "procedimientos_catalogo",
-               "planes_tratamiento", "facturas", "pagos", "facturas_origen",
+               "catalogo_hallazgos", "planes_tratamiento", "facturas", "pagos", "facturas_origen",
                "contadores", "dpi_index", "colegiado_index"]
 
 
@@ -47,11 +47,17 @@ def cargar(db, data):
         batch.set(db.collection("contadores").document(nombre), {"seq": seq})
     for p in data["pacientes"]:
         consultas = p.pop("consultas", [])
+        odontograma = p.pop("odontograma", [])
         ref = db.collection("pacientes").document(str(p["id_paciente"]))
         batch.set(ref, p)
         batch.set(db.collection("dpi_index").document(p["dpi"]), {"id_paciente": p["id_paciente"]})
         for c in consultas:
             batch.set(ref.collection("consultas").document(str(c["id_consulta"])), c)
+        for h in odontograma:   # un documento por pieza y cara: "46_O"
+            batch.set(ref.collection("odontograma").document(f"{h['codigo_fdi']}_{h['cara']}"),
+                      {**h, "id_detalle": f"{h['codigo_fdi']}_{h['cara']}", "id_paciente": p["id_paciente"]})
+    for h in data.get("catalogo_hallazgos", []):
+        batch.set(db.collection("catalogo_hallazgos").document(str(h["id_hallazgo"])), h)
     for pl in data.get("planes_tratamiento", []):
         batch.set(db.collection("planes_tratamiento").document(str(pl["id_plan"])), pl)
     for f in data.get("facturas", []):

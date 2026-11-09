@@ -330,7 +330,18 @@ class DentalService:
     def registrar_hallazgo(self, user: User, patient_id: int, data: Dict[str, Any]):
         _exigir_clinico(user, "registrar hallazgos patológicos en el odontograma")
         data = V.validar_hallazgo_odontograma(dict(data))
+        data["registrado_por"] = user.nombre_completo
         return self._odontologia(user).save_odontogram_finding(patient_id, data)
+
+    def cambiar_estado_hallazgo(self, user: User, patient_id: int, codigo_fdi: int, cara: str, estado: str):
+        _exigir_clinico(user, "actualizar hallazgos del odontograma")
+        return self._odontologia(user).update_odontogram_finding(
+            patient_id, codigo_fdi, V.validar_cara_dental(cara), V.validar_estado_hallazgo(estado))
+
+    def quitar_hallazgo(self, user: User, patient_id: int, codigo_fdi: int, cara: str):
+        _exigir_clinico(user, "quitar hallazgos del odontograma")
+        self._odontologia(user).delete_odontogram_finding(patient_id, codigo_fdi, V.validar_cara_dental(cara))
+        return {"ok": True}
 
     def planes(self, user: User, patient_id: Optional[int] = None):
         return self._odontologia(user).list_treatment_plans(patient_id)

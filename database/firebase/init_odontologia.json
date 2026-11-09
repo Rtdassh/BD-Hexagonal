@@ -1,11 +1,22 @@
 {
-  "_descripcion": "Clínica Odontológica - Cloud Firestore. Colecciones raíz: pacientes, citas, odontologos, secretarias, procedimientos_catalogo, planes_tratamiento, facturas, pagos, contadores. Subcolección: pacientes/{id}/consultas. Cargar con: python database/firebase/seed_firestore.py",
+  "_descripcion": "Clínica Odontológica - Cloud Firestore. Colecciones raíz: pacientes, catalogo_hallazgos, citas, odontologos, secretarias, procedimientos_catalogo, planes_tratamiento, facturas, pagos, contadores. Subcolecciones: pacientes/{id}/consultas y pacientes/{id}/odontograma. Cargar con: python database/firebase/seed_firestore.py",
   "procedimientos_catalogo": [
     { "id_procedimiento": 1, "codigo": "OD-01", "nombre_procedimiento": "Profilaxis y limpieza dental con ultrasonido", "descripcion": "Remoción de cálculo supragingival, placa bacteriana y pulido dental", "duracion_estimada_min": 45, "costo": 250.0, "activo": true },
     { "id_procedimiento": 2, "codigo": "OD-02", "nombre_procedimiento": "Restauración con resina fotocurable", "descripcion": "Eliminación de caries y obturación estética directa", "duracion_estimada_min": 60, "costo": 350.0, "activo": true },
     { "id_procedimiento": 3, "codigo": "OD-03", "nombre_procedimiento": "Extracción dental simple", "descripcion": "Exodoncia de pieza dental con anestesia local", "duracion_estimada_min": 40, "costo": 300.0, "activo": true },
     { "id_procedimiento": 4, "codigo": "OD-04", "nombre_procedimiento": "Endodoncia unirradicular", "descripcion": "Tratamiento de conducto radicular, instrumentación y sellado", "duracion_estimada_min": 90, "costo": 800.0, "activo": true },
     { "id_procedimiento": 5, "codigo": "OD-05", "nombre_procedimiento": "Aplicación de sellante de fosas y fisuras", "descripcion": "Prevención de caries en molares", "duracion_estimada_min": 20, "costo": 125.0, "activo": true }
+  ],
+  "catalogo_hallazgos": [
+    { "id_hallazgo": 1, "codigo": "caries", "nombre": "Caries activa", "color_hex": "#B42318", "tipo": "patologia", "toda_la_pieza": false },
+    { "id_hallazgo": 2, "codigo": "fractura", "nombre": "Fractura dental", "color_hex": "#C2410C", "tipo": "patologia", "toda_la_pieza": false },
+    { "id_hallazgo": 3, "codigo": "extraccion_indicada", "nombre": "Extracción indicada", "color_hex": "#8B1E3F", "tipo": "patologia", "toda_la_pieza": true },
+    { "id_hallazgo": 4, "codigo": "resina", "nombre": "Restauración con resina", "color_hex": "#2F5E9E", "tipo": "restauracion", "toda_la_pieza": false },
+    { "id_hallazgo": 5, "codigo": "amalgama", "nombre": "Obturación con amalgama", "color_hex": "#44546A", "tipo": "restauracion", "toda_la_pieza": false },
+    { "id_hallazgo": 6, "codigo": "sellante", "nombre": "Sellante de fisuras", "color_hex": "#0E7C86", "tipo": "restauracion", "toda_la_pieza": false },
+    { "id_hallazgo": 7, "codigo": "corona", "nombre": "Corona protésica", "color_hex": "#B98900", "tipo": "restauracion", "toda_la_pieza": true },
+    { "id_hallazgo": 8, "codigo": "endodoncia", "nombre": "Endodoncia / conducto", "color_hex": "#7A4FB0", "tipo": "restauracion", "toda_la_pieza": true },
+    { "id_hallazgo": 9, "codigo": "ausente", "nombre": "Pieza ausente / extraída", "color_hex": "#6E7F7C", "tipo": "ausencia", "toda_la_pieza": true }
   ],
   "odontologos": [
     { "id_odontologo": 1, "nombre_completo": "Dr. Rodrigo Andrés Molina", "numero_colegiado": "ODONT-3210", "especialidad": "Ortodoncia y rehabilitación oral", "telefono": "5554-0101", "correo_electronico": "rmolina@clinicadental.gt", "horarios_atencion": "Lunes a viernes 08:00 - 17:00", "estado": "activo" },
@@ -53,6 +64,11 @@
           "id_factura": 1,
           "numero_factura": "CO-000001"
         }
+      ],
+      "odontograma": [
+        { "codigo_fdi": 18, "cara": "G", "hallazgo": "Pieza ausente / extraída", "codigo_hallazgo": "ausente", "color_hex": "#6E7F7C", "estado": "tratado", "severidad": null, "notas": "Exodoncia en 2023 (referida por la paciente)", "registrado_por": "Dr. Rodrigo Andrés Molina", "fecha_registro": "2026-01-15 10:20", "historial": [] },
+        { "codigo_fdi": 36, "cara": "O", "hallazgo": "Caries activa", "codigo_hallazgo": "caries", "color_hex": "#B42318", "estado": "activo", "severidad": "leve", "notas": "Mancha cavitada en fosa central; vigilar", "registrado_por": "Dr. Rodrigo Andrés Molina", "fecha_registro": "2026-03-01 09:50", "historial": [] },
+        { "codigo_fdi": 46, "cara": "O", "hallazgo": "Restauración con resina", "codigo_hallazgo": "resina", "color_hex": "#2F5E9E", "estado": "tratado", "severidad": null, "notas": "Resina A2 con protección pulpar indirecta", "registrado_por": "Dr. Rodrigo Andrés Molina", "fecha_registro": "2026-03-01 10:00", "historial": [] }
       ]
     },
     {
@@ -69,7 +85,12 @@
       "fecha_registro": "2026-02-01",
       "estado": "activo",
       "historial": { "id_historial": 2, "fecha_apertura": "2026-02-01", "fecha_ultima_actualizacion": "2026-02-01 08:00", "estado": "activo", "motivo_baja": null },
-      "consultas": []
+      "consultas": [],
+      "odontograma": [
+        { "codigo_fdi": 17, "cara": "O", "hallazgo": "Caries activa", "codigo_hallazgo": "caries", "color_hex": "#B42318", "estado": "activo", "severidad": "moderada", "notas": "Planificado sellante/resina en el plan #1", "registrado_por": "Dr. Rodrigo Andrés Molina", "fecha_registro": "2026-03-10 10:05", "historial": [] },
+        { "codigo_fdi": 36, "cara": "M", "hallazgo": "Caries activa", "codigo_hallazgo": "caries", "color_hex": "#B42318", "estado": "activo", "severidad": "moderada", "notas": "Caries interproximal", "registrado_por": "Dr. Rodrigo Andrés Molina", "fecha_registro": "2026-03-10 10:05", "historial": [] },
+        { "codigo_fdi": 46, "cara": "D", "hallazgo": "Caries activa", "codigo_hallazgo": "caries", "color_hex": "#B42318", "estado": "activo", "severidad": "moderada", "notas": "Caries interproximal", "registrado_por": "Dr. Rodrigo Andrés Molina", "fecha_registro": "2026-03-10 10:05", "historial": [] }
+      ]
     }
   ],
   "citas": [
