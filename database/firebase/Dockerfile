@@ -14,5 +14,8 @@ COPY firebase.json firestore.rules ./
 RUN firebase setup:emulators:firestore && firebase setup:emulators:ui
 
 EXPOSE 8080 4000
-# Los datos se guardan en /firebase/datos al apagar el contenedor y se vuelven a importar al iniciar.
-CMD ["sh", "-c", "mkdir -p /firebase/datos && if [ -f /firebase/datos/firebase-export-metadata.json ]; then IMP=--import=/firebase/datos; fi; exec firebase emulators:start --only firestore --project clinica-odontologica-landivar $IMP --export-on-exit=/firebase/datos"]
+# Arranque con respaldo automático de los datos (ver iniciar_emulador.sh).
+# El sed quita los finales de línea de Windows por si git los convirtió.
+COPY iniciar_emulador.sh ./
+RUN sed -i 's/\r$//' iniciar_emulador.sh && chmod +x iniciar_emulador.sh
+CMD ["./iniciar_emulador.sh"]

@@ -139,9 +139,11 @@ async function iniciarLogin() {
   $("#vistaApp").hidden = true;
   $("#vistaLogin").hidden = false;
 
-  $("#listaInstituciones").innerHTML = Object.values(INST).map((i) => `
+  $("#listaInstituciones").innerHTML = Object.entries(INST).map(([clave, i]) => `
     <li><span class="punto" style="background:${i.color}"></span><span>${i.nombre}</span>
-    <span class="motor-nombre">${i.motor}</span></li>`).join("");
+    <span class="motor-nombre">${i.motor} <span class="estado-motor" data-estado-motor="${clave}"></span></span></li>`).join("");
+  pintarEstadoLogin();
+  actualizarIconos();
 
   try {
     const cuentas = await api("/api/auth/demo-users");
@@ -248,8 +250,26 @@ async function aplicarInstitucion() {
   document.querySelectorAll("[data-no]").forEach((el) => { el.hidden = el.dataset.no === estado.inst; });
   actualizarIconos();
   try { estado.catalogos = await api("/api/catalogs"); } catch (_) { estado.catalogos = {}; }
-  await Promise.all([cargarPacientes(""), cargarPersonal()]);
+  await Promise.all([cargarPacientes(""), cargarPersonal(), revisarMotorReal()]);
   ir("inicio");
+}
+
+// Si la base de datos de la institución no respondió al arrancar, la API usa una copia
+// en memoria: todo lo que se registre se pierde al cerrar. Se avisa en todas las páginas.
+async function revisarMotorReal() {
+  const caja = $("#avisoSimulado");
+  try {
+    const r = await api("/api/engine/status");
+    const m = r.motores.find((x) => x.clave === estado.inst);
+    const simulado = m && !m.real && r.modo !== "simulated";
+    caja.hidden = !simulado;
+    if (simulado) {
+      caja.innerHTML = `<b>${esc(INST[estado.inst].motor)} no está conectado.</b>
+        El sistema está usando datos de prueba en memoria y lo que registre se perderá al cerrarlo.
+        Inicie los motores con <code>iniciar.ps1</code> (sin <code>-Reiniciar</code>) y vuelva a abrir el sistema.
+        <button type="button" class="btn sutil chico" data-accion="ver-motores">Ver estado de motores</button>`;
+    }
+  } catch (_) { caja.hidden = true; }
 }
 
 // ------------------------------------------------------------------ Navegación
@@ -278,7 +298,6 @@ function ir(pagina) {
     ordenes: pintarOrdenes,
     cobros: pintarCaja,
     agenda: pintarAgenda,
-    motores: pintarMotores,
     paciente: pintarExpediente,
     "pediatrico-vacunas": pintarPediatricoVacunas,
     "pediatrico-crecimiento": pintarPediatricoCrecimiento,
@@ -1476,33 +1495,52 @@ $("#contenido").addEventListener("input", (ev) => {
 });
 
 // ---------------------------------------------------------- Estado de motores
-async function pintarMotores() {
-  cabecera({ titulo: "Estado de los motores", acciones: btnAccion("refrescar-motores", "Actualizar", "sutil") });
-  $("#vista").innerHTML = `<p class="tenue">Consultando…</p>`;
+// Se consulta desde la pantalla de inicio de sesión (la ruta es pública) y desde el
+// aviso de "datos simulados". No requiere sesión.
+const filaMotor = (m) => {
+  const i = INST[m.clave] || {};
+  return `<tr${m.clave === estado.inst ? ' class="fila-propia"' : ""}>
+    <td><span class="punto" style="background:${i.color}"></span><b>${esc(i.nombre || m.institucion)}</b><br><span class="tenue">${esc(m.motor)}</span></td>
+    <td>${m.real ? `${esc(m.version || "")}<br><span class="tenue">${esc(m.base_datos || "")}</span>`
+      : `<span>Datos de prueba en memoria</span>${m.detalle_conexion ? `<details class="motor-detalle"><summary>Por qué no se conectó</summary><p>${esc(m.detalle_conexion)}</p></details>` : ""}`}</td>
+    <td><ul class="conteos">${Object.entries(m.conteos || {}).map(([k, v]) => `<li><b>${esc(v)}</b> ${esc(ETIQUETAS[k] || k)}</li>`).join("") || '<li class="tenue">—</li>'}</ul></td>
+    <td class="tenue">${esc(m.consistencia || m.detalle || "")}</td>
+    <td class="nowrap"><span class="estado ${m.estado === "online" ? "activo" : (m.real ? "baja" : "alerta")}">${m.estado === "online" ? "Conectado" : (m.real ? "Error" : "Simulado")}</span>
+      ${m.latencia_ms != null ? `<br><small class="tenue">${m.latencia_ms} ms</small>` : ""}</td>
+  </tr>`;
+};
+
+async function verMotores() {
+  abrirModal("Estado de los motores", `<p class="tenue">Consultando los cuatro motores…</p>`, null, null);
+  $("#modal").classList.add("modal-ancho");
   try {
     const r = await api("/api/engine/status");
-    if (estado.pagina !== "motores") return;
-    $("#vista").innerHTML = `
-      <p class="intro">Cada institución guarda sus datos en su propio motor. La lógica de negocio es la misma para todos:
-      el enrutador elige el adaptador según la institución del usuario que inicia sesión.</p>
-      <div class="panel"><table class="tabla-datos">
-        <thead><tr><th>Institución</th><th>Motor</th><th>Versión / base</th><th>Datos</th><th>Consistencia</th><th>Estado</th></tr></thead>
-        <tbody>${r.motores.map((m) => {
-          const i = INST[m.clave] || {};
-          return `<tr${m.clave === estado.inst ? ' class="fila-propia"' : ""}>
-            <td><span class="punto" style="background:${i.color}"></span><b>${esc(i.nombre || m.institucion)}</b></td>
-            <td>${esc(m.motor)}</td>
-            <td>${m.real ? `${esc(m.version || "")}<br><span class="tenue">${esc(m.base_datos || "")}</span>`
-              : `<span>Datos de prueba en memoria</span>${m.detalle_conexion ? `<details class="motor-detalle"><summary>Por qué no se conectó</summary><p>${esc(m.detalle_conexion)}</p></details>` : ""}`}</td>
-            <td><ul class="conteos">${Object.entries(m.conteos || {}).map(([k, v]) => `<li><b>${esc(v)}</b> ${esc(ETIQUETAS[k] || k)}</li>`).join("") || '<li class="tenue">—</li>'}</ul></td>
-            <td class="tenue">${esc(m.consistencia || m.detalle || "")}</td>
-            <td class="nowrap"><span class="estado ${m.estado === "online" ? "activo" : (m.real ? "baja" : "alerta")}">${m.estado === "online" ? "Conectado" : (m.real ? "Error" : "Simulado")}</span>
-              ${m.latencia_ms != null ? `<br><small class="tenue">${m.latencia_ms} ms</small>` : ""}</td>
-          </tr>`;
-        }).join("")}</tbody></table></div>`;
+    $("#modalCuerpo").innerHTML = `
+      <p class="tenue">Cada institución guarda sus datos en su propio motor. La lógica de negocio es la misma para todos:
+        el enrutador elige el adaptador según la institución del usuario que inicia sesión.</p>
+      <div class="tabla-scroll"><table class="tabla-datos tabla-motores">
+        <thead><tr><th>Institución</th><th>Versión / base</th><th>Datos</th><th>Consistencia</th><th>Estado</th></tr></thead>
+        <tbody>${r.motores.map(filaMotor).join("")}</tbody></table></div>
+      <p class="tenue">Si alguno dice <b>Simulado</b>, ese motor no respondió al arrancar y lo que se registre en esa institución no se guardará.</p>`;
   } catch (e) {
-    $("#vista").innerHTML = `<p class="error">${esc(e.message)}</p>`;
+    $("#modalCuerpo").innerHTML = `<p class="error">No se pudo consultar: ${esc(e.message)}</p>`;
   }
+}
+$("#modal").addEventListener("close", () => $("#modal").classList.remove("modal-ancho"));
+$("#btnVerMotores").addEventListener("click", verMotores);
+
+// Chips de "Conectado / Simulado" junto a cada institución en la pantalla de inicio de sesión
+async function pintarEstadoLogin() {
+  try {
+    const r = await api("/api/engine/status");
+    for (const m of r.motores) {
+      const el = document.querySelector(`[data-estado-motor="${m.clave}"]`);
+      if (!el) continue;
+      const ok = m.estado === "online";
+      el.className = `estado-motor ${ok ? "ok" : "mal"}`;
+      el.textContent = ok ? "conectado" : m.real ? "error" : "simulado";
+    }
+  } catch (_) { /* sin servidor: se queda sin chips */ }
 }
 
 // ===================================================== Hospital: quirófanos y enfermería
@@ -2405,6 +2443,7 @@ $("#contenido").addEventListener("input", (ev) => {
 $("#contenido").addEventListener("change", (ev) => {
   if (ev.target.id === "qxFecha") { estado.qxFecha = ev.target.value; pintarQuirofanos(); }
   if (ev.target.id === "enfFecha") { estado.enfFecha = ev.target.value; pintarEnfermeria(); }
+  if (ev.target.id === "chkTemporales") { estado.verTemporales = ev.target.checked; refrescarOdonto(); }
 });
 
 document.addEventListener("click", (ev) => {
@@ -2508,14 +2547,34 @@ $("#contenido").addEventListener("click", async (ev) => {
   if (hEst) { cambiarEstadoHallazgo(Number(hEst.dataset.fdi), hEst.dataset.cara, hEst.dataset.hallazgoEstado); return; }
   const hQuitar = t.closest("[data-hallazgo-quitar]");
   if (hQuitar) { quitarHallazgo(Number(hQuitar.dataset.fdi), hQuitar.dataset.cara); return; }
+  const pincel = t.closest("[data-pincel]");
+  if (pincel) {
+    estado.pincelOdonto = pincel.dataset.pincel || null;
+    refrescarOdonto();
+    return;
+  }
+  const marcar = t.closest("[data-marcar]");
+  if (marcar) { marcarHallazgo(Number(marcar.dataset.pieza), marcar.dataset.cara, marcar.dataset.marcar); return; }
+  if (t.closest("[data-cerrar-pieza]")) {
+    piezaOdontoSeleccionada = null;
+    document.querySelectorAll(".boca .diente-caja.seleccionado").forEach((el) => el.classList.remove("seleccionado"));
+    document.querySelectorAll(".cara-activa").forEach((el) => el.classList.remove("cara-activa"));
+    const det = $("#detallePiezaOdontograma");
+    det.className = "detalle-pieza-vacio";
+    det.innerHTML = `<p class="tenue">Ningún diente seleccionado.</p>`;
+    return;
+  }
   const caraEl = t.closest("[data-cara-click]");
   if (caraEl) {
-    seleccionarPiezaOdontograma(Number(caraEl.dataset.pieza), caraEl.dataset.caraClick);
+    const pieza = Number(caraEl.dataset.pieza);
+    // con un hallazgo elegido en la paleta, el clic en un diente del odontograma lo marca
+    if (estado.pincelOdonto && caraEl.closest(".boca")) marcarHallazgo(pieza, caraEl.dataset.caraClick, estado.pincelOdonto);
+    else seleccionarPiezaOdontograma(pieza, caraEl.dataset.caraClick);
     return;
   }
   const dienteEl = t.closest("[data-diente-click]");
   if (dienteEl) {
-    seleccionarPiezaOdontograma(Number(dienteEl.dataset.dienteClick), "O");
+    seleccionarPiezaOdontograma(Number(dienteEl.dataset.dienteClick));
     return;
   }
   const b = t.closest("[data-accion]");
@@ -2529,7 +2588,7 @@ $("#contenido").addEventListener("click", async (ev) => {
   if (accion === "nuevo-depto") formDepartamento();
   if (accion === "programar-cx-paciente") formCirugia(estado.idSeleccionado);
   if (accion === "limpiar") { $("#txtBuscar").value = ""; await cargarPacientes(""); pintarPacientes(); }
-  if (accion === "refrescar-motores") pintarMotores();
+  if (accion === "ver-motores") verMotores();
   if (accion === "consulta") { if (estado.inst === "laboratorio") formOrden(estado.historial?.paciente.id_paciente); else formConsulta(); }
   if (accion === "cita") formCita();
   if (accion === "nueva-factura") formFactura({ idPaciente: estado.pagina === "paciente" ? estado.historial?.paciente.id_paciente : null });
@@ -3354,11 +3413,6 @@ async function catalogoHallazgos() {
   return estado.catHallazgos;
 }
 
-const leyendaOdonto = () => `
-  <div class="leyenda-hallazgos">
-    ${(estado.catHallazgos || []).map((h) => `<span><i style="background:${esc(h.color)}"></i>${esc(h.nombre)}</span>`).join("")}
-  </div>`;
-
 // Código del hallazgo: el guardado o, en registros antiguos, deducido del nombre
 function codigoHallazgo(h) {
   if (h.codigo_hallazgo) return h.codigo_hallazgo;
@@ -3369,7 +3423,37 @@ function codigoHallazgo(h) {
   return "";
 }
 
-function renderDienteSVG(pieza, hallazgosPieza = [], seleccionada = false) {
+// Paleta: elegir un hallazgo y luego hacer clic en las caras del diente para marcarlo
+const leyendaOdonto = () => {
+  const p = estado.pincelOdonto;
+  return `
+  <div class="paleta-odonto" role="toolbar" aria-label="Qué marcar en el odontograma">
+    <button type="button" class="pincel ${!p ? "activo" : ""}" data-pincel="">
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 2l9 5-4 1 2 5-2 1-2-5-3 3z" fill="currentColor"/></svg>Ver detalle</button>
+    ${(estado.catHallazgos || []).map((h) => `<button type="button" class="pincel ${p === h.nombre ? "activo" : ""}" data-pincel="${esc(h.nombre)}">
+      <i style="background:${esc(h.color)}"></i>${esc(h.nombre)}</button>`).join("")}
+  </div>`;
+};
+
+// Cuadrante FDI: 1, 4, 5 y 8 son el lado derecho del paciente (se ven a la izquierda)
+const ladoDerecho = (p) => [1, 4, 5, 8].includes(Math.floor(p / 10));
+const esSuperior = (p) => [1, 2, 5, 6].includes(Math.floor(p / 10));
+const esAnterior = (p) => p % 10 <= 3;
+
+// Qué cara va en cada posición del dibujo, como en un odontograma clínico:
+// arriba vestibular en los superiores y lingual en los inferiores; mesial hacia la línea media.
+function carasDe(pieza) {
+  return {
+    arriba: esSuperior(pieza) ? "V" : "L",
+    abajo: esSuperior(pieza) ? "L" : "V",
+    izq: ladoDerecho(pieza) ? "D" : "M",
+    der: ladoDerecho(pieza) ? "M" : "D",
+    centro: "O",
+  };
+}
+const nombreCara = (pieza, k) => (k === "O" ? (esAnterior(pieza) ? "Incisal" : "Oclusal") : k === "L" ? (esSuperior(pieza) ? "Palatina" : "Lingual") : CARAS_TXT[k]);
+
+function renderDienteSVG(pieza, hallazgosPieza = [], seleccionada = false, { grande = false } = {}) {
   const color = {};
   let cruz = null;
   let endodoncia = false;
@@ -3389,51 +3473,131 @@ function renderDienteSVG(pieza, hallazgosPieza = [], seleccionada = false) {
   }
   const ausente = hallazgosPieza.some((h) => codigoHallazgo(h) === "ausente");
   const relleno = (k) => (ausente ? "fill:#E7ECEB" : color[k] ? `fill:${color[k].col}${color[k].tenue ? "; fill-opacity:.35" : ""}` : "fill:#FFFFFF");
-  const resumen = hallazgosPieza.map((h) => `${CARAS_TXT[h.cara] || h.cara}: ${h.hallazgo} (${ESTADOS_HALLAZGO[h.estado] || h.estado})`).join("\n");
-  const cara = (k, puntos) => `<polygon points="${puntos}" style="${relleno(k)}" data-cara-click="${k}" data-pieza="${pieza}" class="cara-diente ${caraOdontoSeleccionada === k && seleccionada ? "cara-activa" : ""}"><title>Pieza ${pieza} · ${CARAS_TXT[k]}</title></polygon>`;
+  const pos = carasDe(pieza);
+  const forma = { arriba: "4,4 36,4 28,12 12,12", abajo: "12,28 28,28 36,36 4,36", izq: "4,4 12,12 12,28 4,36", der: "28,12 36,4 36,36 28,28", centro: "12,12 28,12 28,28 12,28" };
+  const letra = { arriba: [20, 9.5], abajo: [20, 33.5], izq: [8, 21.5], der: [32, 21.5], centro: [20, 21.5] };
+  const caras = Object.entries(pos).map(([lugar, k]) => `
+    <polygon points="${forma[lugar]}" style="${relleno(k)}" data-cara-click="${k}" data-pieza="${pieza}"
+      class="cara-diente ${caraOdontoSeleccionada === k && seleccionada ? "cara-activa" : ""}"><title>Pieza ${pieza} · ${nombreCara(pieza, k)}</title></polygon>
+    ${grande ? `<text x="${letra[lugar][0]}" y="${letra[lugar][1]}" class="letra-cara">${k === "L" && esSuperior(pieza) ? "P" : k === "O" && esAnterior(pieza) ? "I" : k}</text>` : ""}`).join("");
+  const resumen = hallazgosPieza.length
+    ? hallazgosPieza.map((h) => `${h.cara === "G" ? "Toda la pieza" : nombreCara(pieza, h.cara)}: ${h.hallazgo} (${ESTADOS_HALLAZGO[h.estado] || h.estado})`).join("\n")
+    : `Pieza ${pieza}: sana`;
+  const tam = grande ? 140 : pieza >= 51 ? 36 : 44;
 
   return `
-    <div class="diente-caja ${seleccionada ? "seleccionado" : ""} ${hallazgosPieza.length ? "con-hallazgo" : ""}" data-diente="${pieza}" title="${esc(resumen)}">
-      <svg class="diente-svg" viewBox="0 0 40 40" width="38" height="38" aria-label="Pieza dental FDI ${pieza}">
-        ${cara("V", "4,4 36,4 28,12 12,12")}
-        ${cara("L", "12,28 28,28 36,36 4,36")}
-        ${cara("M", "4,4 12,12 12,28 4,36")}
-        ${cara("D", "28,12 36,4 36,36 28,28")}
-        ${cara("O", "12,12 28,12 28,28 12,28")}
+    <div class="diente-caja ${seleccionada ? "seleccionado" : ""} ${hallazgosPieza.length ? "con-hallazgo" : ""} ${grande ? "diente-grande" : ""}" data-diente="${pieza}" title="${esc(resumen)}">
+      ${!grande && esSuperior(pieza) ? `<span class="diente-num" data-diente-click="${pieza}">${pieza}</span>` : ""}
+      <svg class="diente-svg" viewBox="0 0 40 40" width="${tam}" height="${tam}" style="width:${tam}px; height:${tam}px" aria-label="Pieza dental FDI ${pieza}">
+        ${caras}
         ${corona ? `<rect x="2" y="2" width="36" height="36" rx="3" class="corona" style="fill:none; stroke:${corona}; stroke-width:3" pointer-events="none"/>` : ""}
         ${endodoncia ? '<line x1="20" y1="5" x2="20" y2="35" stroke="#7A4FB0" stroke-width="3.5" pointer-events="none"/>' : ""}
         ${cruz ? `<g pointer-events="none"><line x1="5" y1="5" x2="35" y2="35" stroke="${cruz}" stroke-width="3"/><line x1="35" y1="5" x2="5" y2="35" stroke="${cruz}" stroke-width="3"/></g>` : ""}
       </svg>
-      <span class="diente-num" data-diente-click="${pieza}">${pieza}</span>
+      ${!grande && !esSuperior(pieza) ? `<span class="diente-num" data-diente-click="${pieza}">${pieza}</span>` : ""}
     </div>`;
 }
 
-// El odontograma completo (página general y pestaña del expediente usan el mismo)
+// El odontograma completo (página general y pestaña del expediente usan el mismo).
+// Se ve como si el paciente estuviera de frente: su lado derecho queda a la izquierda.
 function bloqueOdontograma(odonto) {
   const piezas = odonto.piezas || {};
-  // la línea media separa los cuadrantes derecho e izquierdo del paciente
-  const fila = (lista) => `<div class="arcada-fdi">${lista.map((p, i) => (i === lista.length / 2 ? '<span class="linea-media"></span>' : "")
-    + renderDienteSVG(p, piezas[String(p)] || [], p === piezaOdontoSeleccionada)).join("")}</div>`;
+  const d = (p) => renderDienteSVG(p, piezas[String(p)] || [], p === piezaOdontoSeleccionada);
+  const fila = (lista, clase = "") => `
+    <div class="fila-dientes ${clase}">
+      <div class="mitad der">${lista.slice(0, lista.length / 2).map(d).join("")}</div>
+      <div class="mitad izq">${lista.slice(lista.length / 2).map(d).join("")}</div>
+    </div>`;
   const r = odonto.resumen || {};
+  const conTemporales = estado.verTemporales ?? Object.keys(piezas).some((p) => Number(p) >= 51);
   return `
-    <div class="odontograma-box">
-      <div class="odonto-resumen">
-        <span><b>${r.piezas_con_hallazgos ?? Object.keys(piezas).length}</b> piezas con registros</span>
-        <span class="${r.por_tratar ? "peligro-txt" : ""}"><b>${r.por_tratar ?? 0}</b> por tratar</span>
-        <span><b>${r.tratados ?? 0}</b> tratados</span>
+    <div class="odontograma-box ${estado.pincelOdonto ? "modo-pincel" : ""}">
+      <div class="odonto-cab">
+        <div class="odonto-resumen">
+          <span class="${r.por_tratar ? "peligro-txt" : ""}"><b>${r.por_tratar ?? 0}</b> por tratar</span>
+          <span><b>${r.tratados ?? 0}</b> tratados</span>
+          <span><b>${r.piezas_con_hallazgos ?? Object.keys(piezas).length}</b> piezas con registros</span>
+        </div>
+        <label class="interruptor"><input type="checkbox" id="chkTemporales" ${conTemporales ? "checked" : ""}> Dientes de leche</label>
       </div>
-      <div class="arcadas">
-        <div class="arcada-grupo"><h4>Permanentes · superior</h4>${fila(PIEZAS_PERM_SUP)}</div>
-        <div class="arcada-grupo"><h4>Permanentes · inferior</h4>${fila(PIEZAS_PERM_INF)}</div>
-        <div class="arcada-grupo"><h4>Temporales (dentición de leche)</h4>${fila(PIEZAS_TEMP_SUP)}${fila(PIEZAS_TEMP_INF)}</div>
-      </div>
+
+      <div class="paso-odonto"><b>1.</b> Elija qué marcar <span class="tenue">(o deje “Ver detalle” para solo consultar)</span></div>
       ${leyendaOdonto()}
+      <div class="paso-odonto"><b>2.</b> ${estado.pincelOdonto
+        ? `Haga clic en las caras de los dientes para marcar <b>${esc(estado.pincelOdonto)}</b>. Se guarda al instante.`
+        : "Haga clic en un diente para ver sus caras y sus registros."}</div>
+
+      <div class="boca">
+        <div class="lados"><span>Derecha del paciente</span><span>Izquierda del paciente</span></div>
+        <div class="arcada-nombre">Superior</div>
+        ${fila(PIEZAS_PERM_SUP)}
+        ${conTemporales ? fila(PIEZAS_TEMP_SUP, "temporales") + fila(PIEZAS_TEMP_INF, "temporales") : '<div class="separador-arcadas"></div>'}
+        ${fila(PIEZAS_PERM_INF)}
+        <div class="arcada-nombre">Inferior</div>
+      </div>
     </div>
     <div id="detallePiezaOdontograma" class="detalle-pieza-vacio">
-      <p class="tenue">Haga clic en una cara del diente (o en su número) para ver sus registros o anotar un hallazgo.</p>
+      <p class="tenue">Ningún diente seleccionado.</p>
     </div>
-    <h3 class="titulo-sec">Hallazgos registrados</h3>
+    <h3 class="titulo-sec">Todos los hallazgos</h3>
     ${tablaHallazgos(odonto.hallazgos || [], true)}`;
+}
+
+function seleccionarPiezaOdontograma(pieza, cara = null) {
+  const piezas = odontoActual().piezas || {};
+  const hallazgos = piezas[String(pieza)] || [];
+  caraOdontoSeleccionada = cara || (piezaOdontoSeleccionada === pieza ? caraOdontoSeleccionada : null) || "O";
+  piezaOdontoSeleccionada = pieza;
+  const k = caraOdontoSeleccionada;
+  document.querySelectorAll(".boca .diente-caja").forEach((el) => {
+    const p = Number(el.dataset.diente);
+    el.classList.toggle("seleccionado", p === pieza);
+    el.querySelectorAll(".cara-diente").forEach((c) => c.classList.toggle("cara-activa", p === pieza && c.dataset.caraClick === k));
+  });
+  const cont = $("#detallePiezaOdontograma");
+  if (!cont) return;
+  const tipo = pieza >= 51 ? "temporal" : "permanente";
+  const lado = `${esSuperior(pieza) ? "superior" : "inferior"} ${ladoDerecho(pieza) ? "derecha" : "izquierda"}`;
+  const enCara = hallazgos.filter((h) => h.cara === k || h.cara === "G");
+  cont.className = "tarjeta-detalle-pieza";
+  cont.innerHTML = `
+    <div class="detalle-diente">
+      ${renderDienteSVG(pieza, hallazgos, true, { grande: true })}
+      <div class="caras-botones">
+        ${["V", "L", "M", "D", "O"].map((c) => `<button type="button" class="cara-btn ${c === k ? "activo" : ""}" data-cara-click="${c}" data-pieza="${pieza}">${nombreCara(pieza, c)}</button>`).join("")}
+      </div>
+    </div>
+    <div class="detalle-info">
+      <header>
+        <div><h4>Pieza ${pieza}</h4><p class="tenue">${tipo} · ${lado}</p></div>
+        <button type="button" class="cerrar-detalle" data-cerrar-pieza aria-label="Cerrar">×</button>
+      </header>
+      <p class="cara-elegida">Cara elegida: <b>${nombreCara(pieza, k)}</b>${enCara.length ? ` · ${enCara.map((h) => `<i class="punto-color" style="background:${esc(h.color_hex)}"></i>${esc(h.hallazgo)}`).join(", ")}` : " · sana"}</p>
+      <div class="marcar-rapido">
+        <span class="tenue">Marcar en esta cara:</span>
+        ${(estado.catHallazgos || []).map((h) => `<button type="button" class="pincel" data-marcar="${esc(h.nombre)}" data-pieza="${pieza}" data-cara="${h.toda ? "G" : k}" title="${h.toda ? "Se aplica a toda la pieza" : `Cara ${nombreCara(pieza, k)}`}"><i style="background:${esc(h.color)}"></i>${esc(h.nombre)}</button>`).join("")}
+        <button type="button" class="btn sutil chico" data-accion="hallazgo-en-pieza" data-pieza-sel="${pieza}" data-cara-sel="${k}">Con notas y severidad…</button>
+      </div>
+      ${hallazgos.length ? tablaHallazgos(hallazgos, false) : `<p class="tenue">Esta pieza no tiene registros: está sana.</p>`}
+    </div>`;
+  cont.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+// Guarda un hallazgo con un clic (desde la paleta o desde el detalle de la pieza)
+async function marcarHallazgo(pieza, cara, nombre) {
+  const h = (estado.catHallazgos || []).find((x) => x.nombre === nombre);
+  if (!h) return;
+  const caraFinal = h.toda ? "G" : cara;
+  try {
+    await api(`/api/dental/patients/${pacienteOdonto()}/odontogram/findings`, { method: "POST", body: {
+      codigo_fdi: pieza, cara: caraFinal, hallazgo: h.nombre, color_hex: h.color,
+      estado: ["restauracion", "ausencia"].includes(h.tipo) ? "tratado" : "activo",
+    } });
+    avisar(`Pieza ${pieza} · ${caraFinal === "G" ? "toda la pieza" : nombreCara(pieza, caraFinal)}: ${h.nombre}`);
+    piezaOdontoSeleccionada = pieza;
+    caraOdontoSeleccionada = caraFinal === "G" ? cara : caraFinal;
+    refrescarOdonto();
+  } catch (e) { avisar(e.message, true); }
 }
 
 function tablaHallazgos(lista, conPieza) {
@@ -3462,28 +3626,6 @@ function tablaHallazgos(lista, conPieza) {
 
 const odontoActual = () => (estado.pagina === "paciente" ? estado.dentalPaciente?.odontograma : estado.odontogramaGeneral) || {};
 const pacienteOdonto = () => (estado.pagina === "paciente" ? estado.idSeleccionado : estado.pacienteOdontoSel);
-
-function seleccionarPiezaOdontograma(pieza, cara = "O") {
-  piezaOdontoSeleccionada = pieza;
-  caraOdontoSeleccionada = cara;
-  const piezas = odontoActual().piezas || {};
-  document.querySelectorAll(".diente-caja").forEach((el) => {
-    const p = Number(el.dataset.diente);
-    el.classList.toggle("seleccionado", p === pieza);
-    el.querySelectorAll(".cara-diente").forEach((c) => c.classList.toggle("cara-activa", p === pieza && c.dataset.caraClick === cara));
-  });
-  const cont = $("#detallePiezaOdontograma");
-  if (!cont) return;
-  const hallazgos = piezas[String(pieza)] || [];
-  cont.className = "tarjeta-detalle-pieza";
-  cont.innerHTML = `
-    <header>
-      <h4>Pieza ${pieza} <span class="tenue">· ${pieza >= 51 ? "temporal" : "permanente"} · cara ${esc(CARAS_TXT[cara] || cara)}</span></h4>
-      <button type="button" class="btn primario chico" data-accion="hallazgo-en-pieza" data-pieza-sel="${pieza}" data-cara-sel="${cara}">+ Hallazgo en esta cara</button>
-    </header>
-    ${hallazgos.length ? tablaHallazgos(hallazgos, false) : `<p class="tenue">Pieza sana: no tiene hallazgos registrados.</p>`}`;
-  cont.scrollIntoView({ block: "nearest", behavior: "smooth" });
-}
 
 // Vuelve a pintar el odontograma después de un cambio y conserva la pieza elegida
 async function refrescarOdonto() {
@@ -4006,6 +4148,7 @@ async function pintarDentalOdontograma() {
     $("#selPacienteOdonto").addEventListener("change", (ev) => {
       estado.pacienteOdontoSel = Number(ev.target.value);
       piezaOdontoSeleccionada = null;
+      estado.verTemporales = undefined;
       pintarDentalOdontograma();
     });
   } catch (e) {

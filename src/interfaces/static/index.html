@@ -19,6 +19,9 @@
         <h1>Los historiales clínicos de cuatro instituciones, en una sola plataforma.</h1>
         <p>Cada institución guarda sus datos en su propio motor de base de datos. Al iniciar sesión, el sistema dirige sus operaciones al motor de su institución.</p>
         <ul class="lista-inst" id="listaInstituciones"></ul>
+        <button type="button" class="btn-motores" id="btnVerMotores">
+          <span class="ico" data-icono="motores" aria-hidden="true"></span>Ver estado de los motores
+        </button>
       </div>
       <p class="login-pie">Proyecto final · Bases de Datos II · Universidad Rafael Landívar</p>
     </section>
@@ -96,7 +99,6 @@
         <p class="menu-grupo">Administración</p>
         <ul>
           <li><button type="button" data-pagina="personal"><span class="ico" data-icono="personal"></span><span id="menuPersonal">Personal médico</span></button></li>
-          <li><button type="button" data-pagina="motores"><span class="ico" data-icono="motores"></span>Estado de motores</button></li>
         </ul>
       </div>
 
@@ -108,6 +110,7 @@
     </nav>
 
     <main class="contenido" id="contenido">
+      <div class="aviso-simulado" id="avisoSimulado" role="alert" hidden></div>
       <header class="cabecera" id="cabecera"></header>
       <div id="vista" aria-live="polite"></div>
     </main>

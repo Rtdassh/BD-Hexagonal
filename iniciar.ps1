@@ -34,6 +34,13 @@ if (-not (Test-Path ".env")) { Copy-Item ".env.example" ".env"; Write-Host "Se c
 
 # 3. Motores ------------------------------------------------------------------
 if ($Reiniciar) {
+    Write-Host ""
+    Write-Host "ATENCIÓN: -Reiniciar BORRA todos los datos de las 4 bases (pacientes, consultas, cobros...)" -ForegroundColor Yellow
+    Write-Host "y las vuelve a crear con los datos de ejemplo. Para trabajar normal, ejecute sin -Reiniciar." -ForegroundColor Yellow
+    $resp = Read-Host "Escriba BORRAR para continuar (o Enter para iniciar sin borrar)"
+    if ($resp -ne "BORRAR") { $Reiniciar = $false; Write-Host "No se borró nada." -ForegroundColor Green }
+}
+if ($Reiniciar) {
     Paso "Borrando las bases anteriores (docker compose down -v)"
     docker compose down -v --remove-orphans
     # A veces Docker Desktop no alcanza a borrar la red ("Error Delete .../networks/...").

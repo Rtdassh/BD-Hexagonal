@@ -1013,28 +1013,64 @@ input[aria-invalid]:focus, textarea[aria-invalid]:focus { outline-color: rgba(18
 .diente-svg .cara-ausente { fill: #E0E0E0 !important; }
 
 /* Odontograma de la clínica dental (página Odontograma y pestaña del expediente) */
-.arcadas { display: grid; gap: 14px; overflow-x: auto; }
-.arcada-grupo h4 { margin: 0 0 6px; font-size: 0.8125rem; font-weight: 600; color: var(--tinta-2); }
-.arcada-fdi { display: flex; align-items: flex-end; gap: 2px; width: max-content; }
-.arcada-fdi + .arcada-fdi { margin-top: 6px; }
-.linea-media { width: 2px; align-self: stretch; background: var(--tinta-2); opacity: .35; margin: 0 6px; border-radius: 1px; }
-.diente-caja { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 3px; border-radius: 6px; border: 1px solid transparent; }
+.odonto-cab { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.odonto-resumen { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 0.875rem; color: var(--tinta-2); }
+.odonto-resumen b { color: var(--tinta); font-size: 1.125rem; margin-right: 3px; }
+.odonto-resumen .peligro-txt b { color: inherit; }
+.interruptor { display: inline-flex !important; flex-direction: row !important; align-items: center; gap: 8px; font-size: 0.875rem; color: var(--tinta-2); cursor: pointer; }
+.interruptor input { width: 16px; height: 16px; margin: 0; accent-color: var(--inst); }
+.paso-odonto { font-size: 0.875rem; color: var(--tinta); }
+.paso-odonto b:first-child { display: inline-grid; place-items: center; width: 20px; height: 20px; margin-right: 6px; border-radius: 50%; background: var(--inst); color: #fff; font-size: 0.75rem; }
+
+.paleta-odonto, .marcar-rapido { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pincel { font: inherit; font-size: 0.8125rem; display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px;
+  border: 1px solid var(--linea); background: var(--blanco); color: var(--tinta); cursor: pointer; }
+.pincel i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.pincel:hover { border-color: var(--tinta-2); }
+.pincel.activo { border-color: var(--inst); background: color-mix(in srgb, var(--inst) 12%, white); box-shadow: inset 0 0 0 1px var(--inst); font-weight: 600; }
+.pincel:focus-visible, .cara-btn:focus-visible { outline: 2px solid var(--inst); outline-offset: 2px; }
+
+.boca { display: grid; gap: 4px; justify-items: stretch; overflow-x: auto; padding: 4px 0; }
+.lados { display: grid; grid-template-columns: 1fr 1fr; font-size: 0.75rem; color: var(--tinta-2); }
+.lados span:first-child { text-align: right; padding-right: 14px; }
+.lados span:last-child { padding-left: 14px; }
+.arcada-nombre { text-align: center; font-size: 0.75rem; font-weight: 600; color: var(--tinta-2); }
+.fila-dientes { display: grid; grid-template-columns: 1fr 1fr; min-width: max-content; }
+.fila-dientes .mitad { display: flex; gap: 2px; align-items: flex-end; }
+.fila-dientes .mitad.der { justify-content: flex-end; padding-right: 8px; border-right: 2px solid color-mix(in srgb, var(--tinta-2) 40%, transparent); }
+.fila-dientes .mitad.izq { justify-content: flex-start; padding-left: 8px; }
+.fila-dientes.temporales { opacity: .92; }
+.fila-dientes.temporales .mitad { padding-top: 2px; padding-bottom: 2px; }
+.separador-arcadas { height: 10px; }
+.diente-caja { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 3px 2px; border-radius: 6px; border: 1px solid transparent; }
 .diente-caja:hover { background: color-mix(in srgb, var(--inst) 7%, white); }
 .diente-caja.seleccionado { background: color-mix(in srgb, var(--inst) 14%, white); border-color: var(--inst); }
 .diente-caja .diente-num { font-size: 0.75rem; font-variant-numeric: tabular-nums; color: var(--tinta-2); cursor: pointer; }
 .diente-caja.con-hallazgo .diente-num { color: var(--tinta); font-weight: 700; }
-.diente-svg polygon.cara-activa { stroke: var(--inst); stroke-width: 2.4; }
+.diente-svg polygon.cara-activa { stroke: var(--inst); stroke-width: 2.6; }
+.modo-pincel .boca .cara-diente { cursor: crosshair; }
+.modo-pincel .boca .cara-diente:hover { fill-opacity: .6; }
 .diente-svg rect.corona { cursor: default; }
-.odonto-resumen { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 0.875rem; color: var(--tinta-2); }
-.odonto-resumen b { color: var(--tinta); font-size: 1rem; margin-right: 2px; }
-.odonto-resumen .peligro-txt b { color: inherit; }
+.diente-grande { padding: 0; border: 0 !important; background: none !important; }
+.letra-cara { font-size: 5px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; fill: var(--tinta); opacity: .55; pointer-events: none; }
+
 .leyenda-hallazgos i, .punto-color { display: inline-block; width: 11px; height: 11px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
 .detalle-pieza-vacio { margin: 16px 0; padding: 14px 16px; border: 1px dashed var(--linea); border-radius: 10px; }
 .detalle-pieza-vacio p { margin: 0; }
-.tarjeta-detalle-pieza { margin: 16px 0; padding: 14px 16px; border: 1px solid var(--inst); border-radius: 10px; background: var(--blanco); display: grid; gap: 10px; }
-.tarjeta-detalle-pieza header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-.tarjeta-detalle-pieza h4 { margin: 0; font-size: 1rem; }
-.tarjeta-detalle-pieza p { margin: 0; }
+.tarjeta-detalle-pieza { margin: 16px 0; padding: 18px; border: 1px solid var(--inst); border-radius: 12px; background: var(--blanco);
+  display: grid; grid-template-columns: auto 1fr; gap: 22px; align-items: start; }
+.detalle-diente { display: grid; gap: 10px; justify-items: center; }
+.caras-botones { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; width: 170px; }
+.caras-botones .cara-btn:last-child { grid-column: 1 / -1; }
+.cara-btn { font: inherit; font-size: 0.8125rem; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--linea); background: var(--blanco); cursor: pointer; }
+.cara-btn.activo { border-color: var(--inst); background: color-mix(in srgb, var(--inst) 12%, white); font-weight: 600; }
+.detalle-info { display: grid; gap: 12px; min-width: 0; }
+.detalle-info header { display: flex; justify-content: space-between; align-items: flex-start; }
+.detalle-info h4 { margin: 0; font-size: 1.25rem; }
+.detalle-info header p { margin: 2px 0 0; }
+.cara-elegida { margin: 0; }
+.cerrar-detalle { font-size: 1.5rem; line-height: 1; background: none; border: 0; color: var(--tinta-2); cursor: pointer; padding: 0 4px; }
+@media (max-width: 760px) { .tarjeta-detalle-pieza { grid-template-columns: 1fr; } }
 .titulo-sec { margin: 20px 0 10px; font-size: 1rem; }
 .barra-odonto { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
 .barra-odonto label { display: grid; gap: 4px; font-size: 0.8125rem; font-weight: 600; color: var(--tinta-2); }
@@ -1094,3 +1130,25 @@ input[aria-invalid]:focus, textarea[aria-invalid]:focus { outline-color: rgba(18
 .cuenta-resumen b { font-size: 1.5rem; }
 .peligro-txt { color: var(--rojo) !important; }
 .cifras.cifras-dinero { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+
+.tabla-hallazgos td:nth-last-child(2) { font-size: 0.8125rem; min-width: 130px; }
+
+/* Aviso cuando la institución trabaja con datos simulados (no se guardan) */
+.aviso-simulado { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 10px 24px;
+  background: #FEF3C7; border-bottom: 1px solid #F0C36D; color: #6B4A00; font-size: 0.875rem; }
+.aviso-simulado[hidden] { display: none; }
+.aviso-simulado code { background: rgba(0,0,0,.06); padding: 1px 5px; border-radius: 4px; }
+
+/* Estado de los motores: chips en el inicio de sesión y ventana con el detalle */
+.estado-motor { margin-left: 6px; font-size: 0.75rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
+.estado-motor:empty { display: none; }
+.estado-motor.ok { background: rgba(110, 231, 160, 0.16); color: #8EF0B5; }
+.estado-motor.mal { background: rgba(253, 186, 116, 0.18); color: #FFC98A; }
+.btn-motores { margin-top: 14px; display: inline-flex; align-items: center; gap: 8px; font: inherit; font-size: 0.9375rem; font-weight: 600;
+  color: #fff; background: transparent; border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 10px; padding: 9px 14px; cursor: pointer; }
+.btn-motores:hover { background: rgba(255, 255, 255, 0.08); }
+.btn-motores:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.btn-motores .ico svg { width: 18px; height: 18px; }
+.modal.modal-ancho { width: min(1100px, 96vw); }
+.tabla-scroll { overflow-x: auto; }
+.tabla-motores td { vertical-align: top; }
